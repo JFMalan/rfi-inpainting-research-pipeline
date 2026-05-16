@@ -15,21 +15,23 @@ def predict_point_sources(uvw, freqs, sources):
     returns: (n_row, n_chan) complex
     """
     c = 2.99792458e8
-    vis = np.zeros((uvw.shape[0], len(freqs)), dtype=np.complex128)
-    # freqs: (n_chan,), wavelengths: (n_chan,)
-    wavelengths = c / freqs  # (n_chan,)
+    n_row = uvw.shape[0]
+    n_chan = len(freqs)
+    vis = np.zeros((n_row, n_chan), dtype=np.complex64)
+    wavelengths = (c / freqs).astype(np.float32)
+    chunk = 10000
 
     for l, m, flux_ref, alpha, ref_freq in sources:
         n = np.sqrt(max(1.0 - l**2 - m**2, 0.0))
-        # geometric delay per row: (n_row,)
-        delay = uvw[:, 0] * l + uvw[:, 1] * m + uvw[:, 2] * (n - 1.0)
-        # phase: (n_row, n_chan)
-        phase = -2j * np.pi * delay[:, np.newaxis] / wavelengths[np.newaxis, :]
-        # flux per channel: (n_chan,)
-        flux = flux_ref * (freqs / ref_freq) ** alpha
-        vis += flux[np.newaxis, :] * np.exp(phase)
+        flux = (flux_ref * (freqs / ref_freq) ** alpha).astype(np.float32)
+        for start in range(0, n_row, chunk):
+            end = min(start + chunk, n_row)
+            delay = (uvw[start:end, 0] * l + uvw[start:end, 1] * m
+                     + uvw[start:end, 2] * (n - 1.0)).astype(np.float32)
+            phase = (-2j * np.pi * delay[:, np.newaxis] / wavelengths[np.newaxis, :]).astype(np.complex64)
+            vis[start:end] += flux[np.newaxis, :] * np.exp(phase)
 
-    return vis.astype(np.complex64)
+    return vis
 
 
 def radec_to_lm(ra_deg, dec_deg, ra0_deg, dec0_deg):
