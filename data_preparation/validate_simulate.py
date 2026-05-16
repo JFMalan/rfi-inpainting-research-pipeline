@@ -106,6 +106,6 @@ def check_dataset(path, n_plot=4):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--input", required=True)
-    parser.add_argument("--n_plot", type=int, default=4)
+    parser.add_argument("--n_plot", type=int, default=12)
     args = parser.parse_args()
     check_dataset(args.input, args.n_plot)
