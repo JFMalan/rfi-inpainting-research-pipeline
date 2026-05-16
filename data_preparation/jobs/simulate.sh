@@ -32,7 +32,7 @@ singularity exec $SIMMS simms \
     -f0 880MHz \
     -df 3125kHz \
     -nc 256 \
-    -pl XX YY \
+    -pl "XX YY" \
     -n $MS
 
 # --- Step 2: fill DATA column with predicted visibilities ---
