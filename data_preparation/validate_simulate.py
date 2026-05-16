@@ -19,6 +19,7 @@ def check_dataset(path, n_plot=4):
         print(f"shape   : {n_time} time x {n_freq} freq")
         print(f"freq    : {freq_min}–{freq_max} MHz")
 
+        n_plot = min(n_plot, n_samples)
         clean = f["clean"][:n_plot]
         corrupted = f["corrupted"][:n_plot]
         mask = f["mask"][:n_plot]
