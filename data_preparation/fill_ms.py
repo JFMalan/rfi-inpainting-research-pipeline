@@ -43,11 +43,12 @@ def load_sky_model(path):
     sources = []
     with open(path) as f:
         for line in f:
-            line = line.strip()
+            line = line.strip().rstrip('\r')
             if not line or line.startswith('#'):
                 continue
             parts = line.split()
-            # name ra_d dec_d i q u v spectral_index ref_freq_hz
+            if len(parts) < 10:
+                continue
             ra_d, dec_d = float(parts[1]), float(parts[2])
             flux = float(parts[3])
             alpha = float(parts[8])
@@ -57,8 +58,10 @@ def load_sky_model(path):
 
 
 def main(args):
+    print(f"opening {args.ms}", flush=True)
     ms = table(args.ms, readonly=False)
     uvw = ms.getcol('UVW')
+    print(f"UVW shape: {uvw.shape}", flush=True)
     freqs_table = table(args.ms + '/SPECTRAL_WINDOW')
     freqs = freqs_table.getcol('CHAN_FREQ')[0]
     freqs_table.close()
@@ -76,19 +79,21 @@ def main(args):
     ]
     sources = [(l, m, flux, alpha, ref_freq) for (l, m), flux, alpha, ref_freq in sources]
 
-    print(f"predicting {len(sources)} sources into {len(freqs)} channels x {uvw.shape[0]} rows")
+    n_pol_table = table(args.ms + '/POLARIZATION')
+    n_pol = int(n_pol_table.getcol('NUM_CORR')[0])
+    n_pol_table.close()
+
+    print(f"predicting {len(sources)} sources into {len(freqs)} channels x {uvw.shape[0]} rows, {n_pol} pols", flush=True)
 
     vis = predict_point_sources(uvw, freqs, sources)
 
-    # MS DATA column: (n_row, n_chan, n_pol) — write same vis to both pols
-    n_pol = ms.getcol('DATA').shape[2]
     data = np.zeros((uvw.shape[0], len(freqs), n_pol), dtype=np.complex64)
     for p in range(n_pol):
         data[:, :, p] = vis
 
     ms.putcol('DATA', data)
     ms.close()
-    print("done")
+    print("done", flush=True)
 
 
 if __name__ == '__main__':
