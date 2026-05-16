@@ -28,7 +28,7 @@ singularity exec $SIMMS simms \
     -T meerkat \
     -dir "J2000,04h00m00.0s,-30d00m00s" \
     -dt 8 \
-    -st 0.1 \
+    -st 1.5 \
     -f0 880MHz \
     -df 3125kHz \
     -nc 256 \

@@ -74,14 +74,12 @@ def main(args):
     dec0_deg = np.rad2deg(phase_dir[1])
     phase_table.close()
 
-    print(f"phase centre: ra0={ra0_deg:.4f} dec0={dec0_deg:.4f} deg", flush=True)
     raw_sources = load_sky_model(args.sky_model)
     sources = [
         (radec_to_lm(ra, dec, ra0_deg, dec0_deg), flux, alpha, ref_freq)
         for ra, dec, flux, alpha, ref_freq in raw_sources
     ]
     sources = [(l, m, flux, alpha, ref_freq) for (l, m), flux, alpha, ref_freq in sources]
-    print(f"first source lm: l={sources[0][0]:.6f} m={sources[0][1]:.6f}", flush=True)
 
     n_pol_table = table(args.ms + '/POLARIZATION')
     n_pol = int(n_pol_table.getcol('NUM_CORR')[0])
@@ -90,7 +88,6 @@ def main(args):
     print(f"predicting {len(sources)} sources into {len(freqs)} channels x {uvw.shape[0]} rows, {n_pol} pols", flush=True)
 
     vis = predict_point_sources(uvw, freqs, sources)
-    print(f"vis amp: mean={np.abs(vis).mean():.4f} max={np.abs(vis).max():.4f}", flush=True)
 
     data = np.zeros((uvw.shape[0], len(freqs), n_pol), dtype=np.complex64)
     for p in range(n_pol):
