@@ -1,0 +1,10 @@
+.claude/
+__pycache__/
+*.pyc
+*.h5
+*.hdf5
+*.pkl
+*.npy
+logs/*.log
+*.png
+*.pdf
