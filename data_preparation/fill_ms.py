@@ -47,12 +47,12 @@ def load_sky_model(path):
             if not line or line.startswith('#'):
                 continue
             parts = line.split()
-            if len(parts) < 10:
+            if len(parts) < 9:
                 continue
             ra_d, dec_d = float(parts[1]), float(parts[2])
             flux = float(parts[3])
-            alpha = float(parts[8])
-            ref_freq = float(parts[9])
+            alpha = float(parts[7])
+            ref_freq = float(parts[8])
             sources.append((ra_d, dec_d, flux, alpha, ref_freq))
     return sources
 
