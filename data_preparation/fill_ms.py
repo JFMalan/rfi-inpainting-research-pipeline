@@ -88,6 +88,7 @@ def main(args):
     print(f"predicting {len(sources)} sources into {len(freqs)} channels x {uvw.shape[0]} rows, {n_pol} pols", flush=True)
 
     vis = predict_point_sources(uvw, freqs, sources)
+    print(f"vis amp: mean={np.abs(vis).mean():.4f} max={np.abs(vis).max():.4f}", flush=True)
 
     data = np.zeros((uvw.shape[0], len(freqs), n_pol), dtype=np.complex64)
     for p in range(n_pol):
