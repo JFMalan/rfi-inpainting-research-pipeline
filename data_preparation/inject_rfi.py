@@ -36,6 +36,10 @@ def _synth_config(n_freq, n_time):
     }
 
 
+RFI_SCALE_MIN = 2.0   # RFI peaks at least 2× clean std above background
+RFI_SCALE_MAX = 30.0  # RFI peaks at most 30× clean std — visible but not absurd
+
+
 def inject(clean_patch, gen, synth_cfg):
     n_time, n_freq = clean_patch.shape
     rfi_config = gen._parse_rfi_config(synth_cfg)
@@ -56,6 +60,13 @@ def inject(clean_patch, gen, synth_cfg):
     # waterfall: (1, 1, n_freq, n_time) complex64
     rfi_amp = np.abs(waterfall[0, 0]).astype(np.float32)  # (n_freq, n_time)
     rfi_mask = mask[0, 0].astype(np.float32)               # (n_freq, n_time)
+
+    # rfi_toolbox internal units are unrelated to the MS amplitude scale,
+    # so rescale to a random multiple of the clean patch std
+    clean_std = clean_patch.std()
+    if clean_std > 0 and rfi_amp.max() > 0:
+        target_peak = np.random.uniform(RFI_SCALE_MIN, RFI_SCALE_MAX) * clean_std
+        rfi_amp = rfi_amp * (target_peak / rfi_amp.max())
 
     corrupted = clean_patch + rfi_amp.T  # patches are (n_time, n_freq)
     return corrupted, rfi_mask.T

@@ -110,7 +110,6 @@ def check_dataset(path, n_plot=4):
     fig, axes = plt.subplots(n_plot, 3, figsize=(12, 3 * n_plot))
     for i in range(n_plot):
         vmax_clean = np.percentile(clean[i], 99)
-        vmax_corr = np.percentile(corrupted[i], 99)
         axes[i, 0].imshow(clean[i].T, aspect="auto", origin="lower",
                           extent=[0, n_time, freq_min, freq_max],
                           vmin=0, vmax=vmax_clean, cmap="viridis")
@@ -119,7 +118,7 @@ def check_dataset(path, n_plot=4):
             axes[i, 0].set_title("clean")
         axes[i, 1].imshow(corrupted[i].T, aspect="auto", origin="lower",
                           extent=[0, n_time, freq_min, freq_max],
-                          vmin=0, vmax=vmax_corr, cmap="viridis")
+                          vmin=0, vmax=vmax_clean, cmap="viridis")
         if i == 0:
             axes[i, 1].set_title("corrupted")
         axes[i, 2].imshow(mask[i].T, aspect="auto", origin="lower",
