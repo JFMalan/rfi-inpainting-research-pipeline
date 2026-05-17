@@ -1,0 +1,105 @@
+2026-05-17 19:28:43	INFO	::casa	optional configuration file not found, continuing CASA startup without it
+2026-05-17 19:28:43	INFO	::casa	loaded config file : /opt/casa-6.7.2-42-py3.12.el9/lib/py/lib/python3.12/site-packages/casaconfig/config.py
+2026-05-17 19:28:43	INFO	::casa	
+2026-05-17 19:28:43	INFO	::casa	config values
+2026-05-17 19:28:43	INFO	::casa	    agg = False
+2026-05-17 19:28:43	INFO	::casa	    cachedir = '/users/jfmalan/.casa'
+2026-05-17 19:28:43	INFO	::casa	    casaconfig_verbose = 1
+2026-05-17 19:28:43	INFO	::casa	    colors = 'Neutral'
+2026-05-17 19:28:43	INFO	::casa	    data_auto_update = True
+2026-05-17 19:28:43	INFO	::casa	    data_update_interval = 1
+2026-05-17 19:28:43	INFO	::casa	    datapath = ['/users/jfmalan/.casa/data']
+2026-05-17 19:28:43	INFO	::casa	    iplog = False
+2026-05-17 19:28:43	INFO	::casa	    iplogfile = '/users/jfmalan/rfi-inpainting-research-pipeline/ipython-20260517-192833.log'
+2026-05-17 19:28:43	INFO	::casa	    log2term = True
+2026-05-17 19:28:43	INFO	::casa	    logfile = '/users/jfmalan/rfi-inpainting-research-pipeline/casa-20260517-192833.log'
+2026-05-17 19:28:43	INFO	::casa	    measures_auto_update = True
+2026-05-17 19:28:43	INFO	::casa	    measures_site = ['https://www.astron.nl/iers/', 'https://go.nrao.edu/iers/']
+2026-05-17 19:28:43	INFO	::casa	    measures_site_interval = 2
+2026-05-17 19:28:43	INFO	::casa	    measures_update_interval = 1
+2026-05-17 19:28:43	INFO	::casa	    measurespath = '/users/jfmalan/.casa/data'
+2026-05-17 19:28:43	INFO	::casa	    nogui = True
+2026-05-17 19:28:43	INFO	::casa	    nologfile = False
+2026-05-17 19:28:43	INFO	::casa	    nologger = True
+2026-05-17 19:28:43	INFO	::casa	    pipeline = False
+2026-05-17 19:28:43	INFO	::casa	    startupfile = '/users/jfmalan/.casa/startup.py'
+2026-05-17 19:28:43	INFO	::casa	    user_site = False
+2026-05-17 19:28:43	INFO	::casa	
+2026-05-17 19:28:43	INFO	::casa	casarundata version : casarundata-2026.02.19-1.tar.gz
+2026-05-17 19:28:43	INFO	::casa	measures version : WSRT_Measures_20260513-160001.ztar
+2026-05-17 19:28:43	INFO	::casa	
+2026-05-17 19:28:43	INFO	::casa	Checking Measures tables in data repository sub-directory /users/jfmalan/.casa/data/geodetic
+2026-05-17 19:28:43	INFO	::casa	  IERSeop2000 (version date, last date in table (UTC)): 2026/04/23/12:59, 2026/03/23/00:00:00
+2026-05-17 19:28:43	INFO	::casa	  IERSeop97 (version date, last date in table (UTC)): 2026/04/23/12:59, 2026/03/23/00:00:00
+2026-05-17 19:28:43	INFO	::casa	  IERSpredict (version date, last date in table (UTC)): 2026/05/13/15:15, 2026/08/11/00:00:00
+2026-05-17 19:28:43	INFO	::casa	  TAI_UTC (version date, last date in table (UTC)): 2026/04/28/15:15, 2017/01/01/00:00:00
+2026-05-17 19:28:43	INFO	listobs::::casa	##########################################
+2026-05-17 19:28:43	INFO	listobs::::casa	##### Begin Task: listobs            #####
+2026-05-17 19:28:43	INFO	listobs::::casa	listobs( vis='/idia/data/public/1491550051/1491550051.ms', selectdata=True, spw='', field='', antenna='', uvrange='', timerange='', correlation='', scan='', intent='', feed='', array='', observation='', verbose=True, listfile='', listunfl=False, cachesize=50.0, overwrite=False )
+2026-05-17 19:28:45	INFO	listobs::ms::summary	================================================================================
+2026-05-17 19:28:45	INFO	listobs::ms::summary+	           MeasurementSet Name:  /idia/data/public/1491550051/1491550051.ms      MS Version 2
+2026-05-17 19:28:45	INFO	listobs::ms::summary+	================================================================================
+2026-05-17 19:28:45	INFO	listobs::ms::summary+	   Observer: Tom     Project: 20170407-0003  
+2026-05-17 19:28:45	INFO	listobs::ms::summary+	Observation: MeerKAT
+2026-05-17 19:28:45	INFO	listobs::MSMetaData::_computeScanAndSubScanProperties 	Computing scan and subscan properties...
+2026-05-17 19:28:45	INFO	listobs::ms::summary	Data records: 82144       Total elapsed time = 2614.39 seconds
+2026-05-17 19:28:45	INFO	listobs::ms::summary+	   Observed from   07-Apr-2017/07:27:40.7   to   07-Apr-2017/08:11:15.1 (UTC)
+2026-05-17 19:28:46	INFO	listobs::ms::summary	
+2026-05-17 19:28:46	INFO	listobs::ms::summary+	   ObservationID = 0         ArrayID = 0
+2026-05-17 19:28:46	INFO	listobs::ms::summary+	  Date        Timerange (UTC)          Scan  FldId FieldName             nRows     SpwIds   Average Interval(s)    ScanIntent
+2026-05-17 19:28:46	INFO	listobs::ms::summary+	  07-Apr-2017/07:27:40.7 - 07:32:40.6     1      0 1934-638                 10200  [0]  [4] [CALIBRATE_BANDPASS,CALIBRATE_FLUX]
+2026-05-17 19:28:46	INFO	listobs::ms::summary+	              07:33:16.6 - 07:38:12.5     2      1 0408-65                  10064  [0]  [4] [CALIBRATE_AMPLI,CALIBRATE_BANDPASS,CALIBRATE_FLUX,CALIBRATE_PHASE]
+2026-05-17 19:28:46	INFO	listobs::ms::summary+	              07:38:28.5 - 07:40:24.4     3      2 0252-712                  3944  [0]  [4] [CALIBRATE_AMPLI,CALIBRATE_PHASE]
+2026-05-17 19:28:46	INFO	listobs::ms::summary+	              07:40:44.4 - 07:45:40.3     4      3 DEEP_2_off               10064  [0]  [4] [TARGET]
+2026-05-17 19:28:46	INFO	listobs::ms::summary+	              07:45:56.3 - 07:47:52.2     5      2 0252-712                  3944  [0]  [4] [CALIBRATE_AMPLI,CALIBRATE_PHASE]
+2026-05-17 19:28:46	INFO	listobs::ms::summary+	              07:48:08.2 - 07:53:04.1     6      3 DEEP_2_off               10064  [0]  [4] [TARGET]
+2026-05-17 19:28:46	INFO	listobs::ms::summary+	              07:53:20.1 - 07:55:20.0     7      2 0252-712                  4080  [0]  [4] [CALIBRATE_AMPLI,CALIBRATE_PHASE]
+2026-05-17 19:28:46	INFO	listobs::ms::summary+	              07:55:36.0 - 08:00:31.9     8      3 DEEP_2_off               10064  [0]  [4] [TARGET]
+2026-05-17 19:28:46	INFO	listobs::ms::summary+	              08:00:47.9 - 08:02:43.8     9      2 0252-712                  3944  [0]  [4] [CALIBRATE_AMPLI,CALIBRATE_PHASE]
+2026-05-17 19:28:46	INFO	listobs::ms::summary+	              08:02:59.8 - 08:07:55.7    10      3 DEEP_2_off               10064  [0]  [4] [TARGET]
+2026-05-17 19:28:46	INFO	listobs::ms::summary+	              08:08:11.7 - 08:10:07.7    11      2 0252-712                  3944  [0]  [4] [CALIBRATE_AMPLI,CALIBRATE_PHASE]
+2026-05-17 19:28:46	INFO	listobs::ms::summary+	              08:10:23.6 - 08:11:15.1    12      3 DEEP_2_off                1768  [0]  [4] [TARGET]
+2026-05-17 19:28:46	INFO	listobs::ms::summary	           (nRows = Total number of rows per scan) 
+2026-05-17 19:28:46	INFO	listobs::ms::summary	Fields: 4
+2026-05-17 19:28:46	INFO	listobs::ms::summary+	  ID   Code Name                RA               Decl           Epoch   SrcId      nRows
+2026-05-17 19:28:46	INFO	listobs::ms::summary+	  0    T    1934-638            19:39:25.030000 -63.42.45.60000 J2000   0          10200
+2026-05-17 19:28:46	INFO	listobs::ms::summary+	  1    T    0408-65             04:08:20.380000 -65.45.09.10000 J2000   1          10064
+2026-05-17 19:28:46	INFO	listobs::ms::summary+	  2    T    0252-712            02:52:46.150000 -71.04.35.30000 J2000   2          19856
+2026-05-17 19:28:46	INFO	listobs::ms::summary+	  3    T    DEEP_2_off          03:59:46.200000 -80.36.20.60000 J2000   3          42024
+2026-05-17 19:28:46	INFO	listobs::ms::summary	Spectral Windows:  (1 unique spectral windows and 1 unique polarization setups)
+2026-05-17 19:28:46	INFO	listobs::ms::summary+	  SpwID  Name   #Chans   Frame   Ch0(MHz)  ChanWid(kHz)  TotBW(kHz) CtrFreq(MHz)  Corrs          
+2026-05-17 19:28:46	INFO	listobs::ms::summary+	  0      none    4096   TOPO     856.000       208.984    856000.0   1283.8955   XX  XY  YX  YY
+2026-05-17 19:28:46	INFO	listobs::ms::summary	Sources: 4
+2026-05-17 19:28:46	INFO	listobs::ms::summary+	  ID   Name                SpwId RestFreq(MHz)  SysVel(km/s) 
+2026-05-17 19:28:46	INFO	listobs::ms::summary+	  0    1934-638            0     1284           0.001        
+2026-05-17 19:28:46	INFO	listobs::ms::summary+	  1    0408-65             0     1284           0.001        
+2026-05-17 19:28:46	INFO	listobs::ms::summary+	  2    0252-712            0     1284           0.001        
+2026-05-17 19:28:46	INFO	listobs::ms::summary+	  3    DEEP_2_off          0     1284           0.001        
+2026-05-17 19:28:46	INFO	listobs::ms::summary	Antennas: 16:
+2026-05-17 19:28:46	INFO	listobs::ms::summary+	  ID   Name  Station   Diam.    Long.         Lat.                Offset from array center (m)                ITRF Geocentric coordinates (m)        
+2026-05-17 19:28:46	INFO	listobs::ms::summary+	                                                                     East         North     Elevation               x               y               z
+2026-05-17 19:28:46	INFO	listobs::ms::summary+	  0    m000  m000      13.5 m   +021.26.37.7  -30.32.39.3         -9.3315       30.5123      -13.7488  5109224.244081  2006790.329682 -3239100.601853
+2026-05-17 19:28:46	INFO	listobs::ms::summary+	  1    m002  m002      13.5 m   +021.26.36.8  -30.32.39.8        -33.1815       13.5672      -13.7541  5109224.943711  2006764.980703 -3239115.192851
+2026-05-17 19:28:46	INFO	listobs::ms::summary+	  2    m005  m005      13.5 m   +021.26.34.2  -30.32.41.7       -103.1671      -45.3159      -13.6884  5109222.728014  2006688.920477 -3239165.938258
+2026-05-17 19:28:46	INFO	listobs::ms::summary+	  3    m011  m011      13.5 m   +021.26.41.2  -30.32.43.9         82.9436     -114.2856      -12.6212  5109122.918981  2006849.667876 -3239225.879103
+2026-05-17 19:28:46	INFO	listobs::ms::summary+	  4    m012  m012      13.5 m   +021.26.43.3  -30.32.44.5        138.9495     -130.4748      -12.3820  5109094.976657  2006898.862921 -3239239.943208
+2026-05-17 19:28:46	INFO	listobs::ms::summary+	  5    m018  m018      13.5 m   +021.26.42.0  -30.32.40.5        104.6648       -8.0697      -12.9552  5109164.953297  2006889.515614 -3239134.233344
+2026-05-17 19:28:46	INFO	listobs::ms::summary+	  6    m020  m020      13.5 m   +021.26.41.6  -30.32.42.2         95.9433      -61.8458      -12.7533  5109142.866214  2006871.469582 -3239180.649435
+2026-05-17 19:28:46	INFO	listobs::ms::summary+	  7    m042  m042      13.5 m   +021.26.24.4  -30.32.47.4       -362.7948     -222.5028      -14.5892  5109233.093012  2006414.063100 -3239318.077690
+2026-05-17 19:28:46	INFO	listobs::ms::summary+	  8    m049  m049      13.5 m   +021.24.22.5  -30.32.18.4      -3606.7979      674.9449      -16.6018  5110840.935829  2003560.083385 -3238544.127600
+2026-05-17 19:28:46	INFO	listobs::ms::summary+	  9    m057  m057      13.5 m   +021.26.49.1  -30.30.47.0        293.5452     3497.7956      -21.9060  5110746.279858  2007713.657982 -3236109.834690
+2026-05-17 19:28:46	INFO	listobs::ms::summary+	  10   m058  m058      13.5 m   +021.28.23.4  -30.31.05.6       2803.9945     2925.0388      -16.3818  5109561.316727  2009946.092403 -3236606.062809
+2026-05-17 19:28:46	INFO	listobs::ms::summary+	  11   m059  m059      13.5 m   +021.28.56.5  -30.32.08.0       3685.0434      997.2513       -6.7247  5108335.204937  2010410.628369 -3238271.543744
+2026-05-17 19:28:46	INFO	listobs::ms::summary+	  12   m060  m060      13.5 m   +021.28.46.5  -30.33.32.1       3419.1035    -1602.2355       -2.4315  5107206.614034  2009680.714437 -3240512.429428
+2026-05-17 19:28:46	INFO	listobs::ms::summary+	  13   m061  m061      13.5 m   +021.26.37.4  -30.33.47.8        -17.5027    -2086.0199       -6.9077  5108231.263887  2006391.531815 -3240926.733858
+2026-05-17 19:28:46	INFO	listobs::ms::summary+	  14   m062  m062      13.5 m   +021.25.43.9  -30.33.53.6      -1442.0284    -2265.8985       -6.7546  5108666.756192  2005032.436433 -3241081.698019
+2026-05-17 19:28:46	INFO	listobs::ms::summary+	  15   m063  m063      13.5 m   +021.24.29.5  -30.33.32.1      -3421.1962    -1602.0938       -9.4852  5109701.398386  2003312.684080 -3240508.721138
+2026-05-17 19:28:46	INFO	listobs::::casa	Task listobs complete. Start time: 2026-05-17 21:28:43.363270 End time: 2026-05-17 21:28:45.676926
+2026-05-17 19:28:46	INFO	listobs::::casa	##### End Task: listobs              #####
+2026-05-17 19:28:46	INFO	listobs::::casa	##########################################
+
+optional configuration file not found, continuing CASA startup without it
+
+No event loop hook running.
+Using matplotlib backend: agg
+CASA 6.7.2.42 -- Common Astronomy Software Applications [6.7.2.42]

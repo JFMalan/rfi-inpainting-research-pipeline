@@ -1,0 +1,122 @@
+2026-05-17 19:29:58	INFO	::casa	optional configuration file not found, continuing CASA startup without it
+2026-05-17 19:29:58	INFO	::casa	loaded config file : /opt/casa-6.7.2-42-py3.12.el9/lib/py/lib/python3.12/site-packages/casaconfig/config.py
+2026-05-17 19:29:58	INFO	::casa	
+2026-05-17 19:29:58	INFO	::casa	config values
+2026-05-17 19:29:58	INFO	::casa	    agg = False
+2026-05-17 19:29:58	INFO	::casa	    cachedir = '/users/jfmalan/.casa'
+2026-05-17 19:29:58	INFO	::casa	    casaconfig_verbose = 1
+2026-05-17 19:29:58	INFO	::casa	    colors = 'Neutral'
+2026-05-17 19:29:58	INFO	::casa	    data_auto_update = True
+2026-05-17 19:29:58	INFO	::casa	    data_update_interval = 1
+2026-05-17 19:29:58	INFO	::casa	    datapath = ['/users/jfmalan/.casa/data']
+2026-05-17 19:29:58	INFO	::casa	    iplog = False
+2026-05-17 19:29:58	INFO	::casa	    iplogfile = '/users/jfmalan/rfi-inpainting-research-pipeline/ipython-20260517-192951.log'
+2026-05-17 19:29:58	INFO	::casa	    log2term = True
+2026-05-17 19:29:58	INFO	::casa	    logfile = '/users/jfmalan/rfi-inpainting-research-pipeline/casa-20260517-192951.log'
+2026-05-17 19:29:58	INFO	::casa	    measures_auto_update = True
+2026-05-17 19:29:58	INFO	::casa	    measures_site = ['https://www.astron.nl/iers/', 'https://go.nrao.edu/iers/']
+2026-05-17 19:29:58	INFO	::casa	    measures_site_interval = 2
+2026-05-17 19:29:58	INFO	::casa	    measures_update_interval = 1
+2026-05-17 19:29:58	INFO	::casa	    measurespath = '/users/jfmalan/.casa/data'
+2026-05-17 19:29:58	INFO	::casa	    nogui = True
+2026-05-17 19:29:58	INFO	::casa	    nologfile = False
+2026-05-17 19:29:58	INFO	::casa	    nologger = True
+2026-05-17 19:29:58	INFO	::casa	    pipeline = False
+2026-05-17 19:29:58	INFO	::casa	    startupfile = '/users/jfmalan/.casa/startup.py'
+2026-05-17 19:29:58	INFO	::casa	    user_site = False
+2026-05-17 19:29:58	INFO	::casa	
+2026-05-17 19:29:58	INFO	::casa	casarundata version : casarundata-2026.02.19-1.tar.gz
+2026-05-17 19:29:58	INFO	::casa	measures version : WSRT_Measures_20260513-160001.ztar
+2026-05-17 19:29:58	INFO	::casa	
+2026-05-17 19:29:58	INFO	::casa	Checking Measures tables in data repository sub-directory /users/jfmalan/.casa/data/geodetic
+2026-05-17 19:29:58	INFO	::casa	  IERSeop2000 (version date, last date in table (UTC)): 2026/04/23/12:59, 2026/03/23/00:00:00
+2026-05-17 19:29:58	INFO	::casa	  IERSeop97 (version date, last date in table (UTC)): 2026/04/23/12:59, 2026/03/23/00:00:00
+2026-05-17 19:29:58	INFO	::casa	  IERSpredict (version date, last date in table (UTC)): 2026/05/13/15:15, 2026/08/11/00:00:00
+2026-05-17 19:29:58	INFO	::casa	  TAI_UTC (version date, last date in table (UTC)): 2026/04/28/15:15, 2017/01/01/00:00:00
+2026-05-17 19:29:58	INFO	listobs::::casa	##########################################
+2026-05-17 19:29:58	INFO	listobs::::casa	##### Begin Task: listobs            #####
+2026-05-17 19:29:58	INFO	listobs::::casa	listobs( vis='/idia/data/public/1525469431/1525469431_sdp_l0.ms', selectdata=True, spw='', field='', antenna='', uvrange='', timerange='', correlation='', scan='', intent='', feed='', array='', observation='', verbose=True, listfile='', listunfl=False, cachesize=50.0, overwrite=False )
+2026-05-17 19:30:01	INFO	listobs::ms::summary	================================================================================
+2026-05-17 19:30:01	INFO	listobs::ms::summary+	           MeasurementSet Name:  /idia/data/public/1525469431/1525469431_sdp_l0.ms      MS Version 2
+2026-05-17 19:30:01	INFO	listobs::ms::summary+	================================================================================
+2026-05-17 19:30:01	INFO	listobs::ms::summary+	   Observer: Tony     Project: 20180504-0015  
+2026-05-17 19:30:01	INFO	listobs::ms::summary+	Observation: MeerKAT
+2026-05-17 19:30:01	INFO	listobs::MSMetaData::_computeScanAndSubScanProperties 	Computing scan and subscan properties...
+2026-05-17 19:30:02	INFO	listobs::ms::summary	Data records: 630840       Total elapsed time = 21606.9 seconds
+2026-05-17 19:30:02	INFO	listobs::ms::summary+	   Observed from   04-May-2018/21:31:15.6   to   05-May-2018/03:31:22.5 (UTC)
+2026-05-17 19:30:02	INFO	listobs::ms::summary	
+2026-05-17 19:30:02	INFO	listobs::ms::summary+	   ObservationID = 0         ArrayID = 0
+2026-05-17 19:30:02	INFO	listobs::ms::summary+	  Date        Timerange (UTC)          Scan  FldId FieldName             nRows     SpwIds   Average Interval(s)    ScanIntent
+2026-05-17 19:30:02	INFO	listobs::ms::summary+	  04-May-2018/21:31:15.6 - 21:51:11.1     1      0 ACT-CLJ2023.3-5535       35880  [0]  [4] [TARGET]
+2026-05-17 19:30:02	INFO	listobs::ms::summary+	              21:51:31.1 - 21:53:27.1     2      1 J1939-6342                3480  [0]  [4] [CALIBRATE_AMPLI,CALIBRATE_PHASE]
+2026-05-17 19:30:02	INFO	listobs::ms::summary+	              21:53:47.1 - 22:13:42.6     3      0 ACT-CLJ2023.3-5535       35880  [0]  [4] [TARGET]
+2026-05-17 19:30:02	INFO	listobs::ms::summary+	              22:14:02.6 - 22:16:02.5     4      1 J1939-6342                3600  [0]  [4] [CALIBRATE_AMPLI,CALIBRATE_PHASE]
+2026-05-17 19:30:02	INFO	listobs::ms::summary+	              22:16:22.5 - 22:36:18.0     5      0 ACT-CLJ2023.3-5535       35880  [0]  [4] [TARGET]
+2026-05-17 19:30:02	INFO	listobs::ms::summary+	              22:36:38.0 - 22:38:33.9     6      1 J1939-6342                3480  [0]  [4] [CALIBRATE_AMPLI,CALIBRATE_PHASE]
+2026-05-17 19:30:02	INFO	listobs::ms::summary+	              22:38:53.9 - 22:58:49.4     7      0 ACT-CLJ2023.3-5535       35880  [0]  [4] [TARGET]
+2026-05-17 19:30:02	INFO	listobs::ms::summary+	              22:59:05.4 - 23:01:05.4     8      1 J1939-6342                3600  [0]  [4] [CALIBRATE_AMPLI,CALIBRATE_PHASE]
+2026-05-17 19:30:02	INFO	listobs::ms::summary+	              23:01:21.4 - 23:21:20.8     9      0 ACT-CLJ2023.3-5535       36000  [0]  [4] [TARGET]
+2026-05-17 19:30:02	INFO	listobs::ms::summary+	              23:21:36.8 - 23:23:32.8    10      1 J1939-6342                3480  [0]  [4] [CALIBRATE_AMPLI,CALIBRATE_PHASE]
+2026-05-17 19:30:02	INFO	listobs::ms::summary+	              23:23:52.8 - 23:43:48.3    11      0 ACT-CLJ2023.3-5535       35880  [0]  [4] [TARGET]
+2026-05-17 19:30:02	INFO	listobs::ms::summary+	              23:44:04.3 - 23:46:00.2    12      1 J1939-6342                3480  [0]  [4] [CALIBRATE_AMPLI,CALIBRATE_PHASE]
+2026-05-17 19:30:02	INFO	listobs::ms::summary+	              23:46:20.2 - 00:06:15.7    13      0 ACT-CLJ2023.3-5535       35880  [0]  [4] [TARGET]
+2026-05-17 19:30:02	INFO	listobs::ms::summary+	  05-May-2018/00:06:35.7 - 00:08:31.6    14      1 J1939-6342                3480  [0]  [4] [CALIBRATE_AMPLI,CALIBRATE_PHASE]
+2026-05-17 19:30:02	INFO	listobs::ms::summary+	              00:08:47.6 - 00:28:47.1    15      0 ACT-CLJ2023.3-5535       36000  [0]  [4] [TARGET]
+2026-05-17 19:30:02	INFO	listobs::ms::summary+	              00:29:03.1 - 00:31:03.1    16      1 J1939-6342                3600  [0]  [4] [CALIBRATE_AMPLI,CALIBRATE_PHASE]
+2026-05-17 19:30:02	INFO	listobs::ms::summary+	              00:31:19.1 - 00:51:14.6    17      0 ACT-CLJ2023.3-5535       35880  [0]  [4] [TARGET]
+2026-05-17 19:30:02	INFO	listobs::ms::summary+	              00:51:34.6 - 00:53:30.5    18      1 J1939-6342                3480  [0]  [4] [CALIBRATE_AMPLI,CALIBRATE_PHASE]
+2026-05-17 19:30:02	INFO	listobs::ms::summary+	              00:53:50.5 - 01:13:46.0    19      0 ACT-CLJ2023.3-5535       35880  [0]  [4] [TARGET]
+2026-05-17 19:30:02	INFO	listobs::ms::summary+	              01:14:06.0 - 01:16:05.9    20      1 J1939-6342                3600  [0]  [4] [CALIBRATE_AMPLI,CALIBRATE_PHASE]
+2026-05-17 19:30:02	INFO	listobs::ms::summary+	              01:16:21.9 - 01:36:21.4    21      0 ACT-CLJ2023.3-5535       36000  [0]  [4] [TARGET]
+2026-05-17 19:30:02	INFO	listobs::ms::summary+	              01:36:41.4 - 01:38:37.4    22      1 J1939-6342                3480  [0]  [4] [CALIBRATE_AMPLI,CALIBRATE_PHASE]
+2026-05-17 19:30:02	INFO	listobs::ms::summary+	              01:38:57.4 - 01:58:52.8    23      0 ACT-CLJ2023.3-5535       35880  [0]  [4] [TARGET]
+2026-05-17 19:30:02	INFO	listobs::ms::summary+	              01:59:12.8 - 02:01:08.8    24      1 J1939-6342                3480  [0]  [4] [CALIBRATE_AMPLI,CALIBRATE_PHASE]
+2026-05-17 19:30:02	INFO	listobs::ms::summary+	              02:01:28.8 - 02:21:28.3    25      0 ACT-CLJ2023.3-5535       36000  [0]  [4] [TARGET]
+2026-05-17 19:30:02	INFO	listobs::ms::summary+	              02:21:48.3 - 02:23:44.2    26      1 J1939-6342                3480  [0]  [4] [CALIBRATE_AMPLI,CALIBRATE_PHASE]
+2026-05-17 19:30:02	INFO	listobs::ms::summary+	              02:24:04.2 - 02:43:59.7    27      0 ACT-CLJ2023.3-5535       35880  [0]  [4] [TARGET]
+2026-05-17 19:30:02	INFO	listobs::ms::summary+	              02:44:19.7 - 02:46:19.6    28      1 J1939-6342                3600  [0]  [4] [CALIBRATE_AMPLI,CALIBRATE_PHASE]
+2026-05-17 19:30:02	INFO	listobs::ms::summary+	              02:46:39.6 - 03:06:35.1    29      0 ACT-CLJ2023.3-5535       35880  [0]  [4] [TARGET]
+2026-05-17 19:30:02	INFO	listobs::ms::summary+	              03:06:55.1 - 03:08:51.1    30      1 J1939-6342                3480  [0]  [4] [CALIBRATE_AMPLI,CALIBRATE_PHASE]
+2026-05-17 19:30:02	INFO	listobs::ms::summary+	              03:09:11.1 - 03:29:06.6    31      0 ACT-CLJ2023.3-5535       35880  [0]  [4] [TARGET]
+2026-05-17 19:30:02	INFO	listobs::ms::summary+	              03:29:26.5 - 03:31:22.5    32      1 J1939-6342                3480  [0]  [4] [CALIBRATE_AMPLI,CALIBRATE_PHASE]
+2026-05-17 19:30:02	INFO	listobs::ms::summary	           (nRows = Total number of rows per scan) 
+2026-05-17 19:30:02	INFO	listobs::ms::summary	Fields: 2
+2026-05-17 19:30:02	INFO	listobs::ms::summary+	  ID   Code Name                RA               Decl           Epoch   SrcId      nRows
+2026-05-17 19:30:02	INFO	listobs::ms::summary+	  0    T    ACT-CLJ2023.3-5535  20:23:18.820000 -55.35.19.00000 J2000   0         574560
+2026-05-17 19:30:02	INFO	listobs::ms::summary+	  1    T    J1939-6342          19:39:25.050000 -63.42.43.60000 J2000   1          56280
+2026-05-17 19:30:02	INFO	listobs::ms::summary	Spectral Windows:  (1 unique spectral windows and 1 unique polarization setups)
+2026-05-17 19:30:02	INFO	listobs::ms::summary+	  SpwID  Name   #Chans   Frame   Ch0(MHz)  ChanWid(kHz)  TotBW(kHz) CtrFreq(MHz)  Corrs  
+2026-05-17 19:30:02	INFO	listobs::ms::summary+	  0      none    4096   TOPO     856.000       208.984    856000.0   1283.8955   XX  YY
+2026-05-17 19:30:02	INFO	listobs::ms::summary	Sources: 2
+2026-05-17 19:30:02	INFO	listobs::ms::summary+	  ID   Name                SpwId RestFreq(MHz)  
+2026-05-17 19:30:02	INFO	listobs::ms::summary+	  0    ACT-CLJ2023.3-5535  0     -              
+2026-05-17 19:30:02	INFO	listobs::ms::summary+	  1    J1939-6342          0     -              
+2026-05-17 19:30:02	INFO	listobs::ms::summary+	  NB: No systemic velocity information found in SOURCE table.
+2026-05-17 19:30:02	INFO	listobs::ms::summary	Antennas: 16:
+2026-05-17 19:30:02	INFO	listobs::ms::summary+	  ID   Name  Station   Diam.    Long.         Lat.                Offset from array center (m)                ITRF Geocentric coordinates (m)        
+2026-05-17 19:30:02	INFO	listobs::ms::summary+	                                                                     East         North     Elevation               x               y               z
+2026-05-17 19:30:02	INFO	listobs::ms::summary+	  0    m001  m001      13.5 m   +021.26.38.0  -30.32.38.1          0.0615       66.0615      -13.7427  5109237.630487  2006805.679168 -3239069.988673
+2026-05-17 19:30:02	INFO	listobs::ms::summary+	  1    m002  m002      13.5 m   +021.26.36.8  -30.32.39.8        -33.1730       13.5856      -13.7080  5109224.986208  2006765.006527 -3239115.200439
+2026-05-17 19:30:02	INFO	listobs::ms::summary+	  2    m003  m003      13.5 m   +021.26.35.5  -30.32.39.1        -67.5799       35.5468      -14.0038  5109247.715781  2006736.968312 -3239096.136391
+2026-05-17 19:30:02	INFO	listobs::ms::summary+	  3    m006  m006      13.5 m   +021.26.37.3  -30.32.42.1        -19.2906      -57.6078      -13.3758  5109186.500724  2006764.805186 -3239176.683299
+2026-05-17 19:30:02	INFO	listobs::ms::summary+	  4    m008  m008      13.5 m   +021.26.34.5  -30.32.49.9        -94.5903     -297.2076      -12.8094  5109101.139483  2006650.380018 -3239383.318912
+2026-05-17 19:30:02	INFO	listobs::ms::summary+	  5    m015  m015      13.5 m   +021.26.45.9  -30.32.39.6        209.5861       18.6784      -12.5958  5109139.532898  2006992.255752 -3239111.379568
+2026-05-17 19:30:02	INFO	listobs::ms::summary+	  6    m021  m021      13.5 m   +021.26.26.9  -30.32.43.1       -297.0291      -89.4116      -14.5325  5109272.059019  2006500.019414 -3239203.485701
+2026-05-17 19:30:02	INFO	listobs::ms::summary+	  7    m022  m022      13.5 m   +021.26.24.0  -30.32.32.5       -374.0562      238.3833      -16.0339  5109454.067853  2006488.741820 -3238920.413095
+2026-05-17 19:30:02	INFO	listobs::ms::summary+	  8    m034  m034      13.5 m   +021.26.51.4  -30.32.33.5        356.7433      209.5211      -12.7966  5109175.834256  2007164.622574 -3238946.915796
+2026-05-17 19:30:02	INFO	listobs::ms::summary+	  9    m041  m041      13.5 m   +021.26.27.2  -30.32.54.0       -288.6174     -423.8570      -13.6636  5109111.465262  2006445.988209 -3239491.955748
+2026-05-17 19:30:02	INFO	listobs::ms::summary+	  10   m042  m042      13.5 m   +021.26.24.4  -30.32.47.4       -362.7833     -222.4880      -14.5362  5109233.138351  2006414.093264 -3239318.091862
+2026-05-17 19:30:02	INFO	listobs::ms::summary+	  11   m050  m050      13.5 m   +021.25.20.9  -30.32.59.8      -2053.5171     -605.6775      -18.4460  5109666.453508  2004767.934259 -3239646.107249
+2026-05-17 19:30:02	INFO	listobs::ms::summary+	  12   m051  m051      13.5 m   +021.26.06.0  -30.32.57.4       -851.3585     -531.4990      -16.2533  5109264.131845  2005901.393571 -3239583.340237
+2026-05-17 19:30:02	INFO	listobs::ms::summary+	  13   m052  m052      13.5 m   +021.26.15.7  -30.33.09.7       -594.3019     -910.8179      -14.4035  5108992.203847  2006070.768233 -3239910.940391
+2026-05-17 19:30:02	INFO	listobs::ms::summary+	  14   m060  m060      13.5 m   +021.28.46.5  -30.33.32.1       3419.1284    -1602.1789       -2.2768  5107206.755627  2009680.796911 -3240512.459326
+2026-05-17 19:30:02	INFO	listobs::ms::summary+	  15   m061  m061      13.5 m   +021.26.37.4  -30.33.47.7        -17.4712    -2085.9876       -6.8131  5108231.343443  2006391.596905 -3240926.754178
+2026-05-17 19:30:02	INFO	listobs::::casa	Task listobs complete. Start time: 2026-05-17 21:29:57.592798 End time: 2026-05-17 21:30:02.018048
+2026-05-17 19:30:02	INFO	listobs::::casa	##### End Task: listobs              #####
+2026-05-17 19:30:02	INFO	listobs::::casa	##########################################
+
+optional configuration file not found, continuing CASA startup without it
+
+No event loop hook running.
+Using matplotlib backend: agg
+CASA 6.7.2.42 -- Common Astronomy Software Applications [6.7.2.42]
