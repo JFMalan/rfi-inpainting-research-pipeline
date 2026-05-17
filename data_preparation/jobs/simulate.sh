@@ -33,8 +33,8 @@ singularity exec $SIMMS simms \
     -dt 8 \
     -st 0.25 \
     -f0 880MHz \
-    -df 208.9843kHz \
-    -nc 4096 \
+    -df 835.9375kHz \
+    -nc 1024 \
     -pl "XX YY" \
     -n $SIM_MS
 
