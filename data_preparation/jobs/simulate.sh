@@ -11,6 +11,14 @@
 
 set -e
 
+# Defaults — override via: sbatch --export=ALL,RUN_ID=2,SYNTHESIS=2.0,NCHAN=4096,SKY_MODEL=sky_model_2.txt simulate.sh
+RUN_ID=${RUN_ID:-1}
+SYNTHESIS=${SYNTHESIS:-1.0}
+NCHAN=${NCHAN:-4096}
+SKY_MODEL=${SKY_MODEL:-sky_model.txt}
+MAX_PATCHES=${MAX_PATCHES:-500}
+SEED=${SEED:-42}
+
 SIMMS=/idia/software/containers/STIMELA_IMAGES/stimela_simms_1.2.0.sif
 AFRICANUS=/idia/software/containers/STIMELA_IMAGES/stimela_codex-africanus_1.6.7.sif
 CASA=/idia/software/containers/casa-stable-v6.sif
@@ -18,7 +26,7 @@ ASTROPY=/idia/software/containers/ASTRO-PY3.10.sif
 VENV=/idia/users/$USER/venvs/rfi_toolbox
 SCRIPTS=/users/$USER/rfi-inpainting-research-pipeline
 
-SIMDIR=/scratch3/users/$USER/rfi/simulated
+SIMDIR=/scratch3/users/$USER/rfi/simulated/run${RUN_ID}
 SIM_MS=$SIMDIR/sim_clean.ms
 WATERFALL=$SIMDIR/waterfall
 CLEAN_H5=$SIMDIR/clean_patches.h5
@@ -27,37 +35,42 @@ DATASET=$SIMDIR/dataset.h5
 mkdir -p $SIMDIR logs
 rm -rf $SIM_MS
 
-# --- Step 1: create empty MeerKAT MS ---
+echo "RUN_ID=$RUN_ID  SYNTHESIS=${SYNTHESIS}h  NCHAN=$NCHAN  SKY_MODEL=$SKY_MODEL  SEED=$SEED"
+
+# compute channel width to keep 856 MHz total bandwidth
+DFREQ=$(python3 -c "print(f'{856.0/$NCHAN:.4f}MHz')")
+
+echo "[1/7] $(date '+%H:%M:%S') creating empty MeerKAT MS (simms)"
 singularity exec $SIMMS simms \
     -T meerkat \
     -dir "J2000,04h00m00.0s,-30d00m00s" \
     -dt 8 \
-    -st 1.0 \
+    -st $SYNTHESIS \
     -f0 880MHz \
-    -df 208.9843kHz \
-    -nc 4096 \
+    -df $DFREQ \
+    -nc $NCHAN \
     -pl "XX YY" \
     -n $SIM_MS
 
-# --- Step 2: predict sky model into DATA column ---
+echo "[2/7] $(date '+%H:%M:%S') predicting sky model (crystalball)"
 singularity exec $AFRICANUS crystalball \
-    -sm $SCRIPTS/data_preparation/sky_model.txt \
+    -sm $SCRIPTS/data_preparation/$SKY_MODEL \
     -o DATA \
     -rc 10000 \
     -mc 25 \
     -j 8 \
     $SIM_MS
 
-# --- Step 3: add MeerKAT thermal noise (SEFD~430 Jy, sigma~0.105 Jy/vis) ---
+echo "[3/7] $(date '+%H:%M:%S') adding thermal noise (CASA sm.corrupt)"
 singularity exec $CASA casa --nologger --log2term \
     -c $SCRIPTS/data_preparation/add_noise.py $SIM_MS
 
-# --- Step 4: extract amplitude waterfall ---
+echo "[4/7] $(date '+%H:%M:%S') extracting amplitude waterfall"
 singularity exec $ASTROPY python $SCRIPTS/data_preparation/extract_ms.py \
     --ms $SIM_MS \
     --output $WATERFALL
 
-# --- Step 5: slice into 256x256 patches ---
+echo "[5/7] $(date '+%H:%M:%S') slicing into patches"
 singularity exec $ASTROPY python $SCRIPTS/data_preparation/waterfall_to_patches.py \
     --waterfall ${WATERFALL}.npy \
     --output $CLEAN_H5 \
@@ -65,16 +78,18 @@ singularity exec $ASTROPY python $SCRIPTS/data_preparation/waterfall_to_patches.
     --patch-freq 256 \
     --stride-time 64 \
     --stride-freq 64 \
-    --max-patches 500 \
+    --max-patches $MAX_PATCHES \
     --max-flag-fraction 0.5
 
-# --- Step 6: inject synthetic RFI ---
+echo "[6/7] $(date '+%H:%M:%S') injecting synthetic RFI"
 singularity exec $ASTROPY /bin/bash -c "
     source $VENV/bin/activate &&
     python $SCRIPTS/data_preparation/inject_rfi.py \
-        --input $CLEAN_H5 --output $DATASET --seed 42
+        --input $CLEAN_H5 --output $DATASET --seed $SEED
 "
 
-# --- Step 7: validate ---
+echo "[7/7] $(date '+%H:%M:%S') validating dataset"
 singularity exec $ASTROPY python $SCRIPTS/data_preparation/validate_simulate.py \
     --input $DATASET
+
+echo "done $(date '+%H:%M:%S')"
