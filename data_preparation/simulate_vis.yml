@@ -1,0 +1,49 @@
+#!/usr/bin/env -S stimela run
+
+opts:
+    log:
+        dir: logs/stimela
+    backend:
+        select: singularity
+
+cabs:
+    simms:
+        image:
+            path: /idia/software/containers/STIMELA_IMAGES/stimela_simms_1.2.0.sif
+    meqtrees:
+        image:
+            path: /idia/software/containers/STIMELA_IMAGES/stimela_meqtrees_1.7.2.sif
+
+simulate-meerkat:
+    info: "Synthetic MeerKAT L-band clean visibilities"
+
+    inputs:
+        ms-name:
+            dtype: str
+            default: sim_clean.ms
+        sky-model:
+            dtype: File
+            required: true
+        n-hours:
+            dtype: float
+            default: 0.5
+
+    steps:
+        create-ms:
+            cab: simms
+            params:
+                msname: =recipe.ms-name
+                tel: meerkat
+                synthesis: =recipe.n-hours
+                dtime: 8
+                freq0: 880MHz
+                dfreq: 208.9843kHz
+                nchan: 4096
+                pl: [XX, YY]
+                dir: "J2000,04h00m00.0s,-30d00m00s"
+
+        predict:
+            cab: meqtrees
+            params:
+                ms: =recipe.ms-name
+                sky-model: =recipe.sky-model

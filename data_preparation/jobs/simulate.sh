@@ -3,7 +3,7 @@
 #SBATCH --partition=Main
 #SBATCH --cpus-per-task=8
 #SBATCH --mem=32GB
-#SBATCH --time=02:00:00
+#SBATCH --time=04:00:00
 #SBATCH --output=logs/simulate-%j-stdout.log
 #SBATCH --error=logs/simulate-%j-stderr.log
 #SBATCH --mail-type=BEGIN,END,FAIL
@@ -13,20 +13,27 @@ ASTROPY=/idia/software/containers/ASTRO-PY3.10.sif
 VENV=/idia/users/$USER/venvs/rfi_toolbox
 SCRIPTS=/users/$USER/rfi-inpainting-research-pipeline
 
-MS=/idia/data/public/1491550051/1491550051.ms
-OUTDIR=/scratch3/users/$USER/rfi/simulated
-WATERFALL=$OUTDIR/waterfall
-CLEAN_H5=$OUTDIR/clean_patches.h5
-DATASET=$OUTDIR/dataset.h5
+SIMDIR=/scratch3/users/$USER/rfi/simulated
+SIM_MS=$SIMDIR/sim_clean.ms
+WATERFALL=$SIMDIR/waterfall
+CLEAN_H5=$SIMDIR/clean_patches.h5
+DATASET=$SIMDIR/dataset.h5
 
-mkdir -p $OUTDIR logs
+mkdir -p $SIMDIR logs
 
-# --- Step 1: extract amplitude waterfall from real MeerKAT MS ---
+# --- Step 1: generate synthetic clean MeerKAT MS via Stimela2 ---
+singularity exec $ASTROPY stimela run \
+    $SCRIPTS/data_preparation/simulate_vis.yml simulate-meerkat \
+    ms-name=$SIM_MS \
+    sky-model=$SCRIPTS/data_preparation/sky_model.txt \
+    n-hours=0.5
+
+# --- Step 2: extract amplitude waterfall from synthetic MS ---
 singularity exec $ASTROPY python $SCRIPTS/data_preparation/extract_ms.py \
-    --ms $MS \
+    --ms $SIM_MS \
     --output $WATERFALL
 
-# --- Step 2: slice waterfall into 256x256 patches, skip heavily flagged patches ---
+# --- Step 3: slice waterfall into 256x256 patches ---
 singularity exec $ASTROPY python $SCRIPTS/data_preparation/waterfall_to_patches.py \
     --waterfall ${WATERFALL}.npy \
     --output $CLEAN_H5 \
@@ -37,12 +44,12 @@ singularity exec $ASTROPY python $SCRIPTS/data_preparation/waterfall_to_patches.
     --max-patches 500 \
     --max-flag-fraction 0.5
 
-# --- Step 3: inject synthetic RFI using rfi_toolbox ---
+# --- Step 4: inject synthetic RFI using rfi_toolbox ---
 singularity exec $ASTROPY /bin/bash -c "
     source $VENV/bin/activate
     python $SCRIPTS/data_preparation/inject_rfi.py --input $CLEAN_H5 --output $DATASET --seed 42
 "
 
-# --- Step 4: validate ---
+# --- Step 5: validate ---
 singularity exec $ASTROPY python $SCRIPTS/data_preparation/validate_simulate.py \
     --input $DATASET

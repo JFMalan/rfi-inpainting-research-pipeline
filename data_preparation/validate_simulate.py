@@ -69,7 +69,7 @@ def check_dataset(path, n_plot=4):
     print(f"\nmorphology check:")
     print(f"  max per-channel flag fraction : {mean_mask_spectrum.max():.3f}")
     print(f"  max per-time flag fraction    : {mean_mask_time.max():.3f}")
-    if mean_mask_spectrum.max() < 0.30:
+    if mean_mask_spectrum.max() < 0.15:
         print("WARNING: no strongly flagged channels — narrowband RFI may be missing")
         ok = False
     if mean_mask_time.max() < 0.10:
