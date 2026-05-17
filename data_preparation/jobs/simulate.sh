@@ -61,10 +61,10 @@ singularity exec $ASTROPY python $SCRIPTS/data_preparation/extract_ms.py \
 singularity exec $ASTROPY python $SCRIPTS/data_preparation/waterfall_to_patches.py \
     --waterfall ${WATERFALL}.npy \
     --output $CLEAN_H5 \
-    --patch-time 256 \
-    --patch-freq 256 \
-    --stride-time 64 \
-    --stride-freq 64 \
+    --patch-time 64 \
+    --patch-freq 64 \
+    --stride-time 32 \
+    --stride-freq 32 \
     --max-patches 100 \
     --max-flag-fraction 0.5
 

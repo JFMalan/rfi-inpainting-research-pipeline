@@ -26,18 +26,18 @@ def _synth_config(n_freq, n_time):
             "frequency_sweep",
         ],
         "rfi_type_counts": {
-            "narrowband_persistent": [1, 3],
-            "broadband_persistent": [0, 2],
-            "narrowband_intermittent": [0, 2],
-            "narrowband_bursty": [0, 2],
+            "narrowband_persistent": [1, 2],
+            "broadband_persistent": [0, 1],
+            "narrowband_intermittent": [0, 1],
+            "narrowband_bursty": [0, 1],
             "broadband_bursty": [0, 1],
-            "frequency_sweep": [0, 2],
+            "frequency_sweep": [0, 1],
         },
     }
 
 
-RFI_SCALE_MIN = 2.0   # RFI peaks at least 2× clean std above background
-RFI_SCALE_MAX = 30.0  # RFI peaks at most 30× clean std — visible but not absurd
+RFI_SCALE_MIN = 5.0    # RFI peaks at least 5× clean std — clearly visible
+RFI_SCALE_MAX = 50.0   # RFI peaks at most 50× clean std
 
 
 def inject(clean_patch, gen, synth_cfg):
