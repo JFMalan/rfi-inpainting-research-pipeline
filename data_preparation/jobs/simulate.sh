@@ -12,7 +12,7 @@
 set -e
 
 SIMMS=/idia/software/containers/STIMELA_IMAGES/stimela_simms_1.2.0.sif
-MEQTREES=/idia/software/containers/STIMELA_IMAGES/stimela_meqtrees_1.7.2.sif
+AFRICANUS=/idia/software/containers/STIMELA_IMAGES/stimela_codex-africanus_1.6.7.sif
 CASA=/idia/software/containers/casa-stable-v6.sif
 ASTROPY=/idia/software/containers/ASTRO-PY3.10.sif
 VENV=/idia/users/$USER/venvs/rfi_toolbox
@@ -26,22 +26,25 @@ DATASET=$SIMDIR/dataset.h5
 
 mkdir -p $SIMDIR logs
 
-# --- Step 1: create empty MeerKAT MS (simms) ---
+# --- Step 1: create empty MeerKAT MS ---
 singularity exec $SIMMS simms \
-    --telescope meerkat \
-    --direction "J2000,04h00m00.0s,-30d00m00s" \
-    --dtime 8 \
-    --synthesis 0.5 \
-    --freq0 880MHz \
-    --dfreq 208.9843kHz \
-    --nchan 4096 \
-    --pol XX YY \
-    --name $SIM_MS
+    -T meerkat \
+    -dir "J2000,04h00m00.0s,-30d00m00s" \
+    -dt 8 \
+    -st 0.5 \
+    -f0 880MHz \
+    -df 208.9843kHz \
+    -nc 4096 \
+    -pl XX YY \
+    -n $SIM_MS
 
-# --- Step 2: predict sky model visibilities into MS (meqtrees) ---
-singularity exec $MEQTREES meqtrees \
-    --ms $SIM_MS \
-    --sky-model $SCRIPTS/data_preparation/sky_model.txt
+# --- Step 2: predict sky model into DATA column ---
+singularity exec $AFRICANUS crystalball \
+    -sm $SCRIPTS/data_preparation/sky_model.txt \
+    -o DATA \
+    -rc 0 \
+    -j 8 \
+    $SIM_MS
 
 # --- Step 3: add MeerKAT thermal noise (SEFD~430 Jy, sigma~0.105 Jy/vis) ---
 singularity exec $CASA casa --nologger --log2term \
