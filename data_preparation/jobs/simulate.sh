@@ -25,6 +25,7 @@ CLEAN_H5=$SIMDIR/clean_patches.h5
 DATASET=$SIMDIR/dataset.h5
 
 mkdir -p $SIMDIR logs
+rm -rf $SIM_MS
 
 # --- Step 1: create empty MeerKAT MS ---
 singularity exec $SIMMS simms \
