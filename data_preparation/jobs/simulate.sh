@@ -10,6 +10,7 @@
 #SBATCH --mail-user=jfmalan123@gmail.com
 
 ASTROPY=/idia/software/containers/ASTRO-PY3.10.sif
+CASA=/idia/software/containers/casa-stable-v6.sif
 VENV=/idia/users/$USER/venvs/rfi_toolbox
 SCRIPTS=/users/$USER/rfi-inpainting-research-pipeline
 
@@ -28,12 +29,16 @@ singularity exec $ASTROPY stimela run \
     sky-model=$SCRIPTS/data_preparation/sky_model.txt \
     n-hours=0.5
 
-# --- Step 2: extract amplitude waterfall from synthetic MS ---
+# --- Step 2: add MeerKAT thermal noise to synthetic MS (SEFD~430 Jy, sigma~0.105 Jy/vis) ---
+singularity exec $CASA casa --nologger --log2term \
+    -c $SCRIPTS/data_preparation/add_noise.py $SIM_MS
+
+# --- Step 3: extract amplitude waterfall from synthetic MS ---
 singularity exec $ASTROPY python $SCRIPTS/data_preparation/extract_ms.py \
     --ms $SIM_MS \
     --output $WATERFALL
 
-# --- Step 3: slice waterfall into 256x256 patches ---
+# --- Step 4: slice waterfall into 256x256 patches ---
 singularity exec $ASTROPY python $SCRIPTS/data_preparation/waterfall_to_patches.py \
     --waterfall ${WATERFALL}.npy \
     --output $CLEAN_H5 \
@@ -44,12 +49,12 @@ singularity exec $ASTROPY python $SCRIPTS/data_preparation/waterfall_to_patches.
     --max-patches 500 \
     --max-flag-fraction 0.5
 
-# --- Step 4: inject synthetic RFI using rfi_toolbox ---
+# --- Step 5: inject synthetic RFI using rfi_toolbox ---
 singularity exec $ASTROPY /bin/bash -c "
     source $VENV/bin/activate
     python $SCRIPTS/data_preparation/inject_rfi.py --input $CLEAN_H5 --output $DATASET --seed 42
 "
 
-# --- Step 5: validate ---
+# --- Step 6: validate ---
 singularity exec $ASTROPY python $SCRIPTS/data_preparation/validate_simulate.py \
     --input $DATASET
