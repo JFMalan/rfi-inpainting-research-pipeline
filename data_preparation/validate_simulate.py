@@ -120,7 +120,11 @@ def check_dataset(path, n_plot=4):
             axes[i, 0].set_title("clean")
         axes[i, 1].imshow(corrupted[i].T, aspect="auto", origin="lower",
                           extent=[0, n_time, freq_min, freq_max],
-                          vmin=vmin_c, vmax=vmax_cor, cmap="plasma")
+                          vmin=vmin_c, vmax=vmax_c, cmap="plasma")
+        rfi_overlay = np.where(mask[i].T > 0, 1.0, np.nan)
+        axes[i, 1].imshow(rfi_overlay, aspect="auto", origin="lower",
+                          extent=[0, n_time, freq_min, freq_max],
+                          vmin=0, vmax=1, cmap="cool", alpha=0.6)
         if i == 0:
             axes[i, 1].set_title("corrupted")
         axes[i, 2].imshow(mask[i].T, aspect="auto", origin="lower",
