@@ -35,7 +35,7 @@ singularity exec $SIMMS simms \
     -f0 880MHz \
     -df 208.9843kHz \
     -nc 4096 \
-    -pl XX YY \
+    -pl "XX YY" \
     -n $SIM_MS
 
 # --- Step 2: predict sky model into DATA column ---
