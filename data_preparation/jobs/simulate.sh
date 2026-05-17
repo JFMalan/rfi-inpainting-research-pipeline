@@ -9,8 +9,12 @@
 #SBATCH --mail-type=BEGIN,END,FAIL
 #SBATCH --mail-user=jfmalan123@gmail.com
 
-ASTROPY=/idia/software/containers/ASTRO-PY3.10.sif
+set -e
+
+SIMMS=/idia/software/containers/STIMELA_IMAGES/stimela_simms_1.2.0.sif
+MEQTREES=/idia/software/containers/STIMELA_IMAGES/stimela_meqtrees_1.7.2.sif
 CASA=/idia/software/containers/casa-stable-v6.sif
+ASTROPY=/idia/software/containers/ASTRO-PY3.10.sif
 VENV=/idia/users/$USER/venvs/rfi_toolbox
 SCRIPTS=/users/$USER/rfi-inpainting-research-pipeline
 
@@ -22,23 +26,33 @@ DATASET=$SIMDIR/dataset.h5
 
 mkdir -p $SIMDIR logs
 
-# --- Step 1: generate synthetic clean MeerKAT MS via Stimela2 ---
-singularity exec $ASTROPY stimela run \
-    $SCRIPTS/data_preparation/simulate_vis.yml simulate-meerkat \
-    ms-name=$SIM_MS \
-    sky-model=$SCRIPTS/data_preparation/sky_model.txt \
-    n-hours=0.5
+# --- Step 1: create empty MeerKAT MS (simms) ---
+singularity exec $SIMMS simms \
+    --telescope meerkat \
+    --direction "J2000,04h00m00.0s,-30d00m00s" \
+    --dtime 8 \
+    --synthesis 0.5 \
+    --freq0 880MHz \
+    --dfreq 208.9843kHz \
+    --nchan 4096 \
+    --pol XX YY \
+    --name $SIM_MS
 
-# --- Step 2: add MeerKAT thermal noise to synthetic MS (SEFD~430 Jy, sigma~0.105 Jy/vis) ---
+# --- Step 2: predict sky model visibilities into MS (meqtrees) ---
+singularity exec $MEQTREES meqtrees \
+    --ms $SIM_MS \
+    --sky-model $SCRIPTS/data_preparation/sky_model.txt
+
+# --- Step 3: add MeerKAT thermal noise (SEFD~430 Jy, sigma~0.105 Jy/vis) ---
 singularity exec $CASA casa --nologger --log2term \
     -c $SCRIPTS/data_preparation/add_noise.py $SIM_MS
 
-# --- Step 3: extract amplitude waterfall from synthetic MS ---
+# --- Step 4: extract amplitude waterfall ---
 singularity exec $ASTROPY python $SCRIPTS/data_preparation/extract_ms.py \
     --ms $SIM_MS \
     --output $WATERFALL
 
-# --- Step 4: slice waterfall into 256x256 patches ---
+# --- Step 5: slice into 256x256 patches ---
 singularity exec $ASTROPY python $SCRIPTS/data_preparation/waterfall_to_patches.py \
     --waterfall ${WATERFALL}.npy \
     --output $CLEAN_H5 \
@@ -49,12 +63,13 @@ singularity exec $ASTROPY python $SCRIPTS/data_preparation/waterfall_to_patches.
     --max-patches 500 \
     --max-flag-fraction 0.5
 
-# --- Step 5: inject synthetic RFI using rfi_toolbox ---
+# --- Step 6: inject synthetic RFI ---
 singularity exec $ASTROPY /bin/bash -c "
-    source $VENV/bin/activate
-    python $SCRIPTS/data_preparation/inject_rfi.py --input $CLEAN_H5 --output $DATASET --seed 42
+    source $VENV/bin/activate &&
+    python $SCRIPTS/data_preparation/inject_rfi.py \
+        --input $CLEAN_H5 --output $DATASET --seed 42
 "
 
-# --- Step 6: validate ---
+# --- Step 7: validate ---
 singularity exec $ASTROPY python $SCRIPTS/data_preparation/validate_simulate.py \
     --input $DATASET
