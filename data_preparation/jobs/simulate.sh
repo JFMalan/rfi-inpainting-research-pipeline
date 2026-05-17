@@ -2,7 +2,7 @@
 #SBATCH --job-name='rfi-simulate'
 #SBATCH --partition=Main
 #SBATCH --cpus-per-task=8
-#SBATCH --mem=32GB
+#SBATCH --mem=64GB
 #SBATCH --time=04:00:00
 #SBATCH --output=logs/simulate-%j-stdout.log
 #SBATCH --error=logs/simulate-%j-stderr.log
@@ -42,7 +42,8 @@ singularity exec $SIMMS simms \
 singularity exec $AFRICANUS crystalball \
     -sm $SCRIPTS/data_preparation/sky_model.txt \
     -o DATA \
-    -rc 0 \
+    -rc 10000 \
+    -mf 0.3 \
     -j 8 \
     $SIM_MS
 
