@@ -122,7 +122,7 @@ def check_dataset(path, n_plot=4):
                           extent=[0, n_time, freq_min, freq_max],
                           vmin=vmin_c, vmax=vmax_c, cmap="plasma")
         rfi_rgba = np.zeros((*mask[i].T.shape, 4), dtype=np.float32)
-        rfi_rgba[mask[i].T > 0] = [0.0, 1.0, 0.2, 0.85]
+        rfi_rgba[mask[i].T > 0] = [0.0, 1.0, 0.2]
         axes[i, 1].imshow(rfi_rgba, aspect="auto", origin="lower",
                           extent=[0, n_time, freq_min, freq_max])
         if i == 0:
