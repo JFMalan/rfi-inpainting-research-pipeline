@@ -2,8 +2,8 @@
 #SBATCH --job-name='rfi-simulate'
 #SBATCH --partition=Main
 #SBATCH --cpus-per-task=8
-#SBATCH --mem=32GB
-#SBATCH --time=04:00:00
+#SBATCH --mem=128GB
+#SBATCH --time=08:00:00
 #SBATCH --output=logs/simulate-%j-stdout.log
 #SBATCH --error=logs/simulate-%j-stderr.log
 #SBATCH --mail-type=BEGIN,END,FAIL
@@ -32,10 +32,10 @@ singularity exec $SIMMS simms \
     -T meerkat \
     -dir "J2000,04h00m00.0s,-30d00m00s" \
     -dt 8 \
-    -st 0.25 \
+    -st 1.0 \
     -f0 880MHz \
-    -df 835.9375kHz \
-    -nc 1024 \
+    -df 208.9843kHz \
+    -nc 4096 \
     -pl "XX YY" \
     -n $SIM_MS
 
@@ -61,11 +61,11 @@ singularity exec $ASTROPY python $SCRIPTS/data_preparation/extract_ms.py \
 singularity exec $ASTROPY python $SCRIPTS/data_preparation/waterfall_to_patches.py \
     --waterfall ${WATERFALL}.npy \
     --output $CLEAN_H5 \
-    --patch-time 64 \
-    --patch-freq 64 \
-    --stride-time 32 \
-    --stride-freq 32 \
-    --max-patches 100 \
+    --patch-time 256 \
+    --patch-freq 256 \
+    --stride-time 64 \
+    --stride-freq 64 \
+    --max-patches 500 \
     --max-flag-fraction 0.5
 
 # --- Step 6: inject synthetic RFI ---
