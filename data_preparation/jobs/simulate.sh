@@ -10,8 +10,8 @@
 #SBATCH --mail-user=jfmalan123@gmail.com
 
 SIMMS=/idia/software/containers/STIMELA_IMAGES/stimela_simms_1.2.0.sif
-MEQTREES=/idia/software/containers/STIMELA_IMAGES/stimela_meqtrees_1.7.2.sif
 ASTROPY=/idia/software/containers/ASTRO-PY3.10.sif
+VENV=/idia/users/$USER/venvs/rfi_toolbox
 
 OUTDIR=/scratch3/users/$USER/rfi/simulated
 MS=$OUTDIR/meerkat_sim.ms
@@ -35,17 +35,18 @@ singularity exec $SIMMS simms \
     -pl "XX YY" \
     -n $MS
 
-# --- Step 2: fill DATA column with predicted visibilities ---
-singularity exec $MEQTREES python data_preparation/fill_ms.py \
-    --ms $MS \
-    --sky-model data_preparation/sky_model.txt
+# --- Step 2: predict visibilities from sky model using crystalball ---
+singularity exec $ASTROPY /bin/bash -c "
+    source $VENV/bin/activate
+    crystalball $MS -sm data_preparation/sky_model.txt -o DATA -j 8
+"
 
-# --- Step 3a: extract amplitude waterfall from MS (needs casacore) ---
-singularity exec $MEQTREES python data_preparation/extract_ms.py \
+# --- Step 3a: extract amplitude waterfall from MS ---
+singularity exec $ASTROPY python data_preparation/extract_ms.py \
     --ms $MS \
     --output $WATERFALL
 
-# --- Step 3b: slice waterfall into 256x256 patches and save HDF5 (needs h5py) ---
+# --- Step 3b: slice waterfall into 256x256 patches and save HDF5 ---
 singularity exec $ASTROPY python data_preparation/waterfall_to_patches.py \
     --waterfall ${WATERFALL}.npy \
     --output $CLEAN_H5 \
@@ -55,11 +56,11 @@ singularity exec $ASTROPY python data_preparation/waterfall_to_patches.py \
     --stride-freq 64 \
     --max-patches 500
 
-# --- Step 4: inject RFI (van Zyl patterns, needs h5py) ---
-singularity exec $ASTROPY python data_preparation/inject_rfi.py \
-    --input $CLEAN_H5 \
-    --output $DATASET \
-    --seed 42
+# --- Step 4: inject RFI using rfi_toolbox ---
+singularity exec $ASTROPY /bin/bash -c "
+    source $VENV/bin/activate
+    python data_preparation/inject_rfi.py --input $CLEAN_H5 --output $DATASET --seed 42
+"
 
 # --- Step 5: validate ---
 singularity exec $ASTROPY python data_preparation/validate_simulate.py \
