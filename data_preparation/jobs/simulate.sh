@@ -12,6 +12,7 @@
 SIMMS=/idia/software/containers/STIMELA_IMAGES/stimela_simms_1.2.0.sif
 ASTROPY=/idia/software/containers/ASTRO-PY3.10.sif
 VENV=/idia/users/$USER/venvs/rfi_toolbox
+SCRIPTS=/users/$USER/rfi-inpainting-research-pipeline
 
 OUTDIR=/scratch3/users/$USER/rfi/simulated
 MS=$OUTDIR/meerkat_sim.ms
@@ -38,16 +39,16 @@ singularity exec $SIMMS simms \
 # --- Step 2: predict visibilities from sky model using crystalball ---
 singularity exec $ASTROPY /bin/bash -c "
     source $VENV/bin/activate
-    crystalball $MS -sm data_preparation/sky_model.txt -o DATA -j 8
+    crystalball $MS -sm $SCRIPTS/data_preparation/sky_model.txt -o DATA -j 8
 "
 
 # --- Step 3a: extract amplitude waterfall from MS ---
-singularity exec $ASTROPY python data_preparation/extract_ms.py \
+singularity exec $ASTROPY python $SCRIPTS/data_preparation/extract_ms.py \
     --ms $MS \
     --output $WATERFALL
 
 # --- Step 3b: slice waterfall into 256x256 patches and save HDF5 ---
-singularity exec $ASTROPY python data_preparation/waterfall_to_patches.py \
+singularity exec $ASTROPY python $SCRIPTS/data_preparation/waterfall_to_patches.py \
     --waterfall ${WATERFALL}.npy \
     --output $CLEAN_H5 \
     --patch-time 256 \
@@ -59,9 +60,9 @@ singularity exec $ASTROPY python data_preparation/waterfall_to_patches.py \
 # --- Step 4: inject RFI using rfi_toolbox ---
 singularity exec $ASTROPY /bin/bash -c "
     source $VENV/bin/activate
-    python data_preparation/inject_rfi.py --input $CLEAN_H5 --output $DATASET --seed 42
+    python $SCRIPTS/data_preparation/inject_rfi.py --input $CLEAN_H5 --output $DATASET --seed 42
 "
 
 # --- Step 5: validate ---
-singularity exec $ASTROPY python data_preparation/validate_simulate.py \
+singularity exec $ASTROPY python $SCRIPTS/data_preparation/validate_simulate.py \
     --input $DATASET
