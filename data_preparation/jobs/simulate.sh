@@ -43,7 +43,7 @@ singularity exec $AFRICANUS crystalball \
     -sm $SCRIPTS/data_preparation/sky_model.txt \
     -o DATA \
     -rc 10000 \
-    -mf 0.3 \
+    -mc 25 \
     -j 8 \
     $SIM_MS
 
