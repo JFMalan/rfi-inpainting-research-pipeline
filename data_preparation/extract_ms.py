@@ -7,7 +7,13 @@ from casacore.tables import table
 def main(args):
     ms = table(args.ms, readonly=True)
     cols = ms.colnames()
-    col = 'CORRECTED_DATA' if 'CORRECTED_DATA' in cols else 'DATA'
+    col = 'DATA'
+    if 'CORRECTED_DATA' in cols:
+        try:
+            ms.getcell('CORRECTED_DATA', 0)
+            col = 'CORRECTED_DATA'
+        except Exception:
+            pass
     data = ms.getcol(col)    # (n_row, n_chan, n_pol)
     flags = ms.getcol('FLAG')
     times = ms.getcol('TIME')
