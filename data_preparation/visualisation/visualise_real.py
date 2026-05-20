@@ -107,6 +107,14 @@ def main(args):
 
     print("loading MS...")
     amp, flagged, freqs = load_ms(args.ms, args.max_time)
+
+    # trim bandpass roll-off at band edges
+    chan_mask = (freqs >= args.freq_min) & (freqs <= args.freq_max)
+    amp = amp[:, :, chan_mask]
+    flagged = flagged[:, :, chan_mask]
+    freqs = freqs[chan_mask]
+    print(f"trimmed to {freqs[0]:.1f}-{freqs[-1]:.1f} MHz  ({chan_mask.sum()} channels)")
+
     n_baseline = amp.shape[1]
 
     waterfall, flag_mask = get_avg_waterfall(amp, flagged)
@@ -224,4 +232,6 @@ if __name__ == '__main__':
     parser.add_argument('--output', required=True)
     parser.add_argument('--max-time', type=int, default=9999)
     parser.add_argument('--n-baselines', type=int, default=8)
+    parser.add_argument('--freq-min', type=float, default=900.0)
+    parser.add_argument('--freq-max', type=float, default=1650.0)
     main(parser.parse_args())
