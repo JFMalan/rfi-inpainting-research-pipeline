@@ -30,10 +30,9 @@ CASA=/idia/software/containers/casa-stable-v6.sif
 
 rm -rf $SUBSET_MS
 
-echo "[1/3] $(date '+%H:%M:%S') extracting 2-minute subset with CASA split"
+echo "[1/3] $(date '+%H:%M:%S') extracting scan 1 (~20 min) with CASA split"
 singularity exec $CASA casa --nologger --log2term -c "
 split(vis='$SRC_MS', outputvis='$SUBSET_MS', field='0', scan='1',
-      timerange='2018/05/04/21:31:15~2018/05/04/21:33:15',
       datacolumn='data', keepflags=True)
 "
 
