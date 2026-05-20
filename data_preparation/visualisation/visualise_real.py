@@ -128,7 +128,8 @@ def main(args):
         wf, fm = get_baseline_waterfall(amp, flagged, int(bl))
         patch = wf[:PATCH_SIZE, :]
         pflags = fm[:PATCH_SIZE, :]
-        unflagged_vals = patch[pflags == 0]
+        clean_chans = ~rfi_chans
+        unflagged_vals = patch[:, clean_chans][pflags[:, clean_chans] == 0]
         vmin = np.percentile(unflagged_vals, 5) if len(unflagged_vals) > 10 else global_vmin
         vmax = np.percentile(unflagged_vals, 95) if len(unflagged_vals) > 10 else global_vmax
         ax = axes[i]
