@@ -15,7 +15,7 @@ RFI_BANDS = [
 PATCH_SIZE = 256
 
 
-def extract_waterfall(ms_path, max_time):
+def extract_waterfall(ms_path, max_time, chan_avg=1):
     ms = table(ms_path, readonly=True)
     cols = ms.colnames()
     col = 'CORRECTED_DATA' if 'CORRECTED_DATA' in cols else 'DATA'
@@ -50,8 +50,16 @@ def extract_waterfall(ms_path, max_time):
     waterfall = amp_3d.mean(axis=1).filled(0.0).astype(np.float32)
     all_flagged = flagged.reshape(n_time, n_baseline, amp.shape[1]).all(axis=1)
 
+    if chan_avg > 1:
+        n_chan = waterfall.shape[1]
+        n_trim = (n_chan // chan_avg) * chan_avg
+        waterfall = waterfall[:, :n_trim].reshape(n_time, -1, chan_avg).mean(axis=2)
+        all_flagged = all_flagged[:, :n_trim].reshape(n_time, -1, chan_avg).any(axis=2).astype(np.float32)
+        freqs = freqs[:n_trim].reshape(-1, chan_avg).mean(axis=1)
+
     print(f"column: {col}")
     print(f"shape: {waterfall.shape}  freq: {freqs[0]:.1f}-{freqs[-1]:.1f} MHz")
+    print(f"channel averaging: {chan_avg}x  ({freqs[1]-freqs[0]:.2f} MHz/bin)")
     print(f"flagged cells: {all_flagged.mean()*100:.1f}%")
 
     return waterfall, all_flagged.astype(np.float32), freqs
@@ -64,7 +72,7 @@ def in_rfi_band(freqs):
     return mask
 
 
-def clean_percentile(waterfall, flag_mask, freqs, lo=1, hi=99):
+def clean_percentile(waterfall, flag_mask, freqs, lo=5, hi=99):
     rfi_chans = in_rfi_band(freqs)
     clean = waterfall[:, ~rfi_chans]
     clean_flags = flag_mask[:, ~rfi_chans]
@@ -72,9 +80,10 @@ def clean_percentile(waterfall, flag_mask, freqs, lo=1, hi=99):
     return np.percentile(vals, lo), np.percentile(vals, hi)
 
 
-def flag_overlay(mask_2d):
-    rgba = np.zeros((*mask_2d.T.shape, 4), dtype=np.float32)
-    rgba[mask_2d.T > 0] = [0.0, 1.0, 0.2, 1.0]
+def green_overlay(waterfall_2d, flag_mask_2d, threshold=1.0):
+    combined = (flag_mask_2d > 0) | (waterfall_2d >= threshold)
+    rgba = np.zeros((*combined.T.shape, 4), dtype=np.float32)
+    rgba[combined.T] = [0.0, 1.0, 0.2, 1.0]
     return rgba
 
 
@@ -90,10 +99,13 @@ def extract_patches(waterfall, flag_mask, freqs, n_patches=16):
     if n_time < PATCH_SIZE or n_chan < PATCH_SIZE:
         raise ValueError(f"waterfall {waterfall.shape} too small for {PATCH_SIZE}x{PATCH_SIZE} patches")
 
+    # tile across frequency — 4096 channels gives 16 non-overlapping freq slices
+    # fix time window to the first PATCH_SIZE bins
+    t0 = 0
     patches, patch_flags, patch_freqs, patch_times = [], [], [], []
+    freq_step = max(PATCH_SIZE, (n_chan - PATCH_SIZE) // max(1, n_patches - 1))
     for i in range(n_patches):
-        t0 = min(i * (PATCH_SIZE - 1), n_time - PATCH_SIZE)
-        f0 = (n_chan - PATCH_SIZE) // 2
+        f0 = min(i * freq_step, n_chan - PATCH_SIZE)
         patches.append(waterfall[t0:t0 + PATCH_SIZE, f0:f0 + PATCH_SIZE])
         patch_flags.append(flag_mask[t0:t0 + PATCH_SIZE, f0:f0 + PATCH_SIZE])
         patch_freqs.append(freqs[f0:f0 + PATCH_SIZE])
@@ -107,9 +119,10 @@ def main(args):
     out_dir.mkdir(parents=True, exist_ok=True)
 
     print("loading MS...")
-    waterfall, flag_mask, freqs = extract_waterfall(args.ms, args.max_time)
+    waterfall, flag_mask, freqs = extract_waterfall(args.ms, args.max_time, args.chan_avg)
 
-    vmin, vmax = clean_percentile(waterfall, flag_mask, freqs, 1, 99)
+    vmin, _ = clean_percentile(waterfall, flag_mask, freqs, 1, 99)
+    vmax = 1.0
 
     rfi_chans = in_rfi_band(freqs)
     unflagged_clean = waterfall[:, ~rfi_chans][flag_mask[:, ~rfi_chans] == 0]
@@ -126,7 +139,7 @@ def main(args):
         ax.imshow(patch.T, aspect='auto', origin='lower',
                   extent=[pt[0], pt[1], pf[0], pf[-1]],
                   vmin=vmin, vmax=vmax, cmap='plasma')
-        ax.imshow(flag_overlay(pflags), aspect='auto', origin='lower',
+        ax.imshow(green_overlay(patch, pflags), aspect='auto', origin='lower',
                   extent=[pt[0], pt[1], pf[0], pf[-1]])
         add_rfi_bands_y(ax, pf)
         ax.set_title(f"t={pt[0]}–{pt[1]}", fontsize=8)
@@ -189,7 +202,7 @@ def main(args):
     ax.imshow(waterfall.T, aspect='auto', origin='lower',
               extent=[0, waterfall.shape[0], freqs[0], freqs[-1]],
               vmin=vmin, vmax=vmax, cmap='plasma')
-    ax.imshow(flag_overlay(flag_mask), aspect='auto', origin='lower',
+    ax.imshow(green_overlay(waterfall, flag_mask), aspect='auto', origin='lower',
               extent=[0, waterfall.shape[0], freqs[0], freqs[-1]])
     for lo, hi in RFI_BANDS:
         if lo < freqs[-1] and hi > freqs[0]:
@@ -215,4 +228,5 @@ if __name__ == '__main__':
     parser.add_argument('--ms', required=True)
     parser.add_argument('--output', required=True)
     parser.add_argument('--max-time', type=int, default=512)
+    parser.add_argument('--chan-avg', type=int, default=16)
     main(parser.parse_args())
