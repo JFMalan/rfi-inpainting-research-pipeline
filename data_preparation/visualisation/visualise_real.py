@@ -77,15 +77,18 @@ def add_rfi_bands_y(ax, freqs):
                        color='cyan', alpha=0.15, linewidth=0)
 
 
-def extract_patches(waterfall, flag_mask, freqs, n_patches=16):
+def extract_patches(waterfall, flag_mask, n_patches=16):
     n_time, n_chan = waterfall.shape
     if n_time < PATCH_SIZE:
-        raise ValueError(f"not enough time bins ({n_time}) after loading — increase --max-time")
+        raise ValueError(f"not enough time bins ({n_time}) — increase --max-time")
+
+    # only produce as many non-overlapping patches as the data supports
+    max_non_overlapping = n_time // PATCH_SIZE
+    n_patches = min(n_patches, max_non_overlapping)
 
     patches, patch_flags, patch_times = [], [], []
-    time_step = max(1, (n_time - PATCH_SIZE) // max(1, n_patches - 1))
     for i in range(n_patches):
-        t0 = min(i * time_step, n_time - PATCH_SIZE)
+        t0 = i * PATCH_SIZE
         patches.append(waterfall[t0:t0 + PATCH_SIZE, :])
         patch_flags.append(flag_mask[t0:t0 + PATCH_SIZE, :])
         patch_times.append((t0, t0 + PATCH_SIZE))
@@ -102,36 +105,33 @@ def main(args):
 
     rfi_chans = in_rfi_band(freqs)
     unflagged_clean = waterfall[:, ~rfi_chans][flag_mask[:, ~rfi_chans] == 0]
-    global_vmin = np.percentile(unflagged_clean, 1)
-    global_vmax = np.percentile(unflagged_clean, 99)
+    global_vmin = np.percentile(unflagged_clean, 5)
+    global_vmax = np.percentile(unflagged_clean, 95)
 
     # --- 16 patches tiled across frequency, per-patch colour scaling ---
-    patches, patch_flags, patch_times = extract_patches(waterfall, flag_mask, freqs)
+    patches, patch_flags, patch_times = extract_patches(waterfall, flag_mask)
     n = len(patches)
-    ncols = 4
+    ncols = min(4, n)
     nrows = (n + ncols - 1) // ncols
-    fig, axes = plt.subplots(nrows, ncols, figsize=(4 * ncols, 4 * nrows))
+    fig, axes = plt.subplots(nrows, ncols, figsize=(10 * ncols, 8 * nrows), squeeze=False)
     axes = axes.flatten()
     for i, (patch, pflags, pt) in enumerate(zip(patches, patch_flags, patch_times)):
         ax = axes[i]
-        ax.imshow(patch.T, aspect='auto', origin='lower',
-                  extent=[pt[0], pt[1], freqs[0], freqs[-1]],
-                  vmin=global_vmin, vmax=global_vmax, cmap='plasma')
+        im = ax.imshow(patch.T, aspect='auto', origin='lower',
+                       extent=[pt[0], pt[1], freqs[0], freqs[-1]],
+                       vmin=global_vmin, vmax=global_vmax, cmap='plasma')
         ax.imshow(green_overlay(pflags), aspect='auto', origin='lower',
                   extent=[pt[0], pt[1], freqs[0], freqs[-1]])
         add_rfi_bands_y(ax, freqs)
-        ax.set_title(f"t={pt[0]}–{pt[1]}", fontsize=8)
-        ax.set_xlabel("Time bins", fontsize=7)
-        ax.tick_params(labelsize=6)
-        if i % ncols == 0:
-            ax.set_ylabel("Freq (MHz)", fontsize=7)
-        else:
-            ax.set_yticklabels([])
+        ax.set_title(f"Real MeerKAT — t={pt[0]}–{pt[1]} (green = flagged)", fontsize=11)
+        ax.set_xlabel("Time bins", fontsize=10)
+        ax.set_ylabel("Freq (MHz)", fontsize=10)
+        ax.tick_params(labelsize=9)
+        plt.colorbar(im, ax=ax, label="Amplitude (Jy)", pad=0.01)
     for ax in axes[n:]:
         ax.set_visible(False)
-    plt.suptitle("Real MeerKAT — 256×256 patches across full band (green = flagged)", y=1.01)
     plt.tight_layout()
-    plt.savefig(out_dir / "patches.png", dpi=120, bbox_inches="tight")
+    plt.savefig(out_dir / "patches.png", dpi=150, bbox_inches="tight")
     plt.close()
     print("saved patches.png")
 
