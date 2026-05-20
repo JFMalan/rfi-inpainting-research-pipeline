@@ -15,8 +15,10 @@ RFI_BANDS = [
 PATCH_SIZE = 256
 
 
-def load_ms(ms_path, max_time):
+def load_ms(ms_path, max_time, field=None):
     ms = table(ms_path, readonly=True)
+    if field is not None:
+        ms = ms.query(f"FIELD_ID == {field}")
     cols = ms.colnames()
     col = 'CORRECTED_DATA' if 'CORRECTED_DATA' in cols else 'DATA'
     try:
@@ -106,7 +108,7 @@ def main(args):
     out_dir.mkdir(parents=True, exist_ok=True)
 
     print("loading MS...")
-    amp, flagged, freqs = load_ms(args.ms, args.max_time)
+    amp, flagged, freqs = load_ms(args.ms, args.max_time, field=args.field)
 
     # trim bandpass roll-off at band edges
     chan_mask = (freqs >= args.freq_min) & (freqs <= args.freq_max)
@@ -201,20 +203,27 @@ def main(args):
     print("saved mean_spectrum.png")
 
     # --- Full waterfall ---
+    # mask out fully-flagged time steps and persistent RFI channels from the image
+    # so they don't skew the colourscale — render them as grey via set_bad
+    display = waterfall.copy()
+    display[flag_mask == 1] = np.nan
+    display[:, rfi_chans] = np.nan
+
+    cmap = plt.get_cmap('plasma').copy()
+    cmap.set_bad(color='#444444')  # grey for flagged/RFI-band pixels
+
     fig, ax = plt.subplots(figsize=(12, 6))
-    ax.imshow(waterfall.T, aspect='auto', origin='lower',
-              extent=[0, waterfall.shape[0], freqs[0], freqs[-1]],
-              vmin=global_vmin, vmax=global_vmax, cmap='plasma')
-    ax.imshow(green_overlay(flag_mask), aspect='auto', origin='lower',
-              extent=[0, waterfall.shape[0], freqs[0], freqs[-1]])
+    im = ax.imshow(display.T, aspect='auto', origin='lower',
+                   extent=[0, display.shape[0], freqs[0], freqs[-1]],
+                   vmin=global_vmin, vmax=global_vmax, cmap=cmap)
     for lo, hi in RFI_BANDS:
         if lo < freqs[-1] and hi > freqs[0]:
             ax.axhspan(max(lo, freqs[0]), min(hi, freqs[-1]),
-                       color='cyan', alpha=0.12, linewidth=0)
+                       color='red', alpha=0.15, linewidth=0)
     ax.set_xlabel("Time bins")
     ax.set_ylabel("Freq (MHz)")
-    ax.set_title("Real MeerKAT — full waterfall (green = flagged)")
-    plt.colorbar(ax.images[0], ax=ax, label="Amplitude (Jy)", pad=0.01)
+    ax.set_title("Real MeerKAT — full waterfall (grey = flagged or persistent RFI band)")
+    plt.colorbar(im, ax=ax, label="Amplitude (Jy)", pad=0.01)
     plt.tight_layout()
     plt.savefig(out_dir / "waterfall_full.png", dpi=100)
     plt.close()
@@ -230,6 +239,7 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--ms', required=True)
     parser.add_argument('--output', required=True)
+    parser.add_argument('--field', type=int, default=None)
     parser.add_argument('--max-time', type=int, default=9999)
     parser.add_argument('--n-baselines', type=int, default=8)
     parser.add_argument('--freq-min', type=float, default=900.0)

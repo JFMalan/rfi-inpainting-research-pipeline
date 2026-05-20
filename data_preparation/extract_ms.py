@@ -6,6 +6,8 @@ from casacore.tables import table
 
 def main(args):
     ms = table(args.ms, readonly=True)
+    if args.field is not None:
+        ms = ms.query(f"FIELD_ID == {args.field}")
     cols = ms.colnames()
     col = 'DATA'
     if 'CORRECTED_DATA' in cols:
@@ -58,4 +60,5 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--ms', required=True)
     parser.add_argument('--output', required=True)
+    parser.add_argument('--field', type=int, default=None)
     main(parser.parse_args())

@@ -103,3 +103,4 @@ optional configuration file not found, continuing CASA startup without it
 No event loop hook running.
 Using matplotlib backend: agg
 CASA 6.7.2.42 -- Common Astronomy Software Applications [6.7.2.42]
+ 
