@@ -38,10 +38,11 @@ def extract_waterfall(ms_path, max_time, baseline_idx=None):
 
     unique_times = np.unique(times)
     n_baseline = amp.shape[0] // len(unique_times)
+    n_chan = amp.shape[1]
     n_time = min(len(unique_times), max_time)
 
-    amp = amp[:n_time * n_baseline].reshape(n_time, n_baseline, amp.shape[1])
-    flagged = flagged[:n_time * n_baseline].reshape(n_time, n_baseline, amp.shape[1])
+    amp = amp[:n_time * n_baseline].reshape(n_time, n_baseline, n_chan)
+    flagged = flagged[:n_time * n_baseline].reshape(n_time, n_baseline, n_chan)
 
     if baseline_idx is not None:
         amp = amp[:, baseline_idx, :]
