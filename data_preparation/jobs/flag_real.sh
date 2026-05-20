@@ -3,7 +3,7 @@
 #SBATCH --partition=Main
 #SBATCH --cpus-per-task=32
 #SBATCH --mem=128GB
-#SBATCH --time=02:00:00
+#SBATCH --time=10:00:00
 #SBATCH --output=logs/flag-real-%j-stdout.log
 #SBATCH --error=logs/flag-real-%j-stderr.log
 #SBATCH --mail-type=BEGIN,END,FAIL
@@ -48,7 +48,8 @@ echo "[3/3] $(date '+%H:%M:%S') visualising flagged data"
 singularity exec $ASTROPY python $SCRIPTS/data_preparation/visualisation/visualise_real.py \
     --ms $FLAGGED_MS \
     --output $VIS_OUT \
-    --max-time 512
+    --freq-min 900 \
+    --freq-max 1650
 
 echo "done $(date '+%H:%M:%S')"
 echo "plots -> $VIS_OUT"
