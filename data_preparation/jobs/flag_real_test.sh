@@ -28,10 +28,11 @@ echo "using container: $OXKAT"
 ASTROPY=/idia/software/containers/ASTRO-PY3.10.sif
 CASA=/idia/software/containers/casa-stable-v6.sif
 
-echo "[1/3] $(date '+%H:%M:%S') extracting 10-minute subset with CASA split"
+echo "[1/3] $(date '+%H:%M:%S') extracting 2-minute subset with CASA split"
 singularity exec $CASA casa --nologger --log2term -c "
-split(vis='$SRC_MS', outputvis='$SUBSET_MS', field='0',
-      timerange='*+0:10:00', datacolumn='data', keepflags=True)
+split(vis='$SRC_MS', outputvis='$SUBSET_MS', field='0', scan='1',
+      timerange='2018/05/04/21:31:15~2018/05/04/21:33:15',
+      datacolumn='data', keepflags=True)
 "
 
 echo "[2/3] $(date '+%H:%M:%S') running tricolour on subset"
