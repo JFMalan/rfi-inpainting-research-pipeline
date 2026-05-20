@@ -15,7 +15,7 @@ RFI_BANDS = [
 PATCH_SIZE = 256
 
 
-def extract_waterfall(ms_path, max_time, baseline_idx=None):
+def load_ms(ms_path, max_time):
     ms = table(ms_path, readonly=True)
     cols = ms.colnames()
     col = 'CORRECTED_DATA' if 'CORRECTED_DATA' in cols else 'DATA'
@@ -44,21 +44,22 @@ def extract_waterfall(ms_path, max_time, baseline_idx=None):
     amp = amp[:n_time * n_baseline].reshape(n_time, n_baseline, n_chan)
     flagged = flagged[:n_time * n_baseline].reshape(n_time, n_baseline, n_chan)
 
-    if baseline_idx is not None:
-        amp = amp[:, baseline_idx, :]
-        flagged = flagged[:, baseline_idx, :]
-        waterfall = amp.astype(np.float32)
-        flag_mask = flagged.astype(np.float32)
-    else:
-        amp_3d = np.ma.array(amp, mask=flagged)
-        waterfall = amp_3d.mean(axis=1).filled(0.0).astype(np.float32)
-        flag_mask = flagged.all(axis=1).astype(np.float32)
+    print(f"column: {col}  shape: ({n_time}, {n_baseline}, {n_chan})  "
+          f"freq: {freqs[0]:.1f}-{freqs[-1]:.1f} MHz")
 
-    print(f"column: {col}  baselines: {n_baseline}")
-    print(f"shape: {waterfall.shape}  freq: {freqs[0]:.1f}-{freqs[-1]:.1f} MHz")
-    print(f"flagged cells: {flag_mask.mean()*100:.1f}%")
+    return amp, flagged, freqs
 
-    return waterfall, flag_mask, freqs
+
+def get_baseline_waterfall(amp, flagged, baseline_idx):
+    w = amp[:, baseline_idx, :]
+    f = flagged[:, baseline_idx, :]
+    return w, f.astype(np.float32)
+
+
+def get_avg_waterfall(amp, flagged):
+    wf = np.ma.array(amp, mask=flagged).mean(axis=1).filled(0.0).astype(np.float32)
+    fm = flagged.all(axis=1).astype(np.float32)
+    return wf, fm
 
 
 def in_rfi_band(freqs):
@@ -105,28 +106,31 @@ def main(args):
     out_dir.mkdir(parents=True, exist_ok=True)
 
     print("loading MS...")
-    # load all baselines to get global colour scale and for the multi-baseline plot
-    waterfall_avg, flag_mask_avg, freqs = extract_waterfall(args.ms, args.max_time, baseline_idx=None)
+    amp, flagged, freqs = load_ms(args.ms, args.max_time)
+    n_baseline = amp.shape[1]
+
+    waterfall, flag_mask = get_avg_waterfall(amp, flagged)
 
     rfi_chans = in_rfi_band(freqs)
-    unflagged_clean = waterfall_avg[:, ~rfi_chans][flag_mask_avg[:, ~rfi_chans] == 0]
+    unflagged_clean = waterfall[:, ~rfi_chans][flag_mask[:, ~rfi_chans] == 0]
     global_vmin = np.percentile(unflagged_clean, 5)
     global_vmax = np.percentile(unflagged_clean, 95)
 
     # --- 8 baselines, each showing a 256-time patch ---
-    n_show = args.n_baselines
-    baseline_indices = np.linspace(0, args.n_baselines * 2, n_show, dtype=int)
+    n_show = min(args.n_baselines, n_baseline)
+    baseline_indices = np.linspace(0, n_baseline - 1, n_show, dtype=int)
     ncols = 2
     nrows = (n_show + ncols - 1) // ncols
     fig, axes = plt.subplots(nrows, ncols, figsize=(12, 4 * nrows))
     axes = axes.flatten()
 
     for i, bl in enumerate(baseline_indices):
-        wf, fm, _ = extract_waterfall(args.ms, args.max_time, baseline_idx=int(bl))
+        wf, fm = get_baseline_waterfall(amp, flagged, int(bl))
         patch = wf[:PATCH_SIZE, :]
         pflags = fm[:PATCH_SIZE, :]
-        vmin = np.percentile(patch[pflags == 0], 5) if (pflags == 0).any() else global_vmin
-        vmax = np.percentile(patch[pflags == 0], 95) if (pflags == 0).any() else global_vmax
+        unflagged_vals = patch[pflags == 0]
+        vmin = np.percentile(unflagged_vals, 5) if len(unflagged_vals) > 10 else global_vmin
+        vmax = np.percentile(unflagged_vals, 95) if len(unflagged_vals) > 10 else global_vmax
         ax = axes[i]
         im = ax.imshow(patch.T, aspect='auto', origin='lower',
                        extent=[0, patch.shape[0], freqs[0], freqs[-1]],
@@ -146,8 +150,6 @@ def main(args):
     plt.savefig(out_dir / "patches.png", dpi=120, bbox_inches="tight")
     plt.close()
     print("saved patches.png")
-
-    waterfall, flag_mask = waterfall_avg, flag_mask_avg
 
     # --- Amplitude distribution (non-RFI, unflagged) ---
     fig, ax = plt.subplots(figsize=(7, 4))
