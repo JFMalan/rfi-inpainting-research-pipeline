@@ -38,11 +38,11 @@ cp -r $SRC_MS $FLAGGED_MS
 echo "[2/3] $(date '+%H:%M:%S') running tricolour"
 singularity exec $OXKAT tricolour \
     $FLAGGED_MS \
-    --strategy standard \
-    --fields 0 \
-    --workers 32 \
-    --row-chunks 10000 \
-    --baseline-chunks 24
+    -fs standard \
+    -fn ACT-CLJ2023.3-5535 \
+    -nw 32 \
+    -rc 10000 \
+    -bc 24
 
 echo "[3/3] $(date '+%H:%M:%S') visualising flagged data"
 singularity exec $ASTROPY python $SCRIPTS/data_preparation/visualisation/visualise_real.py \
