@@ -79,21 +79,18 @@ def add_rfi_bands_y(ax, freqs):
 
 def extract_patches(waterfall, flag_mask, freqs, n_patches=16):
     n_time, n_chan = waterfall.shape
-    if n_chan < PATCH_SIZE:
-        raise ValueError(f"not enough channels ({n_chan}) for {PATCH_SIZE}-wide patches")
+    if n_time < PATCH_SIZE:
+        raise ValueError(f"not enough time bins ({n_time}) after loading — increase --max-time")
 
-    t0 = 0
-    t1 = min(PATCH_SIZE, n_time)
-
-    patches, patch_flags, patch_freqs = [], [], []
-    freq_step = max(PATCH_SIZE, (n_chan - PATCH_SIZE) // max(1, n_patches - 1))
+    patches, patch_flags, patch_times = [], [], []
+    time_step = max(1, (n_time - PATCH_SIZE) // max(1, n_patches - 1))
     for i in range(n_patches):
-        f0 = min(i * freq_step, n_chan - PATCH_SIZE)
-        patches.append(waterfall[t0:t1, f0:f0 + PATCH_SIZE])
-        patch_flags.append(flag_mask[t0:t1, f0:f0 + PATCH_SIZE])
-        patch_freqs.append(freqs[f0:f0 + PATCH_SIZE])
+        t0 = min(i * time_step, n_time - PATCH_SIZE)
+        patches.append(waterfall[t0:t0 + PATCH_SIZE, :])
+        patch_flags.append(flag_mask[t0:t0 + PATCH_SIZE, :])
+        patch_times.append((t0, t0 + PATCH_SIZE))
 
-    return patches, patch_flags, patch_freqs
+    return patches, patch_flags, patch_times
 
 
 def main(args):
@@ -109,28 +106,21 @@ def main(args):
     global_vmax = np.percentile(unflagged_clean, 99)
 
     # --- 16 patches tiled across frequency, per-patch colour scaling ---
-    patches, patch_flags, patch_freqs = extract_patches(waterfall, flag_mask, freqs)
+    patches, patch_flags, patch_times = extract_patches(waterfall, flag_mask, freqs)
     n = len(patches)
     ncols = 4
     nrows = (n + ncols - 1) // ncols
     fig, axes = plt.subplots(nrows, ncols, figsize=(4 * ncols, 4 * nrows))
     axes = axes.flatten()
-    for i, (patch, pflags, pf) in enumerate(zip(patches, patch_flags, patch_freqs)):
+    for i, (patch, pflags, pt) in enumerate(zip(patches, patch_flags, patch_times)):
         ax = axes[i]
-        unflagged_vals = patch[pflags == 0]
-        if len(unflagged_vals) > 10:
-            vmin = np.percentile(unflagged_vals, 1)
-            vmax = np.percentile(unflagged_vals, 99)
-        else:
-            vmin, vmax = global_vmin, global_vmax
-
         ax.imshow(patch.T, aspect='auto', origin='lower',
-                  extent=[0, patch.shape[0], pf[0], pf[-1]],
-                  vmin=vmin, vmax=vmax, cmap='plasma')
+                  extent=[pt[0], pt[1], freqs[0], freqs[-1]],
+                  vmin=global_vmin, vmax=global_vmax, cmap='plasma')
         ax.imshow(green_overlay(pflags), aspect='auto', origin='lower',
-                  extent=[0, patch.shape[0], pf[0], pf[-1]])
-        add_rfi_bands_y(ax, pf)
-        ax.set_title(f"{pf[0]:.0f}–{pf[-1]:.0f} MHz", fontsize=8)
+                  extent=[pt[0], pt[1], freqs[0], freqs[-1]])
+        add_rfi_bands_y(ax, freqs)
+        ax.set_title(f"t={pt[0]}–{pt[1]}", fontsize=8)
         ax.set_xlabel("Time bins", fontsize=7)
         ax.tick_params(labelsize=6)
         if i % ncols == 0:
