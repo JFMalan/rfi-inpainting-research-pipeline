@@ -101,7 +101,7 @@ def main(args):
 
     unflagged_clean = waterfall[flag_mask == 0]
     global_vmin = np.percentile(unflagged_clean, 1)
-    global_vmax = np.percentile(unflagged_clean, 90)
+    global_vmax = args.vmax if args.vmax is not None else np.percentile(unflagged_clean, 90)
 
     # --- Per-baseline waterfalls ---
     n_show = min(args.n_baselines, n_baseline)
@@ -117,7 +117,7 @@ def main(args):
         pflags = fm[:PATCH_SIZE, :]
         unflagged_vals = patch[pflags == 0]
         vmin = np.percentile(unflagged_vals, 2) if len(unflagged_vals) > 10 else global_vmin
-        vmax = np.percentile(unflagged_vals, 90) if len(unflagged_vals) > 10 else global_vmax
+        vmax = args.vmax if args.vmax is not None else (np.percentile(unflagged_vals, 90) if len(unflagged_vals) > 10 else global_vmax)
         ax = axes[i]
         ax.imshow(patch.T, aspect='auto', origin='lower',
                   extent=[0, patch.shape[0], freqs[0], freqs[-1]],
@@ -285,4 +285,5 @@ if __name__ == '__main__':
     parser.add_argument('--n-patches-show', type=int,   default=200)
     parser.add_argument('--freq-min',       type=float, default=900.0)
     parser.add_argument('--freq-max',       type=float, default=1650.0)
+    parser.add_argument('--vmax',           type=float, default=None)
     main(parser.parse_args())
