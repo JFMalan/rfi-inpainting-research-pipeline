@@ -64,43 +64,10 @@ def get_avg_waterfall(amp, flagged):
     return wf, fm
 
 
-def in_rfi_band(freqs):
-    mask = np.zeros(len(freqs), dtype=bool)
-    for lo, hi in RFI_BANDS:
-        mask |= (freqs >= lo) & (freqs <= hi)
-    return mask
-
-
 def green_overlay(flag_mask_2d):
     rgba = np.zeros((*flag_mask_2d.T.shape, 4), dtype=np.float32)
-    rgba[flag_mask_2d.T > 0] = [0.0, 1.0, 0.2, 1.0]
+    rgba[flag_mask_2d.T > 0] = [0.0, 1.0, 0.2, 1]
     return rgba
-
-
-def add_rfi_bands_y(ax, freqs):
-    for lo, hi in RFI_BANDS:
-        if lo < freqs[-1] and hi > freqs[0]:
-            ax.axhspan(max(lo, freqs[0]), min(hi, freqs[-1]),
-                       color='cyan', alpha=0.15, linewidth=0)
-
-
-def extract_patches(waterfall, flag_mask, n_patches=16):
-    n_time, n_chan = waterfall.shape
-    if n_time < PATCH_SIZE:
-        raise ValueError(f"not enough time bins ({n_time}) — increase --max-time")
-
-    # only produce as many non-overlapping patches as the data supports
-    max_non_overlapping = n_time // PATCH_SIZE
-    n_patches = min(n_patches, max_non_overlapping)
-
-    patches, patch_flags, patch_times = [], [], []
-    for i in range(n_patches):
-        t0 = i * PATCH_SIZE
-        patches.append(waterfall[t0:t0 + PATCH_SIZE, :])
-        patch_flags.append(flag_mask[t0:t0 + PATCH_SIZE, :])
-        patch_times.append((t0, t0 + PATCH_SIZE))
-
-    return patches, patch_flags, patch_times
 
 
 def main(args):
@@ -110,7 +77,6 @@ def main(args):
     print("loading MS...")
     amp, flagged, freqs = load_ms(args.ms, args.max_time, field=args.field)
 
-    # trim bandpass roll-off at band edges
     chan_mask = (freqs >= args.freq_min) & (freqs <= args.freq_max)
     amp = amp[:, :, chan_mask]
     flagged = flagged[:, :, chan_mask]
@@ -121,20 +87,19 @@ def main(args):
 
     waterfall, flag_mask = get_avg_waterfall(amp, flagged)
 
-    # drop time steps where every non-RFI channel is flagged (calibrator gaps)
-    rfi_chans = in_rfi_band(freqs)
-    valid_time = flag_mask[:, ~rfi_chans].mean(axis=1) < 1.0
+    # drop time steps where every channel is flagged
+    valid_time = flag_mask.mean(axis=1) < 1.0
     waterfall = waterfall[valid_time]
     flag_mask = flag_mask[valid_time]
     amp = amp[valid_time]
     flagged = flagged[valid_time]
     print(f"dropped {(~valid_time).sum()} fully-flagged time bins, {valid_time.sum()} remaining")
 
-    unflagged_clean = waterfall[:, ~rfi_chans][flag_mask[:, ~rfi_chans] == 0]
+    unflagged_clean = waterfall[flag_mask == 0]
     global_vmin = np.percentile(unflagged_clean, 5)
     global_vmax = np.percentile(unflagged_clean, 95)
 
-    # --- 8 baselines, each showing a 256-time patch ---
+    # --- Per-baseline waterfalls ---
     n_show = min(args.n_baselines, n_baseline)
     baseline_indices = np.linspace(0, n_baseline - 1, n_show, dtype=int)
     ncols = 2
@@ -146,17 +111,15 @@ def main(args):
         wf, fm = get_baseline_waterfall(amp, flagged, int(bl))
         patch = wf[:PATCH_SIZE, :]
         pflags = fm[:PATCH_SIZE, :]
-        clean_chans = ~rfi_chans
-        unflagged_vals = patch[:, clean_chans][pflags[:, clean_chans] == 0]
+        unflagged_vals = patch[pflags == 0]
         vmin = np.percentile(unflagged_vals, 5) if len(unflagged_vals) > 10 else global_vmin
         vmax = np.percentile(unflagged_vals, 95) if len(unflagged_vals) > 10 else global_vmax
         ax = axes[i]
-        im = ax.imshow(patch.T, aspect='auto', origin='lower',
-                       extent=[0, patch.shape[0], freqs[0], freqs[-1]],
-                       vmin=vmin, vmax=vmax, cmap='plasma')
+        ax.imshow(patch.T, aspect='auto', origin='lower',
+                  extent=[0, patch.shape[0], freqs[0], freqs[-1]],
+                  vmin=vmin, vmax=vmax, cmap='plasma')
         ax.imshow(green_overlay(pflags), aspect='auto', origin='lower',
                   extent=[0, patch.shape[0], freqs[0], freqs[-1]])
-        add_rfi_bands_y(ax, freqs)
         ax.set_title(f"baseline {bl}", fontsize=9)
         ax.set_xlabel("Time bins", fontsize=8)
         if i % ncols == 0:
@@ -170,7 +133,7 @@ def main(args):
     plt.close()
     print("saved patches.png")
 
-    # --- Amplitude distribution (non-RFI, unflagged) ---
+    # --- Amplitude distribution (unflagged only) ---
     fig, ax = plt.subplots(figsize=(7, 4))
     bins = np.linspace(np.percentile(unflagged_clean, 0.5),
                        np.percentile(unflagged_clean, 99.5), 120)
@@ -181,14 +144,14 @@ def main(args):
                label=f"median={np.median(unflagged_clean):.4f}")
     ax.set_xlabel("Amplitude (Jy)")
     ax.set_ylabel("Density")
-    ax.set_title("Real MeerKAT — amplitude distribution (unflagged, non-RFI channels)")
+    ax.set_title("Real MeerKAT — amplitude distribution (unflagged pixels)")
     ax.legend()
     plt.tight_layout()
     plt.savefig(out_dir / "amplitude_dist.png", dpi=120)
     plt.close()
     print("saved amplitude_dist.png")
 
-    # --- Mean spectrum (log scale) ---
+    # --- Mean spectrum (log scale, flagged pixels excluded, RFI bands annotated) ---
     mean_spec = np.where(flag_mask == 0, waterfall, np.nan)
     with np.errstate(all='ignore'):
         mean_spec = np.nanmean(mean_spec, axis=0)
@@ -204,40 +167,29 @@ def main(args):
                     fontsize=7, color='red', rotation=90)
     ax.set_xlabel("Freq (MHz)")
     ax.set_ylabel("Mean amplitude (Jy, log scale)")
-    ax.set_title("Real MeerKAT — mean spectrum (RFI bands shaded)")
+    ax.set_title("Real MeerKAT — mean spectrum (known RFI bands annotated)")
     plt.tight_layout()
     plt.savefig(out_dir / "mean_spectrum.png", dpi=120)
     plt.close()
     print("saved mean_spectrum.png")
 
     # --- Full waterfall ---
-    # mask out fully-flagged time steps and persistent RFI channels from the image
-    # so they don't skew the colourscale — render them as grey via set_bad
-    display = waterfall.copy()
-    display[flag_mask == 1] = np.nan
-    display[:, rfi_chans] = np.nan
-
-    cmap = plt.get_cmap('plasma').copy()
-    cmap.set_bad(color='#444444')  # grey for flagged/RFI-band pixels
-
     fig, ax = plt.subplots(figsize=(12, 6))
-    im = ax.imshow(display.T, aspect='auto', origin='lower',
-                   extent=[0, display.shape[0], freqs[0], freqs[-1]],
-                   vmin=global_vmin, vmax=global_vmax, cmap=cmap)
-    for lo, hi in RFI_BANDS:
-        if lo < freqs[-1] and hi > freqs[0]:
-            ax.axhspan(max(lo, freqs[0]), min(hi, freqs[-1]),
-                       color='red', alpha=0.15, linewidth=0)
+    im = ax.imshow(waterfall.T, aspect='auto', origin='lower',
+                   extent=[0, waterfall.shape[0], freqs[0], freqs[-1]],
+                   vmin=global_vmin, vmax=global_vmax, cmap='plasma')
+    ax.imshow(green_overlay(flag_mask), aspect='auto', origin='lower',
+              extent=[0, waterfall.shape[0], freqs[0], freqs[-1]])
     ax.set_xlabel("Time bins")
     ax.set_ylabel("Freq (MHz)")
-    ax.set_title("Real MeerKAT — full waterfall (grey = flagged or persistent RFI band)")
+    ax.set_title("Real MeerKAT — full waterfall (green = flagged)")
     plt.colorbar(im, ax=ax, label="Amplitude (Jy)", pad=0.01)
     plt.tight_layout()
     plt.savefig(out_dir / "waterfall_full.png", dpi=100)
     plt.close()
     print("saved waterfall_full.png")
 
-    print(f"\nstats (unflagged, non-RFI channels):")
+    print(f"\nstats (unflagged pixels):")
     print(f"  mean={unflagged_clean.mean():.4f}  std={unflagged_clean.std():.4f}")
     print(f"  p5={np.percentile(unflagged_clean,5):.4f}  p95={np.percentile(unflagged_clean,95):.4f} Jy")
     print(f"\nall plots -> {out_dir}/")
