@@ -101,7 +101,7 @@ def main(args):
 
     unflagged_clean = waterfall[flag_mask == 0]
     global_vmin = np.percentile(unflagged_clean, 1)
-    global_vmax = np.percentile(unflagged_clean, 99)
+    global_vmax = np.percentile(unflagged_clean, 90)
 
     # --- Per-baseline waterfalls ---
     n_show = min(args.n_baselines, n_baseline)
@@ -117,7 +117,7 @@ def main(args):
         pflags = fm[:PATCH_SIZE, :]
         unflagged_vals = patch[pflags == 0]
         vmin = np.percentile(unflagged_vals, 2) if len(unflagged_vals) > 10 else global_vmin
-        vmax = np.percentile(unflagged_vals, 98) if len(unflagged_vals) > 10 else global_vmax
+        vmax = np.percentile(unflagged_vals, 90) if len(unflagged_vals) > 10 else global_vmax
         ax = axes[i]
         ax.imshow(patch.T, aspect='auto', origin='lower',
                   extent=[0, patch.shape[0], freqs[0], freqs[-1]],
@@ -196,7 +196,7 @@ def main(args):
 
     print(f"\nstats (unflagged, baseline-averaged):")
     print(f"  mean={avg_unflagged.mean():.4f}  std={avg_unflagged.std():.4f}")
-    print(f"  p5={np.percentile(avg_unflagged,5):.4f}  p95={np.percentile(avg_unflagged,95):.4f} Jy")
+    print(f"  p5={np.percentile(avg_unflagged,5):.4f}  p90={np.percentile(avg_unflagged,90):.4f} Jy")
 
     if args.patches:
         plot_patches_hdf5(args.patches, out_dir, args.n_patches_show)
@@ -242,7 +242,7 @@ def plot_patches_hdf5(h5_path, out_dir, n_show, per_page=16):
             unflagged_vals = patch[fm == 0]
             if len(unflagged_vals) > 10:
                 vmin = np.percentile(unflagged_vals, 2)
-                vmax = np.percentile(unflagged_vals, 98)
+                vmax = np.percentile(unflagged_vals, 90)
             else:
                 vmin, vmax = patch.min(), patch.max()
             ax = axes[i]
