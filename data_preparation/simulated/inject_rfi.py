@@ -76,7 +76,9 @@ def main(args):
     np.random.seed(args.seed)
 
     with h5py.File(args.input, 'r') as f:
-        clean_patches = f['clean'][:]
+        clean_patches  = f['clean'][:]
+        patch_freq_min = f['freq_min_patch'][:] if 'freq_min_patch' in f else None
+        patch_freq_max = f['freq_max_patch'][:] if 'freq_max_patch' in f else None
         freq_min = f.attrs['freq_min_mhz']
         freq_max = f.attrs['freq_max_mhz']
         n_time = int(f.attrs['n_time'])
@@ -92,15 +94,18 @@ def main(args):
     out_path.parent.mkdir(parents=True, exist_ok=True)
 
     with h5py.File(out_path, 'w') as f:
-        f.create_dataset('clean', data=clean_patches, dtype=np.float32)
+        f.create_dataset('clean',     data=clean_patches, dtype=np.float32)
         corrupted_ds = f.create_dataset('corrupted', shape=clean_patches.shape, dtype=np.float32)
-        mask_ds = f.create_dataset('mask', shape=clean_patches.shape, dtype=np.float32)
+        mask_ds      = f.create_dataset('mask',      shape=clean_patches.shape, dtype=np.float32)
+        if patch_freq_min is not None:
+            f.create_dataset('freq_min_patch', data=patch_freq_min, dtype=np.float32)
+            f.create_dataset('freq_max_patch', data=patch_freq_max, dtype=np.float32)
 
         f.attrs['freq_min_mhz'] = freq_min
         f.attrs['freq_max_mhz'] = freq_max
-        f.attrs['n_time'] = n_time
-        f.attrs['n_freq'] = n_freq
-        f.attrs['seed'] = args.seed
+        f.attrs['n_time']       = n_time
+        f.attrs['n_freq']       = n_freq
+        f.attrs['seed']         = args.seed
 
         for i, patch in enumerate(clean_patches):
             corrupted, mask = inject(patch, gen, synth_cfg)

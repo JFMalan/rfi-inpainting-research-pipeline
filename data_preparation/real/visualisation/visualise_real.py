@@ -211,8 +211,8 @@ def plot_patches_hdf5(h5_path, out_dir, n_show, per_page=16):
         patches  = hf['data'][indices]
         flags    = hf['flags'][indices]
         if 'freq_min_patch' in hf:
-            patch_fmin = hf['freq_min_patch'][indices]
-            patch_fmax = hf['freq_max_patch'][indices]
+            patch_fmin = hf['freq_min_patch'][:][indices]
+            patch_fmax = hf['freq_max_patch'][:][indices]
         else:
             patch_fmin = np.full(len(indices), hf.attrs['freq_min_mhz'])
             patch_fmax = np.full(len(indices), hf.attrs['freq_max_mhz'])
