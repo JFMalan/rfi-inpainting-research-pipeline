@@ -31,8 +31,9 @@ SIM_MS=$SIMDIR/sim_clean.ms
 WATERFALL=$SIMDIR/waterfall
 CLEAN_H5=$SIMDIR/clean_patches.h5
 DATASET=$SIMDIR/dataset.h5
+VISDIR=$SIMDIR/vis
 
-mkdir -p $SIMDIR logs
+mkdir -p $SIMDIR $VISDIR logs
 rm -rf $SIM_MS
 
 echo "RUN_ID=$RUN_ID  SYNTHESIS=${SYNTHESIS}h  NCHAN=$NCHAN  SKY_MODEL=$SKY_MODEL  SEED=$SEED"
@@ -54,7 +55,7 @@ singularity exec $SIMMS simms \
 
 echo "[2/7] $(date '+%H:%M:%S') predicting sky model (crystalball)"
 singularity exec $AFRICANUS crystalball \
-    -sm $SCRIPTS/data_preparation/$SKY_MODEL \
+    -sm $SCRIPTS/data_preparation/simulated/$SKY_MODEL \
     -o DATA \
     -rc 10000 \
     -mc 25 \
@@ -63,15 +64,15 @@ singularity exec $AFRICANUS crystalball \
 
 echo "[3/7] $(date '+%H:%M:%S') adding thermal noise (CASA sm.corrupt)"
 singularity exec $CASA casa --nologger --log2term \
-    -c $SCRIPTS/data_preparation/add_noise.py $SIM_MS
+    -c $SCRIPTS/data_preparation/simulated/add_noise.py $SIM_MS
 
 echo "[4/7] $(date '+%H:%M:%S') extracting amplitude waterfall"
-singularity exec $ASTROPY python $SCRIPTS/data_preparation/extract_ms.py \
+singularity exec $ASTROPY python $SCRIPTS/data_preparation/real/extract_ms.py \
     --ms $SIM_MS \
     --output $WATERFALL
 
 echo "[5/7] $(date '+%H:%M:%S') slicing into patches"
-singularity exec $ASTROPY python $SCRIPTS/data_preparation/waterfall_to_patches.py \
+singularity exec $ASTROPY python $SCRIPTS/data_preparation/simulated/extract_patches.py \
     --waterfall ${WATERFALL}.npy \
     --output $CLEAN_H5 \
     --patch-time 256 \
@@ -84,12 +85,15 @@ singularity exec $ASTROPY python $SCRIPTS/data_preparation/waterfall_to_patches.
 echo "[6/7] $(date '+%H:%M:%S') injecting synthetic RFI"
 singularity exec $ASTROPY /bin/bash -c "
     source $VENV/bin/activate &&
-    python $SCRIPTS/data_preparation/inject_rfi.py \
+    python $SCRIPTS/data_preparation/simulated/inject_rfi.py \
         --input $CLEAN_H5 --output $DATASET --seed $SEED
 "
 
-echo "[7/7] $(date '+%H:%M:%S') validating dataset"
-singularity exec $ASTROPY python $SCRIPTS/data_preparation/validate_simulate.py \
-    --input $DATASET
+echo "[7/7] $(date '+%H:%M:%S') validating dataset and generating visualisations"
+singularity exec $ASTROPY python $SCRIPTS/data_preparation/simulated/visualisation/visualise_simulate.py \
+    --input $DATASET \
+    --output $VISDIR \
+    --n-plot 12 \
+    --n-patches-show 200
 
 echo "done $(date '+%H:%M:%S')"
