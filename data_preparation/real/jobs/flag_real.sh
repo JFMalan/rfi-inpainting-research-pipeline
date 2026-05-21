@@ -56,6 +56,7 @@ echo "[4/4] $(date '+%H:%M:%S') visualising flagged data"
 singularity exec $ASTROPY python $SCRIPTS/data_preparation/real/visualisation/visualise_real.py \
     --ms $FLAGGED_MS \
     --output $VIS_OUT \
+    --patches $PATCHES_OUT \
     --freq-min 900 \
     --freq-max 1650 \
     --field 0
