@@ -121,7 +121,15 @@ def main(args):
 
     waterfall, flag_mask = get_avg_waterfall(amp, flagged)
 
+    # drop time steps where every non-RFI channel is flagged (calibrator gaps)
     rfi_chans = in_rfi_band(freqs)
+    valid_time = flag_mask[:, ~rfi_chans].mean(axis=1) < 1.0
+    waterfall = waterfall[valid_time]
+    flag_mask = flag_mask[valid_time]
+    amp = amp[valid_time]
+    flagged = flagged[valid_time]
+    print(f"dropped {(~valid_time).sum()} fully-flagged time bins, {valid_time.sum()} remaining")
+
     unflagged_clean = waterfall[:, ~rfi_chans][flag_mask[:, ~rfi_chans] == 0]
     global_vmin = np.percentile(unflagged_clean, 5)
     global_vmax = np.percentile(unflagged_clean, 95)
