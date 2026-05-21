@@ -15,11 +15,11 @@ SRC_MS=/idia/data/public/1525469431/1525469431_sdp_l0.ms
 WORKDIR=/scratch3/users/$USER/rfi/real
 FLAGGED_MS=$WORKDIR/1525469431_flagged.ms
 SCRIPTS=/users/$USER/rfi-inpainting-research-pipeline
-VIS_OUT=/scratch3/users/$USER/real_vis
+PATCHES_OUT=/scratch3/users/$USER/rfi/real_patches.h5
+VIS_OUT=/scratch3/users/$USER/rfi/real_vis
 
 mkdir -p $WORKDIR logs
 
-# find the tricolour container — name may vary across ilifu deployments
 OXKAT_SIF=$(ls /idia/software/containers/ | grep -i oxkat | head -1)
 if [ -z "$OXKAT_SIF" ]; then
     echo "ERROR: no oxkat container found in /idia/software/containers/"
@@ -32,10 +32,10 @@ echo "using container: $OXKAT"
 
 ASTROPY=/idia/software/containers/ASTRO-PY3.10.sif
 
-echo "[1/3] $(date '+%H:%M:%S') copying MS to scratch (read-only source)"
+echo "[1/4] $(date '+%H:%M:%S') copying MS to scratch (read-only source)"
 cp -r $SRC_MS $FLAGGED_MS
 
-echo "[2/3] $(date '+%H:%M:%S') running tricolour"
+echo "[2/4] $(date '+%H:%M:%S') running tricolour"
 singularity exec $OXKAT tricolour \
     $FLAGGED_MS \
     -fs standard \
@@ -44,12 +44,22 @@ singularity exec $OXKAT tricolour \
     -rc 10000 \
     -bc 24
 
-echo "[3/3] $(date '+%H:%M:%S') visualising flagged data"
-singularity exec $ASTROPY python $SCRIPTS/data_preparation/visualisation/visualise_real.py \
+echo "[3/4] $(date '+%H:%M:%S') extracting per-baseline patches"
+singularity exec $ASTROPY python $SCRIPTS/data_preparation/real/extract_ms.py \
+    --ms $FLAGGED_MS \
+    --output $PATCHES_OUT \
+    --freq-min 900 \
+    --freq-max 1650 \
+    --field 0
+
+echo "[4/4] $(date '+%H:%M:%S') visualising flagged data"
+singularity exec $ASTROPY python $SCRIPTS/data_preparation/real/visualisation/visualise_real.py \
     --ms $FLAGGED_MS \
     --output $VIS_OUT \
     --freq-min 900 \
-    --freq-max 1650
+    --freq-max 1650 \
+    --field 0
 
 echo "done $(date '+%H:%M:%S')"
-echo "plots -> $VIS_OUT"
+echo "patches -> $PATCHES_OUT"
+echo "plots   -> $VIS_OUT"

@@ -12,7 +12,8 @@ SRC_MS=/idia/data/public/1525469431/1525469431_sdp_l0.ms
 WORKDIR=/scratch3/users/$USER/rfi/real_test
 SUBSET_MS=$WORKDIR/subset.ms
 SCRIPTS=/users/$USER/rfi-inpainting-research-pipeline
-VIS_OUT=/scratch3/users/$USER/real_vis_test
+PATCHES_OUT=$WORKDIR/patches_test.h5
+VIS_OUT=$WORKDIR/vis
 
 mkdir -p $WORKDIR logs
 
@@ -30,13 +31,13 @@ CASA=/idia/software/containers/casa-stable-v6.sif
 
 rm -rf $SUBSET_MS
 
-echo "[1/3] $(date '+%H:%M:%S') extracting scan 1 (~20 min) with CASA split"
+echo "[1/4] $(date '+%H:%M:%S') extracting scan 1 (~20 min) with CASA split"
 singularity exec $CASA casa --nologger --log2term -c "
 split(vis='$SRC_MS', outputvis='$SUBSET_MS', field='0', scan='1',
       datacolumn='data', keepflags=True)
 "
 
-echo "[2/3] $(date '+%H:%M:%S') running tricolour on subset"
+echo "[2/4] $(date '+%H:%M:%S') running tricolour on subset"
 singularity exec $OXKAT tricolour \
     $SUBSET_MS \
     -fs standard \
@@ -45,11 +46,24 @@ singularity exec $OXKAT tricolour \
     -rc 10000 \
     -bc 24
 
-echo "[3/3] $(date '+%H:%M:%S') visualising"
-singularity exec $ASTROPY python $SCRIPTS/data_preparation/visualisation/visualise_real.py \
+echo "[3/4] $(date '+%H:%M:%S') extracting per-baseline patches"
+singularity exec $ASTROPY python $SCRIPTS/data_preparation/real/extract_ms.py \
+    --ms $SUBSET_MS \
+    --output $PATCHES_OUT \
+    --freq-min 900 \
+    --freq-max 1650 \
+    --field 0 \
+    --max-patches-per-bl 10
+
+echo "[4/4] $(date '+%H:%M:%S') visualising"
+singularity exec $ASTROPY python $SCRIPTS/data_preparation/real/visualisation/visualise_real.py \
     --ms $SUBSET_MS \
     --output $VIS_OUT \
+    --freq-min 900 \
+    --freq-max 1650 \
+    --field 0 \
     --max-time 512
 
 echo "done $(date '+%H:%M:%S')"
-echo "plots -> $VIS_OUT"
+echo "patches -> $PATCHES_OUT"
+echo "plots   -> $VIS_OUT"

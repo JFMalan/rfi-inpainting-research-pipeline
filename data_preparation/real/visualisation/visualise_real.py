@@ -67,7 +67,7 @@ def get_avg_waterfall(amp, flagged):
 
 def green_overlay(flag_mask_2d):
     rgba = np.zeros((*flag_mask_2d.T.shape, 4), dtype=np.float32)
-    rgba[flag_mask_2d.T > 0] = [0.0, 1.0, 0.2, 1]
+    rgba[flag_mask_2d.T > 0] = [0.0, 1.0, 0.2, 0.85]
     return rgba
 
 
@@ -86,19 +86,21 @@ def main(args):
 
     n_baseline = amp.shape[1]
 
-    waterfall, flag_mask = get_avg_waterfall(amp, flagged)
+    avg_waterfall, avg_flag_mask = get_avg_waterfall(amp, flagged)
 
     # drop time steps where every channel is flagged
-    valid_time = flag_mask.mean(axis=1) < 1.0
-    waterfall = waterfall[valid_time]
-    flag_mask = flag_mask[valid_time]
+    valid_time = avg_flag_mask.mean(axis=1) < 1.0
+    avg_waterfall = avg_waterfall[valid_time]
+    avg_flag_mask = avg_flag_mask[valid_time]
     amp = amp[valid_time]
     flagged = flagged[valid_time]
     print(f"dropped {(~valid_time).sum()} fully-flagged time bins, {valid_time.sum()} remaining")
 
+    waterfall, flag_mask = avg_waterfall, avg_flag_mask
+
     unflagged_clean = waterfall[flag_mask == 0]
-    global_vmin = np.percentile(unflagged_clean, 5)
-    global_vmax = np.percentile(unflagged_clean, 95)
+    global_vmin = np.percentile(unflagged_clean, 1)
+    global_vmax = np.percentile(unflagged_clean, 99)
 
     # --- Per-baseline waterfalls ---
     n_show = min(args.n_baselines, n_baseline)
@@ -113,8 +115,8 @@ def main(args):
         patch = wf[:PATCH_SIZE, :]
         pflags = fm[:PATCH_SIZE, :]
         unflagged_vals = patch[pflags == 0]
-        vmin = np.percentile(unflagged_vals, 5) if len(unflagged_vals) > 10 else global_vmin
-        vmax = np.percentile(unflagged_vals, 95) if len(unflagged_vals) > 10 else global_vmax
+        vmin = np.percentile(unflagged_vals, 2) if len(unflagged_vals) > 10 else global_vmin
+        vmax = np.percentile(unflagged_vals, 98) if len(unflagged_vals) > 10 else global_vmax
         ax = axes[i]
         ax.imshow(patch.T, aspect='auto', origin='lower',
                   extent=[0, patch.shape[0], freqs[0], freqs[-1]],
@@ -134,15 +136,16 @@ def main(args):
     plt.close()
     print("saved patches.png")
 
-    # --- Amplitude distribution (unflagged only) ---
+    # --- Amplitude distribution (unflagged only, all baselines) ---
+    avg_unflagged = avg_waterfall[avg_flag_mask == 0]
     fig, ax = plt.subplots(figsize=(7, 4))
-    bins = np.linspace(np.percentile(unflagged_clean, 0.5),
-                       np.percentile(unflagged_clean, 99.5), 120)
-    ax.hist(unflagged_clean, bins=bins, density=True, color='steelblue', alpha=0.8)
-    ax.axvline(unflagged_clean.mean(), color='red', linewidth=1,
-               label=f"mean={unflagged_clean.mean():.4f}")
-    ax.axvline(np.median(unflagged_clean), color='orange', linewidth=1, linestyle='--',
-               label=f"median={np.median(unflagged_clean):.4f}")
+    bins = np.linspace(np.percentile(avg_unflagged, 0.5),
+                       np.percentile(avg_unflagged, 99.5), 120)
+    ax.hist(avg_unflagged, bins=bins, density=True, color='steelblue', alpha=0.8)
+    ax.axvline(avg_unflagged.mean(), color='red', linewidth=1,
+               label=f"mean={avg_unflagged.mean():.4f}")
+    ax.axvline(np.median(avg_unflagged), color='orange', linewidth=1, linestyle='--',
+               label=f"median={np.median(avg_unflagged):.4f}")
     ax.set_xlabel("Amplitude (Jy)")
     ax.set_ylabel("Density")
     ax.set_title("Real MeerKAT — amplitude distribution (unflagged pixels)")
@@ -153,7 +156,7 @@ def main(args):
     print("saved amplitude_dist.png")
 
     # --- Mean spectrum (log scale, flagged pixels excluded, RFI bands annotated) ---
-    mean_spec = np.where(flag_mask == 0, waterfall, np.nan)
+    mean_spec = np.where(avg_flag_mask == 0, avg_waterfall, np.nan)
     with np.errstate(all='ignore'):
         mean_spec = np.nanmean(mean_spec, axis=0)
 
@@ -190,9 +193,9 @@ def main(args):
     plt.close()
     print("saved waterfall_full.png")
 
-    print(f"\nstats (unflagged pixels):")
-    print(f"  mean={unflagged_clean.mean():.4f}  std={unflagged_clean.std():.4f}")
-    print(f"  p5={np.percentile(unflagged_clean,5):.4f}  p95={np.percentile(unflagged_clean,95):.4f} Jy")
+    print(f"\nstats (unflagged, baseline-averaged):")
+    print(f"  mean={avg_unflagged.mean():.4f}  std={avg_unflagged.std():.4f}")
+    print(f"  p5={np.percentile(avg_unflagged,5):.4f}  p95={np.percentile(avg_unflagged,95):.4f} Jy")
     print(f"\nall plots -> {out_dir}/")
 
 
@@ -202,7 +205,7 @@ if __name__ == '__main__':
     parser.add_argument('--output', required=True)
     parser.add_argument('--field', type=int, default=None)
     parser.add_argument('--max-time', type=int, default=9999)
-    parser.add_argument('--n-baselines', type=int, default=8)
+    parser.add_argument('--n-baselines', type=int, default=16)
     parser.add_argument('--freq-min', type=float, default=900.0)
     parser.add_argument('--freq-max', type=float, default=1650.0)
     main(parser.parse_args())
