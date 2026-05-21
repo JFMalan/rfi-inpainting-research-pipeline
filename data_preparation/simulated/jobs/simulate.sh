@@ -69,7 +69,8 @@ singularity exec $CASA casa --nologger --log2term \
 echo "[4/7] $(date '+%H:%M:%S') extracting amplitude waterfall"
 singularity exec $ASTROPY python $SCRIPTS/data_preparation/real/extract_ms.py \
     --ms $SIM_MS \
-    --output $WATERFALL
+    --output $WATERFALL \
+    --freq-min 900 --freq-max 1650
 
 echo "[5/7] $(date '+%H:%M:%S') slicing into patches"
 singularity exec $ASTROPY python $SCRIPTS/data_preparation/simulated/extract_patches.py \
