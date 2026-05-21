@@ -40,7 +40,7 @@ split(vis='$SRC_MS', outputvis='$SUBSET_MS', field='0', scan='1',
 echo "[2/4] $(date '+%H:%M:%S') running tricolour on subset"
 singularity exec $OXKAT tricolour \
     $SUBSET_MS \
-    -fs standard \
+    --config /usr/local/lib/python3.9/dist-packages/tricolour/conf/default.yaml \
     -fn ACT-CLJ2023.3-5535 \
     -nw 8 \
     -rc 10000 \
