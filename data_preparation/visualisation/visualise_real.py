@@ -29,6 +29,7 @@ def load_ms(ms_path, max_time, field=None):
     data = ms.getcol(col)
     flags = ms.getcol('FLAG')
     times = ms.getcol('TIME')
+    print(f"flag fraction in raw read: {flags.mean():.4f}")
     ms.close()
 
     freqs_table = table(ms_path + '/SPECTRAL_WINDOW')
