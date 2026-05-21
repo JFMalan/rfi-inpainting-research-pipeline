@@ -1,5 +1,6 @@
 import argparse
 import numpy as np
+import h5py
 import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
@@ -196,16 +197,70 @@ def main(args):
     print(f"\nstats (unflagged, baseline-averaged):")
     print(f"  mean={avg_unflagged.mean():.4f}  std={avg_unflagged.std():.4f}")
     print(f"  p5={np.percentile(avg_unflagged,5):.4f}  p95={np.percentile(avg_unflagged,95):.4f} Jy")
+
+    if args.patches:
+        plot_patches_hdf5(args.patches, out_dir, args.n_patches_show)
+
     print(f"\nall plots -> {out_dir}/")
+
+
+def plot_patches_hdf5(h5_path, out_dir, n_show):
+    with h5py.File(h5_path, 'r') as hf:
+        n_total  = hf['data'].shape[0]
+        indices  = np.linspace(0, n_total - 1, min(n_show, n_total), dtype=int)
+        patches  = hf['data'][indices]
+        flags    = hf['flags'][indices]
+        freq_min = hf.attrs['freq_min_mhz']
+        freq_max = hf.attrs['freq_max_mhz']
+
+    ncols = 4
+    nrows = (len(indices) + ncols - 1) // ncols
+    fig, axes = plt.subplots(nrows, ncols, figsize=(14, 3.5 * nrows))
+    axes = axes.flatten()
+
+    for i, idx in enumerate(indices):
+        patch = patches[i]
+        fm    = flags[i]
+        unflagged_vals = patch[fm == 0]
+        if len(unflagged_vals) > 10:
+            vmin = np.percentile(unflagged_vals, 2)
+            vmax = np.percentile(unflagged_vals, 98)
+        else:
+            vmin, vmax = patch.min(), patch.max()
+        ax = axes[i]
+        ax.imshow(patch.T, aspect='auto', origin='lower',
+                  extent=[0, patch.shape[0], freq_min, freq_max],
+                  vmin=vmin, vmax=vmax, cmap='plasma')
+        ax.imshow(green_overlay(fm), aspect='auto', origin='lower',
+                  extent=[0, patch.shape[0], freq_min, freq_max])
+        ax.set_title(f"patch {idx}  flag={fm.mean():.2f}", fontsize=8)
+        ax.tick_params(labelsize=6)
+        if i % ncols == 0:
+            ax.set_ylabel("Freq (MHz)", fontsize=7)
+        if i >= (nrows - 1) * ncols:
+            ax.set_xlabel("Time bins", fontsize=7)
+
+    for ax in axes[len(indices):]:
+        ax.set_visible(False)
+
+    plt.suptitle(f"Real MeerKAT — divisive-normalised patches (green = flagged)  [{n_total} total]",
+                 y=1.01)
+    plt.tight_layout()
+    out_path = out_dir / "patches_hdf5.png"
+    plt.savefig(out_path, dpi=120, bbox_inches="tight")
+    plt.close()
+    print(f"saved patches_hdf5.png  ({len(indices)} of {n_total} patches shown)")
 
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
-    parser.add_argument('--ms', required=True)
-    parser.add_argument('--output', required=True)
-    parser.add_argument('--field', type=int, default=None)
-    parser.add_argument('--max-time', type=int, default=9999)
-    parser.add_argument('--n-baselines', type=int, default=16)
-    parser.add_argument('--freq-min', type=float, default=900.0)
-    parser.add_argument('--freq-max', type=float, default=1650.0)
+    parser.add_argument('--ms',             required=True)
+    parser.add_argument('--output',         required=True)
+    parser.add_argument('--patches',        default=None)
+    parser.add_argument('--field',          type=int,   default=None)
+    parser.add_argument('--max-time',       type=int,   default=9999)
+    parser.add_argument('--n-baselines',    type=int,   default=16)
+    parser.add_argument('--n-patches-show', type=int,   default=16)
+    parser.add_argument('--freq-min',       type=float, default=900.0)
+    parser.add_argument('--freq-max',       type=float, default=1650.0)
     main(parser.parse_args())
