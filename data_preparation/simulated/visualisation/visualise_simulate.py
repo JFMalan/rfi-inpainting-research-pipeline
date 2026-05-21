@@ -185,6 +185,36 @@ def plot_spectra(clean, mean_mask_spectrum, freqs, out_dir):
     print(f"spectra plot    -> {out}")
 
 
+def plot_waterfall(waterfall_path, out_dir):
+    waterfall = np.load(waterfall_path)
+    meta      = np.load(waterfall_path.replace('.npy', '.meta.npy'))
+    flags_path = waterfall_path.replace('.npy', '.flags.npy')
+    flag_map  = np.load(flags_path) if Path(flags_path).exists() else np.zeros(waterfall.shape, dtype=bool)
+
+    freq_min, freq_max = float(meta[0]), float(meta[1])
+    freqs = np.linspace(freq_min, freq_max, waterfall.shape[1])
+
+    unflagged = waterfall[flag_map == 0]
+    vmin = np.percentile(unflagged, 1)
+    vmax = np.percentile(unflagged, 99)
+
+    fig, ax = plt.subplots(figsize=(12, 6))
+    im = ax.imshow(waterfall.T, aspect='auto', origin='lower',
+                   extent=[0, waterfall.shape[0], freq_min, freq_max],
+                   vmin=vmin, vmax=vmax, cmap='plasma')
+    ax.imshow(green_overlay(flag_map), aspect='auto', origin='lower',
+              extent=[0, waterfall.shape[0], freq_min, freq_max])
+    ax.set_xlabel("Time bins")
+    ax.set_ylabel("Freq (MHz)")
+    ax.set_title("Simulated — baseline-averaged waterfall (green = flagged)")
+    plt.colorbar(im, ax=ax, label="Amplitude (div-norm units)", pad=0.01)
+    plt.tight_layout()
+    out = out_dir / "waterfall_full.png"
+    plt.savefig(out, dpi=100)
+    plt.close()
+    print(f"waterfall       -> {out}")
+
+
 def plot_patch_pages(path, out_dir, n_show, per_page=16):
     with h5py.File(path, "r") as f:
         n_total = f["corrupted"].shape[0]
@@ -267,6 +297,8 @@ def main(args):
     plot_sample_pairs(clean, corrupted, mask, freqs, freq_min, freq_max, n_time, args.n_plot, out_dir)
     plot_amplitude_dist(clean, out_dir)
     plot_spectra(clean, mean_mask_spectrum, freqs, out_dir)
+    if args.waterfall:
+        plot_waterfall(args.waterfall, out_dir)
     plot_patch_pages(args.input, out_dir, args.n_patches_show)
 
     print(f"\nall plots -> {out_dir}/")
@@ -276,6 +308,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--input",           required=True)
     parser.add_argument("--output",          required=True)
-    parser.add_argument("--n-plot",          type=int, default=12, dest="n_plot")
-    parser.add_argument("--n-patches-show",  type=int, default=200, dest="n_patches_show")
+    parser.add_argument("--n-plot",          type=int,   default=12,   dest="n_plot")
+    parser.add_argument("--n-patches-show",  type=int,   default=200,  dest="n_patches_show")
+    parser.add_argument("--waterfall",       default=None)
     main(parser.parse_args())

@@ -94,6 +94,7 @@ echo "[7/7] $(date '+%H:%M:%S') validating dataset and generating visualisations
 singularity exec $ASTROPY python $SCRIPTS/data_preparation/simulated/visualisation/visualise_simulate.py \
     --input $DATASET \
     --output $VISDIR \
+    --waterfall ${WATERFALL}.npy \
     --n-plot 12 \
     --n-patches-show 200
 
