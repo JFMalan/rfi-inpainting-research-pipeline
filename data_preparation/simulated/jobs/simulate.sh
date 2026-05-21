@@ -67,7 +67,7 @@ singularity exec $CASA casa --nologger --log2term \
     -c $SCRIPTS/data_preparation/simulated/add_noise.py $SIM_MS
 
 echo "[4/7] $(date '+%H:%M:%S') extracting amplitude waterfall"
-singularity exec $ASTROPY python $SCRIPTS/data_preparation/real/extract_ms.py \
+singularity exec $ASTROPY python $SCRIPTS/data_preparation/simulated/extract_waterfall.py \
     --ms $SIM_MS \
     --output $WATERFALL \
     --freq-min 900 --freq-max 1650
