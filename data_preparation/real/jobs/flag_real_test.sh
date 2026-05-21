@@ -44,7 +44,8 @@ singularity exec $OXKAT tricolour \
     -fn ACT-CLJ2023.3-5535 \
     -nw 8 \
     -rc 10000 \
-    -bc 24
+    -bc 24 \
+    -dpm
 
 echo "[3/4] $(date '+%H:%M:%S') extracting per-baseline patches"
 singularity exec $ASTROPY python $SCRIPTS/data_preparation/real/extract_ms.py \
