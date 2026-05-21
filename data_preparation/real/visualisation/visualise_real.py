@@ -210,8 +210,12 @@ def plot_patches_hdf5(h5_path, out_dir, n_show, per_page=16):
         indices  = np.linspace(0, n_total - 1, min(n_show, n_total), dtype=int)
         patches  = hf['data'][indices]
         flags    = hf['flags'][indices]
-        freq_min = hf.attrs['freq_min_mhz']
-        freq_max = hf.attrs['freq_max_mhz']
+        if 'freq_min_patch' in hf:
+            patch_fmin = hf['freq_min_patch'][indices]
+            patch_fmax = hf['freq_max_patch'][indices]
+        else:
+            patch_fmin = np.full(len(indices), hf.attrs['freq_min_mhz'])
+            patch_fmax = np.full(len(indices), hf.attrs['freq_max_mhz'])
 
     patch_dir = out_dir / "patches_hdf5"
     patch_dir.mkdir(exist_ok=True)
@@ -233,6 +237,8 @@ def plot_patches_hdf5(h5_path, out_dir, n_show, per_page=16):
         for i in range(n):
             patch = page_patches[i]
             fm    = page_flags[i]
+            fmin  = patch_fmin[page * per_page + i]
+            fmax  = patch_fmax[page * per_page + i]
             unflagged_vals = patch[fm == 0]
             if len(unflagged_vals) > 10:
                 vmin = np.percentile(unflagged_vals, 2)
@@ -241,10 +247,10 @@ def plot_patches_hdf5(h5_path, out_dir, n_show, per_page=16):
                 vmin, vmax = patch.min(), patch.max()
             ax = axes[i]
             ax.imshow(patch.T, aspect='auto', origin='lower',
-                      extent=[0, patch.shape[0], freq_min, freq_max],
+                      extent=[0, patch.shape[0], fmin, fmax],
                       vmin=vmin, vmax=vmax, cmap='plasma')
             ax.imshow(green_overlay(fm), aspect='auto', origin='lower',
-                      extent=[0, patch.shape[0], freq_min, freq_max])
+                      extent=[0, patch.shape[0], fmin, fmax])
             ax.set_title(f"patch {page_indices[i]}  flag={fm.mean():.2f}", fontsize=8)
             ax.tick_params(labelsize=6)
             if i % ncols == 0:

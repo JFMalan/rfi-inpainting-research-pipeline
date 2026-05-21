@@ -30,7 +30,7 @@ def divisive_norm(waterfall, flagged, smooth_bins=64):
 
 def extract_patches(waterfall, flagged, pt, pf, st, sf, max_flag_frac, max_patches):
     n_time, n_chan = waterfall.shape
-    patches, flag_patches = [], []
+    patches, flag_patches, freq_offsets = [], [], []
     t = 0
     while t + pt <= n_time:
         f = 0
@@ -39,11 +39,12 @@ def extract_patches(waterfall, flagged, pt, pf, st, sf, max_flag_frac, max_patch
             if pf_block.mean() <= max_flag_frac:
                 patches.append(waterfall[t:t+pt, f:f+pf])
                 flag_patches.append(pf_block)
+                freq_offsets.append(f)
             f += sf
             if len(patches) >= max_patches:
-                return patches, flag_patches
+                return patches, flag_patches, freq_offsets
         t += st
-    return patches, flag_patches
+    return patches, flag_patches, freq_offsets
 
 
 def main(args):
@@ -99,7 +100,7 @@ def main(args):
     pt, pf   = args.patch_time, args.patch_freq
     st, sf   = args.stride_time, args.stride_freq
 
-    all_patches, all_flags = [], []
+    all_patches, all_flags, all_freq_offsets = [], [], []
     baselines_used = 0
     baselines_skipped = 0
 
@@ -107,8 +108,8 @@ def main(args):
         if autocorr[bl]:
             continue
 
-        wf = amp[:, bl, :]       # (n_time, n_chan)
-        fm = flagged[:, bl, :]   # (n_time, n_chan)
+        wf = amp[:, bl, :]
+        fm = flagged[:, bl, :]
 
         if fm.mean() > args.max_bl_flag_frac:
             baselines_skipped += 1
@@ -116,7 +117,7 @@ def main(args):
 
         wf_norm = divisive_norm(wf, fm, smooth_bins=args.smooth_bins)
 
-        patches, flag_patches = extract_patches(
+        patches, flag_patches, freq_offsets = extract_patches(
             wf_norm, fm, pt, pf, st, sf,
             args.max_flag_frac, args.max_patches_per_bl
         )
@@ -127,13 +128,17 @@ def main(args):
 
         all_patches.extend(patches)
         all_flags.extend(flag_patches)
+        all_freq_offsets.extend(freq_offsets)
         baselines_used += 1
 
     if not all_patches:
         raise RuntimeError("no patches extracted — check flag fraction thresholds")
 
-    patches_arr = np.stack(all_patches, axis=0).astype(np.float32)
-    flags_arr   = np.stack(all_flags,   axis=0).astype(np.float32)
+    patches_arr     = np.stack(all_patches, axis=0).astype(np.float32)
+    flags_arr       = np.stack(all_flags,   axis=0).astype(np.float32)
+    offsets_arr     = np.array(all_freq_offsets, dtype=np.int32)
+    patch_freq_min  = freqs[offsets_arr].astype(np.float32)
+    patch_freq_max  = freqs[np.minimum(offsets_arr + pf - 1, len(freqs) - 1)].astype(np.float32)
 
     print(f"column         : {col}")
     print(f"freq range     : {freq_min:.1f}–{freq_max:.1f} MHz  ({n_chan} channels)")
@@ -144,8 +149,10 @@ def main(args):
     out = Path(args.output)
     out.parent.mkdir(parents=True, exist_ok=True)
     with h5py.File(out, 'w') as hf:
-        hf.create_dataset('data',  data=patches_arr, dtype=np.float32)
-        hf.create_dataset('flags', data=flags_arr,   dtype=np.float32)
+        hf.create_dataset('data',          data=patches_arr,    dtype=np.float32)
+        hf.create_dataset('flags',         data=flags_arr,      dtype=np.float32)
+        hf.create_dataset('freq_min_patch', data=patch_freq_min, dtype=np.float32)
+        hf.create_dataset('freq_max_patch', data=patch_freq_max, dtype=np.float32)
         hf.attrs['freq_min_mhz']    = freq_min
         hf.attrs['freq_max_mhz']    = freq_max
         hf.attrs['n_time']          = pt
