@@ -142,18 +142,39 @@ def plot_sample_pairs(clean, corrupted, mask, freqs, freq_min, freq_max, n_time,
     print(f"samples plot    -> {out}")
 
 
-def plot_amplitude_dist(clean, out_dir):
+def plot_amplitude_dist(clean, out_dir, waterfall_path=None):
+    fig, axes = plt.subplots(1, 2 if waterfall_path and Path(waterfall_path).exists() else 1,
+                             figsize=(14, 4), squeeze=False)
+
+    if waterfall_path and Path(waterfall_path).exists():
+        wf = np.load(waterfall_path)
+        wf_flags_path = waterfall_path.replace('.npy', '.flags.npy')
+        wf_flags = np.load(wf_flags_path) if Path(wf_flags_path).exists() else np.zeros(wf.shape, dtype=bool)
+        raw = wf[~wf_flags].ravel()
+        bins_raw = np.linspace(np.percentile(raw, 0.5), np.percentile(raw, 99.5), 120)
+        axes[0, 0].hist(raw, bins=bins_raw, density=True, color='darkorange', alpha=0.8)
+        axes[0, 0].axvline(raw.mean(), color='red', linewidth=1, label=f"mean={raw.mean():.4f} Jy")
+        axes[0, 0].axvline(np.median(raw), color='black', linewidth=1, linestyle='--',
+                           label=f"median={np.median(raw):.4f} Jy")
+        axes[0, 0].set_xlabel("Amplitude (Jy)")
+        axes[0, 0].set_ylabel("Density")
+        axes[0, 0].set_title("Pre-DN amplitude distribution (Jy)")
+        axes[0, 0].legend()
+        ax_dn = axes[0, 1]
+    else:
+        ax_dn = axes[0, 0]
+
     vals = clean.ravel()
-    fig, ax = plt.subplots(figsize=(7, 4))
     bins = np.linspace(np.percentile(vals, 0.5), np.percentile(vals, 99.5), 120)
-    ax.hist(vals, bins=bins, density=True, color='steelblue', alpha=0.8)
-    ax.axvline(vals.mean(), color='red', linewidth=1, label=f"mean={vals.mean():.4f}")
-    ax.axvline(np.median(vals), color='orange', linewidth=1, linestyle='--',
-               label=f"median={np.median(vals):.4f}")
-    ax.set_xlabel("Amplitude (div-norm units)")
-    ax.set_ylabel("Density")
-    ax.set_title("Simulated — clean patch amplitude distribution")
-    ax.legend()
+    ax_dn.hist(vals, bins=bins, density=True, color='steelblue', alpha=0.8)
+    ax_dn.axvline(vals.mean(), color='red', linewidth=1, label=f"mean={vals.mean():.4f}")
+    ax_dn.axvline(np.median(vals), color='orange', linewidth=1, linestyle='--',
+                  label=f"median={np.median(vals):.4f}")
+    ax_dn.set_xlabel("Amplitude (div-norm units)")
+    ax_dn.set_ylabel("Density")
+    ax_dn.set_title("Post-DN amplitude distribution")
+    ax_dn.legend()
+
     plt.tight_layout()
     out = out_dir / "amplitude_dist.png"
     plt.savefig(out, dpi=120)
@@ -310,7 +331,7 @@ def main(args):
         run_checks(args.input)
 
     plot_sample_pairs(clean, corrupted, mask, freqs, freq_min, freq_max, n_time, args.n_plot, out_dir)
-    plot_amplitude_dist(clean, out_dir)
+    plot_amplitude_dist(clean, out_dir, waterfall_path=args.waterfall)
     plot_spectra(clean, mean_mask_spectrum, freqs, out_dir, waterfall_path=args.waterfall)
     if args.waterfall:
         plot_waterfall(args.waterfall, out_dir)
