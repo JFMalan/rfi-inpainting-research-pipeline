@@ -1,24 +1,20 @@
 #!/bin/bash
-#SBATCH --job-name='rfi-simulate'
-#SBATCH --partition=Main
+#SBATCH --job-name='rfi-simulate-test'
+#SBATCH --partition=Devel
 #SBATCH --cpus-per-task=8
 #SBATCH --mem=200GB
-#SBATCH --time=08:00:00
-#SBATCH --output=logs/simulate-%j-stdout.log
-#SBATCH --error=logs/simulate-%j-stderr.log
-#SBATCH --mail-type=BEGIN,END,FAIL
-#SBATCH --mail-user=jfmalan123@gmail.com
+#SBATCH --time=01:00:00
+#SBATCH --output=logs/simulate-test-%j-stdout.log
+#SBATCH --error=logs/simulate-test-%j-stderr.log
 
 set -e
 
-# Defaults — override via: sbatch --export=ALL,RUN_ID=2,SYNTHESIS=2.0,NCHAN=4096,SKY_MODEL=sky_model_2.txt simulate.sh
-RUN_ID=${RUN_ID:-1}
-SYNTHESIS=${SYNTHESIS:-1.0}
-NCHAN=${NCHAN:-4096}
-SKY_MODEL=${SKY_MODEL:-sky_model.txt}
-MAX_PATCHES=${MAX_PATCHES:-500}
-SEED=${SEED:-42}
-PATCH_TIME=${PATCH_TIME:-256}
+RUN_ID=${RUN_ID:-test}
+SYNTHESIS=0.3
+NCHAN=4096
+SKY_MODEL=sky_model.txt
+PATCH_TIME=64
+SEED=42
 
 SIMMS=/idia/software/containers/STIMELA_IMAGES/stimela_simms_1.2.0.sif
 AFRICANUS=/idia/software/containers/STIMELA_IMAGES/stimela_codex-africanus_1.6.7.sif
@@ -33,14 +29,10 @@ WATERFALL=$SIMDIR/waterfall
 CLEAN_H5=$SIMDIR/clean_patches.h5
 DATASET=$SIMDIR/dataset.h5
 VISDIR=$SIMDIR/vis
-MAX_PATCHES_PER_BL=${MAX_PATCHES_PER_BL:-50}
 
 mkdir -p $SIMDIR $VISDIR logs
 rm -rf $SIM_MS
 
-echo "RUN_ID=$RUN_ID  SYNTHESIS=${SYNTHESIS}h  NCHAN=$NCHAN  SKY_MODEL=$SKY_MODEL  SEED=$SEED"
-
-# compute channel width to keep 856 MHz total bandwidth
 DFREQ=$(python3 -c "print(f'{856.0/$NCHAN:.4f}MHz')")
 
 echo "[1/7] $(date '+%H:%M:%S') creating empty MeerKAT MS (simms)"
@@ -76,9 +68,9 @@ singularity exec $ASTROPY python $SCRIPTS/data_preparation/simulated/extract_pat
     --freq-min 900 --freq-max 1650 \
     --patch-time $PATCH_TIME \
     --patch-freq 256 \
-    --stride-time 64 \
+    --stride-time 32 \
     --stride-freq 64 \
-    --max-patches-per-bl $MAX_PATCHES_PER_BL \
+    --max-patches-per-bl 50 \
     --max-flag-frac 0.5
 
 echo "[5/7] $(date '+%H:%M:%S') [skipped — merged into step 4]"
@@ -95,7 +87,9 @@ singularity exec $ASTROPY python $SCRIPTS/data_preparation/simulated/visualisati
     --input $DATASET \
     --output $VISDIR \
     --waterfall ${WATERFALL}.npy \
-    --n-plot 12 \
-    --n-patches-show 200
+    --n-plot 6 \
+    --n-patches-show 50
 
 echo "done $(date '+%H:%M:%S')"
+echo "dataset -> $DATASET"
+echo "plots   -> $VISDIR"

@@ -74,12 +74,14 @@ def main(args):
     ant1  = ms.getcol('ANTENNA1')
     ant2  = ms.getcol('ANTENNA2')
 
-    print(f"reading {col} column (channels {chan_lo}:{chan_hi} = {n_chan} ch)...")
-    data  = ms.getcolslice(col,   blc=[chan_lo, 0], trc=[chan_hi - 1, -1])
-    flags = ms.getcolslice('FLAG', blc=[chan_lo, 0], trc=[chan_hi - 1, -1])
+    print(f"reading {col} column ({len(freqs_full)} channels)...")
+    data  = ms.getcol(col)
+    flags = ms.getcol('FLAG')
     ms.close()
-    print(f"read complete — shape {data.shape}")
+    print(f"read complete — shape {data.shape}, slicing to {n_chan} channels...")
 
+    data  = data[:, chan_lo:chan_hi, :]
+    flags = flags[:, chan_lo:chan_hi, :]
     amp     = np.abs(data).mean(axis=2).astype(np.float32)
     flagged = flags.any(axis=2)
     del data, flags
