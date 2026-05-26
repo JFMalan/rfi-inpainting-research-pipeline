@@ -222,8 +222,8 @@ def plot_patches_hdf5(h5_path, out_dir, n_show, per_page=8):
     patch_dir = out_dir / "patches_hdf5"
     patch_dir.mkdir(exist_ok=True)
 
-    # 2 columns per patch (raw | dn), 4 patches per row
-    patches_per_row = 4
+    # 2 columns per patch (raw | dn), 3 patches per row
+    patches_per_row = 3
     ncols  = patches_per_row * 2
     pages  = (len(indices) + per_page - 1) // per_page
     n_saved = 0

@@ -7,29 +7,20 @@ from scipy.ndimage import uniform_filter1d
 
 
 def divisive_norm(waterfall, flagged, smooth_bins=64):
-    # vectorised: operate on all time rows at once
-    wf = waterfall.copy()
-    wf[flagged] = np.nan
-
-    # uniform_filter1d handles NaNs poorly, so use a masked cumsum approach:
-    # for each row, interpolate over NaNs then smooth, then divide
     norm = waterfall.copy()
-    half = smooth_bins // 2
     n_time, n_chan = waterfall.shape
     idx = np.arange(n_chan)
-
     for t in range(n_time):
-        row = wf[t]
+        row = waterfall[t].copy()
+        row[flagged[t]] = np.nan
         valid = ~np.isnan(row)
         if valid.sum() < smooth_bins:
             continue
-        # fill NaNs by interpolation so uniform_filter1d doesn't propagate them
         filled = row.copy()
         filled[~valid] = np.interp(idx[~valid], idx[valid], row[valid])
         smoothed = uniform_filter1d(filled, size=smooth_bins, mode='nearest')
         smoothed = np.clip(smoothed, 1e-6, None)
         norm[t] = waterfall[t] / smoothed
-
     return norm
 
 
@@ -74,17 +65,24 @@ def main(args):
     ant1  = ms.getcol('ANTENNA1')
     ant2  = ms.getcol('ANTENNA2')
 
-    print(f"reading {col} column ({len(freqs_full)} channels)...")
-    data  = ms.getcol(col)
-    flags = ms.getcol('FLAG')
-    ms.close()
-    print(f"read complete — shape {data.shape}, slicing to {n_chan} channels...")
+    n_row = ms.nrows()
+    chunk = 50000
+    amp     = np.empty((n_row, n_chan), dtype=np.float32)
+    flagged = np.empty((n_row, n_chan), dtype=bool)
 
-    data  = data[:, chan_lo:chan_hi, :]
-    flags = flags[:, chan_lo:chan_hi, :]
-    amp     = np.abs(data).mean(axis=2).astype(np.float32)
-    flagged = flags.any(axis=2)
-    del data, flags
+    print(f"reading {col} in chunks ({n_row} rows, {n_chan} channels)...")
+    for start in range(0, n_row, chunk):
+        end = min(start + chunk, n_row)
+        d = ms.getcol(col,    startrow=start, nrow=end - start)[:, chan_lo:chan_hi, :]
+        f = ms.getcol('FLAG', startrow=start, nrow=end - start)[:, chan_lo:chan_hi, :]
+        amp[start:end]     = np.abs(d).mean(axis=2).astype(np.float32)
+        flagged[start:end] = f.any(axis=2)
+        del d, f
+        if start == 0 or (start // chunk) % 5 == 0:
+            print(f"  rows {end}/{n_row}")
+
+    ms.close()
+    print("read complete")
 
     unique_times = np.unique(times)
     n_time     = len(unique_times)
@@ -101,7 +99,6 @@ def main(args):
     pt, pf = args.patch_time, args.patch_freq
     st, sf = args.stride_time, args.stride_freq
 
-    all_patches, all_offsets = [], []
     wf_sum   = np.zeros((n_time, n_chan), dtype=np.float64)
     wf_count = np.zeros((n_time, n_chan), dtype=np.int32)
 
@@ -109,53 +106,83 @@ def main(args):
     baselines_skipped = 0
     n_cross = int((~autocorr).sum())
 
-    cross_idx = 0
-    for bl in range(n_baseline):
-        if autocorr[bl]:
-            continue
+    out = Path(args.output)
+    out.parent.mkdir(parents=True, exist_ok=True)
 
-        cross_idx += 1
-        if cross_idx % 200 == 0 or cross_idx == 1:
-            print(f"  baseline {cross_idx}/{n_cross}  patches so far: {len(all_patches)}")
+    # write patches directly to HDF5 as we go — avoids holding all patches in RAM
+    all_offsets = []
+    n_patches_written = 0
 
-        wf = amp[:, bl, :]
-        fm = flagged[:, bl, :]
+    with h5py.File(out, 'w') as hf:
+        max_patches_est = n_cross * args.max_patches_per_bl
+        clean_ds      = hf.create_dataset('clean',          shape=(max_patches_est, pt, pf),
+                                          maxshape=(None, pt, pf), dtype=np.float32,
+                                          chunks=(1, pt, pf))
+        freq_min_ds   = hf.create_dataset('freq_min_patch', shape=(max_patches_est,),
+                                          maxshape=(None,), dtype=np.float32)
+        freq_max_ds   = hf.create_dataset('freq_max_patch', shape=(max_patches_est,),
+                                          maxshape=(None,), dtype=np.float32)
 
-        if fm.mean() > args.max_bl_flag_frac:
-            baselines_skipped += 1
-            continue
+        cross_idx = 0
+        for bl in range(n_baseline):
+            if autocorr[bl]:
+                continue
 
-        valid = ~fm
-        wf_sum[valid]   += wf[valid]
-        wf_count[valid] += 1
+            cross_idx += 1
+            if cross_idx % 200 == 0 or cross_idx == 1:
+                print(f"  baseline {cross_idx}/{n_cross}  patches written: {n_patches_written}")
 
-        wf_norm = divisive_norm(wf, fm, smooth_bins=args.smooth_bins)
+            wf = amp[:, bl, :]
+            fm = flagged[:, bl, :]
 
-        patches, offsets = extract_patches(
-            wf_norm, fm, pt, pf, st, sf,
-            args.max_flag_frac, args.max_patches_per_bl
-        )
+            if fm.mean() > args.max_bl_flag_frac:
+                baselines_skipped += 1
+                continue
 
-        if not patches:
-            baselines_skipped += 1
-            continue
+            valid = ~fm
+            wf_sum[valid]   += wf[valid]
+            wf_count[valid] += 1
 
-        all_patches.extend(patches)
-        all_offsets.extend(offsets)
-        baselines_used += 1
+            wf_norm = divisive_norm(wf, fm, smooth_bins=args.smooth_bins)
 
-    if not all_patches:
+            patches, offsets = extract_patches(
+                wf_norm, fm, pt, pf, st, sf,
+                args.max_flag_frac, args.max_patches_per_bl
+            )
+
+            if not patches:
+                baselines_skipped += 1
+                continue
+
+            n = len(patches)
+            for i, (p, o) in enumerate(zip(patches, offsets)):
+                idx = n_patches_written + i
+                clean_ds[idx]    = p
+                freq_min_ds[idx] = freqs[o]
+                freq_max_ds[idx] = freqs[min(o + pf - 1, n_chan - 1)]
+
+            all_offsets.extend(offsets)
+            n_patches_written += n
+            baselines_used += 1
+
+        # trim datasets to actual size
+        clean_ds.resize(n_patches_written, axis=0)
+        freq_min_ds.resize(n_patches_written, axis=0)
+        freq_max_ds.resize(n_patches_written, axis=0)
+
+        hf.attrs['freq_min_mhz'] = freq_min
+        hf.attrs['freq_max_mhz'] = freq_max
+        hf.attrs['n_time']       = pt
+        hf.attrs['n_freq']       = pf
+        hf.attrs['n_patches']    = n_patches_written
+
+    if n_patches_written == 0:
         raise RuntimeError("no patches extracted — check flag fraction thresholds")
-
-    patches_arr    = np.stack(all_patches, axis=0).astype(np.float32)
-    offsets_arr    = np.array(all_offsets, dtype=np.int32)
-    patch_freq_min = freqs[offsets_arr].astype(np.float32)
-    patch_freq_max = freqs[np.minimum(offsets_arr + pf - 1, n_chan - 1)].astype(np.float32)
 
     print(f"column         : {col}")
     print(f"freq range     : {freq_min:.1f}-{freq_max:.1f} MHz  ({n_chan} channels)")
     print(f"baselines used : {baselines_used}  skipped: {baselines_skipped}  autocorr: {autocorr.sum()}")
-    print(f"patches total  : {len(all_patches)}  shape: ({pt}, {pf})")
+    print(f"patches total  : {n_patches_written}  shape: ({pt}, {pf})")
 
     if args.waterfall_out:
         wf_avg   = np.where(wf_count > 0, wf_sum / wf_count, 0.0).astype(np.float32)
@@ -164,18 +191,6 @@ def main(args):
         np.save(args.waterfall_out + '.meta.npy',  np.array([freq_min, freq_max]))
         np.save(args.waterfall_out + '.flags.npy', flag_avg)
         print(f"waterfall      -> {args.waterfall_out}.npy")
-
-    out = Path(args.output)
-    out.parent.mkdir(parents=True, exist_ok=True)
-    with h5py.File(out, 'w') as hf:
-        hf.create_dataset('clean',          data=patches_arr,    dtype=np.float32)
-        hf.create_dataset('freq_min_patch', data=patch_freq_min, dtype=np.float32)
-        hf.create_dataset('freq_max_patch', data=patch_freq_max, dtype=np.float32)
-        hf.attrs['freq_min_mhz'] = freq_min
-        hf.attrs['freq_max_mhz'] = freq_max
-        hf.attrs['n_time']       = pt
-        hf.attrs['n_freq']       = pf
-        hf.attrs['n_patches']    = len(all_patches)
 
     print(f"saved -> {out}")
 

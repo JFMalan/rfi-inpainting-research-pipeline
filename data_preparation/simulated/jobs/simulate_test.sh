@@ -2,7 +2,7 @@
 #SBATCH --job-name='rfi-simulate-test'
 #SBATCH --partition=Devel
 #SBATCH --cpus-per-task=8
-#SBATCH --mem=200GB
+#SBATCH --mem=128GB
 #SBATCH --time=01:00:00
 #SBATCH --output=logs/simulate-test-%j-stdout.log
 #SBATCH --error=logs/simulate-test-%j-stderr.log
