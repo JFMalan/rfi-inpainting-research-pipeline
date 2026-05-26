@@ -73,8 +73,6 @@ def main(args):
     freqs_table.close()
 
     chan_mask = (freqs >= args.freq_min) & (freqs <= args.freq_max)
-    for lo, hi in args.exclude_bands:
-        chan_mask &= ~((freqs >= lo) & (freqs <= hi))
     data  = data[:, chan_mask, :]
     flags = flags[:, chan_mask, :]
     freqs = freqs[chan_mask]
@@ -179,7 +177,4 @@ if __name__ == '__main__':
     parser.add_argument('--max-flag-frac',       type=float, default=0.5)
     parser.add_argument('--max-bl-flag-frac',    type=float, default=0.8)
     parser.add_argument('--smooth-bins',         type=int,   default=64)
-    parser.add_argument('--exclude-bands',       type=float, nargs=2, action='append',
-                        default=[[1170, 1300], [1525, 1630]],
-                        metavar=('LO', 'HI'))
     main(parser.parse_args())
