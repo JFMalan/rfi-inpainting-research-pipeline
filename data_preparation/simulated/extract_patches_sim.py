@@ -75,8 +75,8 @@ def main(args):
     ant2  = ms.getcol('ANTENNA2')
 
     print(f"reading {col} column (channels {chan_lo}:{chan_hi} = {n_chan} ch)...")
-    data  = ms.getcol(col,   startchan=chan_lo, nchans=n_chan)
-    flags = ms.getcol('FLAG', startchan=chan_lo, nchans=n_chan)
+    data  = ms.getcolslice(col,   blc=[chan_lo, 0], trc=[chan_hi - 1, -1])
+    flags = ms.getcolslice('FLAG', blc=[chan_lo, 0], trc=[chan_hi - 1, -1])
     ms.close()
     print(f"read complete — shape {data.shape}")
 
