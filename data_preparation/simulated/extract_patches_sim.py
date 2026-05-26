@@ -8,10 +8,10 @@ from casacore.tables import table
 def divisive_norm(waterfall, flagged, smooth_bins=64):
     norm = waterfall.copy()
     n_time, n_chan = waterfall.shape
+    kernel = np.ones(smooth_bins) / smooth_bins
     for t in range(n_time):
         row = waterfall[t].copy()
         row[flagged[t]] = np.nan
-        kernel = np.ones(smooth_bins) / smooth_bins
         valid = ~np.isnan(row)
         if valid.sum() < smooth_bins:
             continue
@@ -29,21 +29,20 @@ def divisive_norm(waterfall, flagged, smooth_bins=64):
 
 def extract_patches(waterfall, flagged, pt, pf, st, sf, max_flag_frac, max_patches):
     n_time, n_chan = waterfall.shape
-    patches, flag_patches, freq_offsets = [], [], []
+    patches, freq_offsets = [], []
     t = 0
     while t + pt <= n_time:
         f = 0
         while f + pf <= n_chan:
             block_flags = flagged[t:t+pt, f:f+pf]
             if block_flags.mean() <= max_flag_frac:
-                patches.append(waterfall[t:t+pt, f:f+pf])
-                flag_patches.append(block_flags)
+                patches.append(waterfall[t:t+pt, f:f+pf].copy())
                 freq_offsets.append(f)
             f += sf
             if len(patches) >= max_patches:
-                return patches, flag_patches, freq_offsets
+                return patches, freq_offsets
         t += st
-    return patches, flag_patches, freq_offsets
+    return patches, freq_offsets
 
 
 def main(args):
@@ -55,29 +54,34 @@ def main(args):
     except Exception:
         col = 'DATA'
 
-    data  = ms.getcol(col)
+    print(f"reading {col} column...")
+    data  = ms.getcol(col)     # (n_rows, n_chan_full, n_pol)
     flags = ms.getcol('FLAG')
     times = ms.getcol('TIME')
     ant1  = ms.getcol('ANTENNA1')
     ant2  = ms.getcol('ANTENNA2')
     ms.close()
+    print(f"read complete — shape {data.shape}")
 
     freqs_tab = table(args.ms + '/SPECTRAL_WINDOW')
-    freqs = freqs_tab.getcol('CHAN_FREQ')[0] / 1e6
+    freqs_full = freqs_tab.getcol('CHAN_FREQ')[0] / 1e6
     freqs_tab.close()
 
-    chan_mask = (freqs >= args.freq_min) & (freqs <= args.freq_max)
-    data  = data[:, chan_mask, :]
-    flags = flags[:, chan_mask, :]
-    freqs = freqs[chan_mask]
+    chan_mask = (freqs_full >= args.freq_min) & (freqs_full <= args.freq_max)
+    freqs = freqs_full[chan_mask]
     n_chan = int(chan_mask.sum())
 
-    amp     = np.abs(data).mean(axis=2).astype(np.float32)   # avg over pols
+    # slice channels before anything else to reduce memory
+    data  = data[:, chan_mask, :]
+    flags = flags[:, chan_mask, :]
+
+    amp     = np.abs(data).mean(axis=2).astype(np.float32)
     flagged = flags.any(axis=2)
+    del data, flags   # free immediately
 
     unique_times = np.unique(times)
-    n_time       = len(unique_times)
-    n_baseline   = amp.shape[0] // n_time
+    n_time     = len(unique_times)
+    n_baseline = amp.shape[0] // n_time
 
     amp     = amp[:n_time * n_baseline].reshape(n_time, n_baseline, n_chan)
     flagged = flagged[:n_time * n_baseline].reshape(n_time, n_baseline, n_chan)
@@ -90,13 +94,20 @@ def main(args):
     pt, pf = args.patch_time, args.patch_freq
     st, sf = args.stride_time, args.stride_freq
 
-    all_patches, all_flags, all_offsets = [], [], []
+    all_patches, all_offsets = [], []
+    wf_sum   = np.zeros((n_time, n_chan), dtype=np.float64)
+    wf_count = np.zeros((n_time, n_chan), dtype=np.int32)
+
     baselines_used = 0
     baselines_skipped = 0
+    total_bl = n_baseline
 
-    for bl in range(n_baseline):
+    for bl in range(total_bl):
         if autocorr[bl]:
             continue
+
+        if (bl + 1) % 100 == 0 or bl == 0:
+            print(f"  baseline {bl+1}/{total_bl}  patches so far: {len(all_patches)}")
 
         wf = amp[:, bl, :]
         fm = flagged[:, bl, :]
@@ -105,9 +116,13 @@ def main(args):
             baselines_skipped += 1
             continue
 
+        valid = ~fm
+        wf_sum[valid]   += wf[valid]
+        wf_count[valid] += 1
+
         wf_norm = divisive_norm(wf, fm, smooth_bins=args.smooth_bins)
 
-        patches, flag_patches, offsets = extract_patches(
+        patches, offsets = extract_patches(
             wf_norm, fm, pt, pf, st, sf,
             args.max_flag_frac, args.max_patches_per_bl
         )
@@ -117,7 +132,6 @@ def main(args):
             continue
 
         all_patches.extend(patches)
-        all_flags.extend(flag_patches)
         all_offsets.extend(offsets)
         baselines_used += 1
 
@@ -125,29 +139,22 @@ def main(args):
         raise RuntimeError("no patches extracted — check flag fraction thresholds")
 
     patches_arr    = np.stack(all_patches, axis=0).astype(np.float32)
-    flags_arr      = np.stack(all_flags,   axis=0).astype(np.float32)
     offsets_arr    = np.array(all_offsets, dtype=np.int32)
     patch_freq_min = freqs[offsets_arr].astype(np.float32)
-    patch_freq_max = freqs[np.minimum(offsets_arr + pf - 1, len(freqs) - 1)].astype(np.float32)
+    patch_freq_max = freqs[np.minimum(offsets_arr + pf - 1, n_chan - 1)].astype(np.float32)
 
     print(f"column         : {col}")
-    print(f"freq range     : {freq_min:.1f}–{freq_max:.1f} MHz  ({n_chan} channels)")
+    print(f"freq range     : {freq_min:.1f}-{freq_max:.1f} MHz  ({n_chan} channels)")
     print(f"baselines used : {baselines_used}  skipped: {baselines_skipped}  autocorr: {autocorr.sum()}")
     print(f"patches total  : {len(all_patches)}  shape: ({pt}, {pf})")
-    print(f"mean flag frac : {flags_arr.mean():.3f}")
 
-    # save baseline-averaged waterfall for visualisation (not used for training)
     if args.waterfall_out:
-        bl_mask = ~autocorr
-        wf_avg = np.ma.array(
-            amp[:, bl_mask, :], mask=flagged[:, bl_mask, :]
-        ).mean(axis=1).filled(0.0).astype(np.float32)
-        flag_avg = flagged[:, bl_mask, :].all(axis=1)
-        wf_path = args.waterfall_out
-        np.save(wf_path + '.npy',       wf_avg)
-        np.save(wf_path + '.meta.npy',  np.array([freq_min, freq_max]))
-        np.save(wf_path + '.flags.npy', flag_avg)
-        print(f"waterfall      -> {wf_path}.npy")
+        wf_avg = np.where(wf_count > 0, wf_sum / wf_count, 0.0).astype(np.float32)
+        flag_avg = (wf_count == 0)
+        np.save(args.waterfall_out + '.npy',       wf_avg)
+        np.save(args.waterfall_out + '.meta.npy',  np.array([freq_min, freq_max]))
+        np.save(args.waterfall_out + '.flags.npy', flag_avg)
+        print(f"waterfall      -> {args.waterfall_out}.npy")
 
     out = Path(args.output)
     out.parent.mkdir(parents=True, exist_ok=True)
