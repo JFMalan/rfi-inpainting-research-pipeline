@@ -161,22 +161,37 @@ def plot_amplitude_dist(clean, out_dir):
     print(f"amplitude dist  -> {out}")
 
 
-def plot_spectra(clean, mean_mask_spectrum, freqs, out_dir):
+def plot_spectra(clean, mean_mask_spectrum, freqs, out_dir, waterfall_path=None):
     mean_clean_spectrum = clean.mean(axis=(0, 1))
-    fig, axes = plt.subplots(1, 2, figsize=(12, 4))
 
-    axes[0].plot(freqs, mean_clean_spectrum, linewidth=0.6, color='steelblue')
-    axes[0].set_yscale('log')
-    axes[0].set_xlabel("Freq (MHz)")
-    axes[0].set_ylabel("Mean amplitude (log scale)")
-    axes[0].set_title("Simulated — mean clean spectrum")
+    ncols = 3 if waterfall_path and Path(waterfall_path).exists() else 2
+    fig, axes = plt.subplots(1, ncols, figsize=(6 * ncols, 4))
 
-    axes[1].plot(freqs, mean_mask_spectrum, linewidth=0.8, color='steelblue')
-    axes[1].axhline(0.10, color='red', linestyle='--', linewidth=0.8, label='10%')
-    axes[1].set_xlabel("Freq (MHz)")
-    axes[1].set_ylabel("Flag fraction")
-    axes[1].set_title("Mean RFI mask fraction per channel")
-    axes[1].legend()
+    if ncols == 3:
+        wf_raw  = np.load(waterfall_path)
+        wf_meta = np.load(waterfall_path.replace('.npy', '.meta.npy'))
+        wf_flags_path = waterfall_path.replace('.npy', '.flags.npy')
+        wf_flags = np.load(wf_flags_path) if Path(wf_flags_path).exists() else np.zeros(wf_raw.shape, dtype=bool)
+        raw_freqs = np.linspace(float(wf_meta[0]), float(wf_meta[1]), wf_raw.shape[1])
+        masked = np.ma.array(wf_raw, mask=wf_flags)
+        raw_spectrum = masked.mean(axis=0).filled(np.nan)
+        axes[0].plot(raw_freqs, raw_spectrum, linewidth=0.6, color='darkorange')
+        axes[0].set_xlabel("Freq (MHz)")
+        axes[0].set_ylabel("Mean amplitude (Jy)")
+        axes[0].set_title("Pre-DN baseline-averaged spectrum (Jy)")
+
+    axes[-2].plot(freqs, mean_clean_spectrum, linewidth=0.6, color='steelblue')
+    axes[-2].set_yscale('log')
+    axes[-2].set_xlabel("Freq (MHz)")
+    axes[-2].set_ylabel("Mean amplitude (log scale)")
+    axes[-2].set_title("Post-DN mean clean spectrum")
+
+    axes[-1].plot(freqs, mean_mask_spectrum, linewidth=0.8, color='steelblue')
+    axes[-1].axhline(0.10, color='red', linestyle='--', linewidth=0.8, label='10%')
+    axes[-1].set_xlabel("Freq (MHz)")
+    axes[-1].set_ylabel("Flag fraction")
+    axes[-1].set_title("Mean RFI mask fraction per channel")
+    axes[-1].legend()
 
     plt.tight_layout()
     out = out_dir / "validate_spectra.png"
@@ -296,7 +311,7 @@ def main(args):
 
     plot_sample_pairs(clean, corrupted, mask, freqs, freq_min, freq_max, n_time, args.n_plot, out_dir)
     plot_amplitude_dist(clean, out_dir)
-    plot_spectra(clean, mean_mask_spectrum, freqs, out_dir)
+    plot_spectra(clean, mean_mask_spectrum, freqs, out_dir, waterfall_path=args.waterfall)
     if args.waterfall:
         plot_waterfall(args.waterfall, out_dir)
     plot_patch_pages(args.input, out_dir, args.n_patches_show)

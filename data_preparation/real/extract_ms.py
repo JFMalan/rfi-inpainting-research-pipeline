@@ -5,8 +5,9 @@ from pathlib import Path
 from casacore.tables import table
 
 
-def divisive_norm(waterfall, flagged, smooth_bins=64):
+def divisive_norm(waterfall, flagged, smooth_bins=64, outlier_sigma=5.0):
     norm = waterfall.copy()
+    out_flags = flagged.copy()
     n_time, n_chan = waterfall.shape
     for t in range(n_time):
         row = waterfall[t].copy()
@@ -17,7 +18,6 @@ def divisive_norm(waterfall, flagged, smooth_bins=64):
             continue
         smoothed = np.full(n_chan, np.nan)
         smoothed[valid] = np.convolve(row[valid], kernel, mode='same')
-        # fill edges and flagged gaps with nearest valid smoothed value
         nans = np.isnan(smoothed)
         if nans.all():
             continue
@@ -25,7 +25,19 @@ def divisive_norm(waterfall, flagged, smooth_bins=64):
         smoothed[nans] = np.interp(idx[nans], idx[~nans], smoothed[~nans])
         smoothed = np.clip(smoothed, 1e-6, None)
         norm[t] = waterfall[t] / smoothed
-    return norm
+
+    # flag post-norm outliers — artefacts from normalisation failures
+    # (bright fringes, dropouts, band edges) that tricolour never saw
+    unflagged_vals = norm[~out_flags]
+    if len(unflagged_vals) > 0:
+        median = np.median(unflagged_vals)
+        mad = np.median(np.abs(unflagged_vals - median))
+        sigma = mad * 1.4826
+        lo = median - outlier_sigma * sigma
+        hi = median + outlier_sigma * sigma
+        out_flags |= (norm < lo) | (norm > hi)
+
+    return norm, out_flags
 
 
 def extract_patches(waterfall, flagged, pt, pf, st, sf, max_flag_frac, max_patches):
@@ -113,7 +125,7 @@ def main(args):
             baselines_skipped += 1
             continue
 
-        wf_norm = divisive_norm(wf, fm, smooth_bins=args.smooth_bins)
+        wf_norm, fm = divisive_norm(wf, fm, smooth_bins=args.smooth_bins, outlier_sigma=args.outlier_sigma)
 
         patches, flag_patches, freq_offsets = extract_patches(
             wf_norm, fm, pt, pf, st, sf,
@@ -177,4 +189,5 @@ if __name__ == '__main__':
     parser.add_argument('--max-flag-frac',       type=float, default=0.5)
     parser.add_argument('--max-bl-flag-frac',    type=float, default=0.8)
     parser.add_argument('--smooth-bins',         type=int,   default=64)
+    parser.add_argument('--outlier-sigma',       type=float, default=5.0)
     main(parser.parse_args())
