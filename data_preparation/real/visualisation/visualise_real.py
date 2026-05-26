@@ -204,7 +204,7 @@ def main(args):
     print(f"\nall plots -> {out_dir}/")
 
 
-def plot_patches_hdf5(h5_path, out_dir, n_show, per_page=8):
+def plot_patches_hdf5(h5_path, out_dir, n_show, per_page=6):
     with h5py.File(h5_path, 'r') as hf:
         n_total   = hf['data'].shape[0]
         indices   = np.linspace(0, n_total - 1, min(n_show, n_total), dtype=int)
@@ -222,8 +222,8 @@ def plot_patches_hdf5(h5_path, out_dir, n_show, per_page=8):
     patch_dir = out_dir / "patches_hdf5"
     patch_dir.mkdir(exist_ok=True)
 
-    # 2 columns per patch (raw | dn), 3 patches per row
-    patches_per_row = 3
+    # 2 columns per patch (raw | dn), 1 patch per row, 6 rows per page
+    patches_per_row = 1
     ncols  = patches_per_row * 2
     pages  = (len(indices) + per_page - 1) // per_page
     n_saved = 0
@@ -239,7 +239,7 @@ def plot_patches_hdf5(h5_path, out_dir, n_show, per_page=8):
         n            = len(page_indices)
         nrows        = (n + patches_per_row - 1) // patches_per_row
 
-        fig, axes = plt.subplots(nrows, ncols, figsize=(ncols * 3.5, nrows * 3.5))
+        fig, axes = plt.subplots(nrows, ncols, figsize=(ncols * 6, nrows * 3.5))
         axes = np.array(axes).reshape(nrows, ncols)
 
         for i in range(n):
