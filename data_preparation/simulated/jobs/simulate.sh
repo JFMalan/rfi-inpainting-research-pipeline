@@ -32,6 +32,7 @@ WATERFALL=$SIMDIR/waterfall
 CLEAN_H5=$SIMDIR/clean_patches.h5
 DATASET=$SIMDIR/dataset.h5
 VISDIR=$SIMDIR/vis
+MAX_PATCHES_PER_BL=${MAX_PATCHES_PER_BL:-50}
 
 mkdir -p $SIMDIR $VISDIR logs
 rm -rf $SIM_MS
@@ -66,22 +67,20 @@ echo "[3/7] $(date '+%H:%M:%S') adding thermal noise (CASA sm.corrupt)"
 singularity exec $CASA casa --nologger --log2term \
     -c $SCRIPTS/data_preparation/simulated/add_noise.py $SIM_MS
 
-echo "[4/7] $(date '+%H:%M:%S') extracting amplitude waterfall"
-singularity exec $ASTROPY python $SCRIPTS/data_preparation/simulated/extract_waterfall.py \
+echo "[4/7] $(date '+%H:%M:%S') extracting per-baseline patches + waterfall"
+singularity exec $ASTROPY python $SCRIPTS/data_preparation/simulated/extract_patches_sim.py \
     --ms $SIM_MS \
-    --output $WATERFALL \
-    --freq-min 900 --freq-max 1650
-
-echo "[5/7] $(date '+%H:%M:%S') slicing into patches"
-singularity exec $ASTROPY python $SCRIPTS/data_preparation/simulated/extract_patches.py \
-    --waterfall ${WATERFALL}.npy \
     --output $CLEAN_H5 \
+    --waterfall-out $WATERFALL \
+    --freq-min 900 --freq-max 1650 \
     --patch-time 256 \
     --patch-freq 256 \
     --stride-time 64 \
     --stride-freq 64 \
-    --max-patches $MAX_PATCHES \
-    --max-flag-fraction 0.5
+    --max-patches-per-bl $MAX_PATCHES_PER_BL \
+    --max-flag-frac 0.5
+
+echo "[5/7] $(date '+%H:%M:%S') [skipped — merged into step 4]"
 
 echo "[6/7] $(date '+%H:%M:%S') injecting synthetic RFI"
 singularity exec $ASTROPY /bin/bash -c "
