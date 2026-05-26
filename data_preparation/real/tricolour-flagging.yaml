@@ -1,6 +1,8 @@
-# Modified from Ben Hugo's strategy
 # uvcontsub_flagger removed — causes blanket over-flagging on uncalibrated data
+# apply_static_mask added explicitly to use MeerKAT L-band built-in persistent RFI mask
 # outlier_nsigma lowered to 6 for better sensitivity to moderate-strength RFI
+# flag_all_time_frac/flag_all_freq_frac kept at defaults (0.6/0.8) — intentional blanket
+# flagging of persistent bands is correct and expected behaviour
 strategies:
     # only enable me if you really want to start from scratch
     # -
@@ -9,6 +11,12 @@ strategies:
     -
         name: flag_nans_zeros
         task: flag_nans_zeros
+    -
+        name: background_static_mask
+        task: apply_static_mask
+        kwargs:
+            accumulation_mode: "or"
+            uvrange: ""
     -
         name: background_flags
         task: sum_threshold
@@ -24,8 +32,8 @@ strategies:
             freq_extend: 3
             freq_chunks: 10
             average_freq: 1
-            flag_all_time_frac: 0.9
-            flag_all_freq_frac: 0.9
+            flag_all_time_frac: 0.6
+            flag_all_freq_frac: 0.8
             rho: 1.3
             num_major_iterations: 5
     -
@@ -43,8 +51,8 @@ strategies:
             freq_extend: 3
             freq_chunks: 10
             average_freq: 1
-            flag_all_time_frac: 0.9
-            flag_all_freq_frac: 0.9
+            flag_all_time_frac: 0.6
+            flag_all_freq_frac: 0.8
             rho: 1.3
             num_major_iterations: 1
     -
@@ -62,8 +70,8 @@ strategies:
             freq_extend: 3
             freq_chunks: 10
             average_freq: 1
-            flag_all_time_frac: 0.9
-            flag_all_freq_frac: 0.9
+            flag_all_time_frac: 0.6
+            flag_all_freq_frac: 0.8
             rho: 1.3
             num_major_iterations: 1
     -
@@ -81,8 +89,8 @@ strategies:
             freq_extend: 3
             freq_chunks: 10
             average_freq: 1
-            flag_all_time_frac: 0.9
-            flag_all_freq_frac: 0.9
+            flag_all_time_frac: 0.6
+            flag_all_freq_frac: 0.8
             rho: 1.3
             num_major_iterations: 1
     -
