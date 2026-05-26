@@ -3,27 +3,33 @@ import numpy as np
 import h5py
 from pathlib import Path
 from casacore.tables import table
+from scipy.ndimage import uniform_filter1d
 
 
 def divisive_norm(waterfall, flagged, smooth_bins=64):
+    # vectorised: operate on all time rows at once
+    wf = waterfall.copy()
+    wf[flagged] = np.nan
+
+    # uniform_filter1d handles NaNs poorly, so use a masked cumsum approach:
+    # for each row, interpolate over NaNs then smooth, then divide
     norm = waterfall.copy()
+    half = smooth_bins // 2
     n_time, n_chan = waterfall.shape
-    kernel = np.ones(smooth_bins) / smooth_bins
+    idx = np.arange(n_chan)
+
     for t in range(n_time):
-        row = waterfall[t].copy()
-        row[flagged[t]] = np.nan
+        row = wf[t]
         valid = ~np.isnan(row)
         if valid.sum() < smooth_bins:
             continue
-        smoothed = np.full(n_chan, np.nan)
-        smoothed[valid] = np.convolve(row[valid], kernel, mode='same')
-        nans = np.isnan(smoothed)
-        if nans.all():
-            continue
-        idx = np.arange(n_chan)
-        smoothed[nans] = np.interp(idx[nans], idx[~nans], smoothed[~nans])
+        # fill NaNs by interpolation so uniform_filter1d doesn't propagate them
+        filled = row.copy()
+        filled[~valid] = np.interp(idx[~valid], idx[valid], row[valid])
+        smoothed = uniform_filter1d(filled, size=smooth_bins, mode='nearest')
         smoothed = np.clip(smoothed, 1e-6, None)
         norm[t] = waterfall[t] / smoothed
+
     return norm
 
 
@@ -34,8 +40,7 @@ def extract_patches(waterfall, flagged, pt, pf, st, sf, max_flag_frac, max_patch
     while t + pt <= n_time:
         f = 0
         while f + pf <= n_chan:
-            block_flags = flagged[t:t+pt, f:f+pf]
-            if block_flags.mean() <= max_flag_frac:
+            if flagged[t:t+pt, f:f+pf].mean() <= max_flag_frac:
                 patches.append(waterfall[t:t+pt, f:f+pf].copy())
                 freq_offsets.append(f)
             f += sf
@@ -54,30 +59,30 @@ def main(args):
     except Exception:
         col = 'DATA'
 
-    print(f"reading {col} column...")
-    data  = ms.getcol(col)     # (n_rows, n_chan_full, n_pol)
-    flags = ms.getcol('FLAG')
-    times = ms.getcol('TIME')
-    ant1  = ms.getcol('ANTENNA1')
-    ant2  = ms.getcol('ANTENNA2')
-    ms.close()
-    print(f"read complete — shape {data.shape}")
-
     freqs_tab = table(args.ms + '/SPECTRAL_WINDOW')
     freqs_full = freqs_tab.getcol('CHAN_FREQ')[0] / 1e6
     freqs_tab.close()
 
     chan_mask = (freqs_full >= args.freq_min) & (freqs_full <= args.freq_max)
-    freqs = freqs_full[chan_mask]
-    n_chan = int(chan_mask.sum())
+    chan_indices = np.where(chan_mask)[0]
+    chan_lo  = int(chan_indices[0])
+    chan_hi  = int(chan_indices[-1]) + 1
+    n_chan   = chan_hi - chan_lo
+    freqs    = freqs_full[chan_lo:chan_hi]
 
-    # slice channels before anything else to reduce memory
-    data  = data[:, chan_mask, :]
-    flags = flags[:, chan_mask, :]
+    times = ms.getcol('TIME')
+    ant1  = ms.getcol('ANTENNA1')
+    ant2  = ms.getcol('ANTENNA2')
+
+    print(f"reading {col} column (channels {chan_lo}:{chan_hi} = {n_chan} ch)...")
+    data  = ms.getcol(col,   startchan=chan_lo, nchans=n_chan)
+    flags = ms.getcol('FLAG', startchan=chan_lo, nchans=n_chan)
+    ms.close()
+    print(f"read complete — shape {data.shape}")
 
     amp     = np.abs(data).mean(axis=2).astype(np.float32)
     flagged = flags.any(axis=2)
-    del data, flags   # free immediately
+    del data, flags
 
     unique_times = np.unique(times)
     n_time     = len(unique_times)
@@ -85,8 +90,8 @@ def main(args):
 
     amp     = amp[:n_time * n_baseline].reshape(n_time, n_baseline, n_chan)
     flagged = flagged[:n_time * n_baseline].reshape(n_time, n_baseline, n_chan)
-    ant1_bl = ant1[:n_baseline]
-    ant2_bl = ant2[:n_baseline]
+    ant1_bl  = ant1[:n_baseline]
+    ant2_bl  = ant2[:n_baseline]
     autocorr = ant1_bl == ant2_bl
 
     freq_min = float(freqs[0])
@@ -100,14 +105,16 @@ def main(args):
 
     baselines_used = 0
     baselines_skipped = 0
-    total_bl = n_baseline
+    n_cross = int((~autocorr).sum())
 
-    for bl in range(total_bl):
+    cross_idx = 0
+    for bl in range(n_baseline):
         if autocorr[bl]:
             continue
 
-        if (bl + 1) % 100 == 0 or bl == 0:
-            print(f"  baseline {bl+1}/{total_bl}  patches so far: {len(all_patches)}")
+        cross_idx += 1
+        if cross_idx % 200 == 0 or cross_idx == 1:
+            print(f"  baseline {cross_idx}/{n_cross}  patches so far: {len(all_patches)}")
 
         wf = amp[:, bl, :]
         fm = flagged[:, bl, :]
@@ -149,7 +156,7 @@ def main(args):
     print(f"patches total  : {len(all_patches)}  shape: ({pt}, {pf})")
 
     if args.waterfall_out:
-        wf_avg = np.where(wf_count > 0, wf_sum / wf_count, 0.0).astype(np.float32)
+        wf_avg   = np.where(wf_count > 0, wf_sum / wf_count, 0.0).astype(np.float32)
         flag_avg = (wf_count == 0)
         np.save(args.waterfall_out + '.npy',       wf_avg)
         np.save(args.waterfall_out + '.meta.npy',  np.array([freq_min, freq_max]))
