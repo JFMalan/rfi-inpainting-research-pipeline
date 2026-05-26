@@ -38,7 +38,7 @@ cp -r $SRC_MS $FLAGGED_MS
 echo "[2/4] $(date '+%H:%M:%S') running tricolour"
 singularity exec $OXKAT tricolour \
     $FLAGGED_MS \
-    --config /usr/local/lib/python3.9/dist-packages/tricolour/conf/default.yaml \
+    --config $SCRIPTS/data_preparation/real/tricolour-flagging.yaml \
     -fn ACT-CLJ2023.3-5535 \
     -nw 32 \
     -rc 10000 \
