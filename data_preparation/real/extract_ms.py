@@ -5,9 +5,8 @@ from pathlib import Path
 from casacore.tables import table
 
 
-def divisive_norm(waterfall, flagged, smooth_bins=64, outlier_sigma=5.0):
+def divisive_norm(waterfall, flagged, smooth_bins=64):
     norm = waterfall.copy()
-    out_flags = flagged.copy()
     n_time, n_chan = waterfall.shape
     for t in range(n_time):
         row = waterfall[t].copy()
@@ -25,19 +24,7 @@ def divisive_norm(waterfall, flagged, smooth_bins=64, outlier_sigma=5.0):
         smoothed[nans] = np.interp(idx[nans], idx[~nans], smoothed[~nans])
         smoothed = np.clip(smoothed, 1e-6, None)
         norm[t] = waterfall[t] / smoothed
-
-    # flag post-norm outliers — artefacts from normalisation failures
-    # (bright fringes, dropouts, band edges) that tricolour never saw
-    unflagged_vals = norm[~out_flags]
-    if len(unflagged_vals) > 0:
-        median = np.median(unflagged_vals)
-        mad = np.median(np.abs(unflagged_vals - median))
-        sigma = mad * 1.4826
-        lo = median - outlier_sigma * sigma
-        hi = median + outlier_sigma * sigma
-        out_flags |= (norm < lo) | (norm > hi)
-
-    return norm, out_flags
+    return norm
 
 
 def extract_patches(waterfall, flagged, pt, pf, st, sf, max_flag_frac, max_patches):
@@ -110,7 +97,7 @@ def main(args):
     pt, pf   = args.patch_time, args.patch_freq
     st, sf   = args.stride_time, args.stride_freq
 
-    all_patches, all_flags, all_freq_offsets = [], [], []
+    all_patches, all_raw, all_flags, all_freq_offsets = [], [], [], []
     baselines_used = 0
     baselines_skipped = 0
 
@@ -125,7 +112,7 @@ def main(args):
             baselines_skipped += 1
             continue
 
-        wf_norm, fm = divisive_norm(wf, fm, smooth_bins=args.smooth_bins, outlier_sigma=args.outlier_sigma)
+        wf_norm = divisive_norm(wf, fm, smooth_bins=args.smooth_bins)
 
         patches, flag_patches, freq_offsets = extract_patches(
             wf_norm, fm, pt, pf, st, sf,
@@ -136,7 +123,13 @@ def main(args):
             baselines_skipped += 1
             continue
 
+        raw_patches, _, _ = extract_patches(
+            wf, fm, pt, pf, st, sf,
+            args.max_flag_frac, args.max_patches_per_bl
+        )
+
         all_patches.extend(patches)
+        all_raw.extend(raw_patches)
         all_flags.extend(flag_patches)
         all_freq_offsets.extend(freq_offsets)
         baselines_used += 1
@@ -145,6 +138,7 @@ def main(args):
         raise RuntimeError("no patches extracted — check flag fraction thresholds")
 
     patches_arr     = np.stack(all_patches, axis=0).astype(np.float32)
+    raw_arr         = np.stack(all_raw,     axis=0).astype(np.float32)
     flags_arr       = np.stack(all_flags,   axis=0).astype(np.float32)
     offsets_arr     = np.array(all_freq_offsets, dtype=np.int32)
     patch_freq_min  = freqs[offsets_arr].astype(np.float32)
@@ -159,8 +153,9 @@ def main(args):
     out = Path(args.output)
     out.parent.mkdir(parents=True, exist_ok=True)
     with h5py.File(out, 'w') as hf:
-        hf.create_dataset('data',          data=patches_arr,    dtype=np.float32)
-        hf.create_dataset('flags',         data=flags_arr,      dtype=np.float32)
+        hf.create_dataset('data',           data=patches_arr,    dtype=np.float32)
+        hf.create_dataset('data_raw',       data=raw_arr,        dtype=np.float32)
+        hf.create_dataset('flags',          data=flags_arr,      dtype=np.float32)
         hf.create_dataset('freq_min_patch', data=patch_freq_min, dtype=np.float32)
         hf.create_dataset('freq_max_patch', data=patch_freq_max, dtype=np.float32)
         hf.attrs['freq_min_mhz']    = freq_min
@@ -189,5 +184,4 @@ if __name__ == '__main__':
     parser.add_argument('--max-flag-frac',       type=float, default=0.5)
     parser.add_argument('--max-bl-flag-frac',    type=float, default=0.8)
     parser.add_argument('--smooth-bins',         type=int,   default=64)
-    parser.add_argument('--outlier-sigma',       type=float, default=5.0)
     main(parser.parse_args())

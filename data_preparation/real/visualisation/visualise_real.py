@@ -204,12 +204,14 @@ def main(args):
     print(f"\nall plots -> {out_dir}/")
 
 
-def plot_patches_hdf5(h5_path, out_dir, n_show, per_page=16):
+def plot_patches_hdf5(h5_path, out_dir, n_show, per_page=8):
     with h5py.File(h5_path, 'r') as hf:
-        n_total  = hf['data'].shape[0]
-        indices  = np.linspace(0, n_total - 1, min(n_show, n_total), dtype=int)
-        patches  = hf['data'][indices]
-        flags    = hf['flags'][indices]
+        n_total   = hf['data'].shape[0]
+        indices   = np.linspace(0, n_total - 1, min(n_show, n_total), dtype=int)
+        patches   = hf['data'][indices]
+        flags     = hf['flags'][indices]
+        has_raw   = 'data_raw' in hf
+        raw       = hf['data_raw'][indices] if has_raw else None
         if 'freq_min_patch' in hf:
             patch_fmin = hf['freq_min_patch'][:][indices]
             patch_fmax = hf['freq_max_patch'][:][indices]
@@ -220,49 +222,79 @@ def plot_patches_hdf5(h5_path, out_dir, n_show, per_page=16):
     patch_dir = out_dir / "patches_hdf5"
     patch_dir.mkdir(exist_ok=True)
 
-    ncols   = 4
-    pages   = (len(indices) + per_page - 1) // per_page
+    # 2 columns per patch (raw | dn), 4 patches per row
+    patches_per_row = 4
+    ncols  = patches_per_row * 2
+    pages  = (len(indices) + per_page - 1) // per_page
     n_saved = 0
 
     for page in range(pages):
-        page_indices = indices[page * per_page:(page + 1) * per_page]
-        page_patches = patches[page * per_page:(page + 1) * per_page]
-        page_flags   = flags[page * per_page:(page + 1) * per_page]
-        n             = len(page_indices)
-        nrows         = (n + ncols - 1) // ncols
+        sl           = slice(page * per_page, (page + 1) * per_page)
+        page_indices = indices[sl]
+        page_patches = patches[sl]
+        page_flags   = flags[sl]
+        page_raw     = raw[sl] if has_raw else None
+        page_fmin    = patch_fmin[sl]
+        page_fmax    = patch_fmax[sl]
+        n            = len(page_indices)
+        nrows        = (n + patches_per_row - 1) // patches_per_row
 
-        fig, axes = plt.subplots(nrows, ncols, figsize=(14, 3.5 * nrows))
-        axes = np.array(axes).flatten()
+        fig, axes = plt.subplots(nrows, ncols, figsize=(ncols * 3.5, nrows * 3.5))
+        axes = np.array(axes).reshape(nrows, ncols)
 
         for i in range(n):
+            row = i // patches_per_row
+            col = (i % patches_per_row) * 2
             patch = page_patches[i]
             fm    = page_flags[i]
-            fmin  = patch_fmin[page * per_page + i]
-            fmax  = patch_fmax[page * per_page + i]
-            unflagged_vals = patch[fm == 0]
-            if len(unflagged_vals) > 10:
-                vmin = np.percentile(unflagged_vals, 2)
-                vmax = np.percentile(unflagged_vals, 90)
-            else:
-                vmin, vmax = patch.min(), patch.max()
-            ax = axes[i]
-            ax.imshow(patch.T, aspect='auto', origin='lower',
-                      extent=[0, patch.shape[0], fmin, fmax],
-                      vmin=vmin, vmax=vmax, cmap='plasma')
-            ax.imshow(green_overlay(fm), aspect='auto', origin='lower',
-                      extent=[0, patch.shape[0], fmin, fmax])
-            ax.set_title(f"patch {page_indices[i]}  flag={fm.mean():.2f}", fontsize=8)
-            ax.tick_params(labelsize=6)
-            if i % ncols == 0:
-                ax.set_ylabel("Freq (MHz)", fontsize=7)
-            if i >= (nrows - 1) * ncols:
-                ax.set_xlabel("Time bins", fontsize=7)
+            fmin  = page_fmin[i]
+            fmax  = page_fmax[i]
 
-        for ax in axes[n:]:
-            ax.set_visible(False)
+            unflagged_vals = patch[fm == 0]
+            dn_vmin = np.percentile(unflagged_vals, 2)  if len(unflagged_vals) > 10 else patch.min()
+            dn_vmax = np.percentile(unflagged_vals, 90) if len(unflagged_vals) > 10 else patch.max()
+
+            # left: raw pre-DN
+            ax_raw = axes[row, col]
+            if page_raw is not None:
+                r = page_raw[i]
+                unfl_raw = r[fm == 0]
+                rv_min = np.percentile(unfl_raw, 2)  if len(unfl_raw) > 10 else r.min()
+                rv_max = np.percentile(unfl_raw, 90) if len(unfl_raw) > 10 else r.max()
+                ax_raw.imshow(r.T, aspect='auto', origin='lower',
+                              extent=[0, r.shape[0], fmin, fmax],
+                              vmin=rv_min, vmax=rv_max, cmap='plasma')
+                ax_raw.imshow(green_overlay(fm), aspect='auto', origin='lower',
+                              extent=[0, r.shape[0], fmin, fmax])
+                ax_raw.set_title(f"patch {page_indices[i]}  raw", fontsize=7)
+            else:
+                ax_raw.set_visible(False)
+            ax_raw.tick_params(labelsize=5)
+            if col == 0:
+                ax_raw.set_ylabel("Freq (MHz)", fontsize=6)
+
+            # right: post-DN with flags
+            ax_dn = axes[row, col + 1]
+            ax_dn.imshow(patch.T, aspect='auto', origin='lower',
+                         extent=[0, patch.shape[0], fmin, fmax],
+                         vmin=dn_vmin, vmax=dn_vmax, cmap='plasma')
+            ax_dn.imshow(green_overlay(fm), aspect='auto', origin='lower',
+                         extent=[0, patch.shape[0], fmin, fmax])
+            ax_dn.set_title(f"patch {page_indices[i]}  dn  flag={fm.mean():.2f}", fontsize=7)
+            ax_dn.tick_params(labelsize=5)
+
+            if row == nrows - 1:
+                ax_raw.set_xlabel("Time bins", fontsize=6)
+                ax_dn.set_xlabel("Time bins", fontsize=6)
+
+        for i in range(n, nrows * patches_per_row):
+            row = i // patches_per_row
+            col = (i % patches_per_row) * 2
+            axes[row, col].set_visible(False)
+            axes[row, col + 1].set_visible(False)
 
         plt.suptitle(
-            f"Real MeerKAT — patches (green = flagged)  "
+            f"Real MeerKAT — raw (left) vs post-DN (right), green = flagged  "
             f"[page {page + 1}/{pages}, {n_total} total]",
             y=1.01)
         plt.tight_layout()
