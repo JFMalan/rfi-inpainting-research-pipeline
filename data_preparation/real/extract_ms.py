@@ -195,4 +195,5 @@ if __name__ == '__main__':
     parser.add_argument('--max-flag-frac',       type=float, default=0.5)
     parser.add_argument('--max-bl-flag-frac',    type=float, default=0.8)
     parser.add_argument('--smooth-bins',         type=int,   default=64)
+    parser.add_argument('--max-time',            type=int,   default=None)
     main(parser.parse_args())
