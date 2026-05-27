@@ -49,8 +49,15 @@ def extract_patches(waterfall, flagged, pt, pf, st, sf, max_flag_frac, max_patch
 
 def main(args):
     ms = table(args.ms, readonly=True)
+    query = []
     if args.field is not None:
-        ms = ms.query(f"FIELD_ID == {args.field}")
+        query.append(f"FIELD_ID == {args.field}")
+    if args.max_time is not None:
+        all_times = np.unique(ms.getcol('TIME'))
+        cutoff = all_times[min(args.max_time, len(all_times)) - 1]
+        query.append(f"TIME <= {cutoff}")
+    if query:
+        ms = ms.query(" AND ".join(query))
 
     cols = ms.colnames()
     col = 'DATA'
