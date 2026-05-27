@@ -25,8 +25,8 @@ strategies:
             background_iterations: 5
             spike_width_time: 12.5
             spike_width_freq: 10.0
-            time_extend: 0
-            freq_extend: 0
+            time_extend: 1
+            freq_extend: 1
             freq_chunks: 10
             average_freq: 1
             flag_all_time_frac: 1.0
@@ -40,7 +40,7 @@ strategies:
             major_cycles: 7
             or_original_from_cycle: 0
             taylor_degrees: 10
-            sigma: 11.0
+            sigma: 8.0
     -
         name: final_st_very_broad
         task: sum_threshold
@@ -52,8 +52,8 @@ strategies:
             background_iterations: 5
             spike_width_time: 6.5
             spike_width_freq: 64.0
-            time_extend: 0
-            freq_extend: 0
+            time_extend: 1
+            freq_extend: 1
             freq_chunks: 10
             average_freq: 1
             flag_all_time_frac: 1.0
@@ -71,8 +71,8 @@ strategies:
             background_iterations: 5
             spike_width_time: 6.5
             spike_width_freq: 10.0
-            time_extend: 0
-            freq_extend: 0
+            time_extend: 1
+            freq_extend: 1
             freq_chunks: 10
             average_freq: 1
             flag_all_time_frac: 1.0
@@ -90,8 +90,8 @@ strategies:
             background_iterations: 5
             spike_width_time: 2
             spike_width_freq: 2.0
-            time_extend: 0
-            freq_extend: 0
+            time_extend: 1
+            freq_extend: 1
             freq_chunks: 10
             average_freq: 1
             flag_all_time_frac: 1.0
