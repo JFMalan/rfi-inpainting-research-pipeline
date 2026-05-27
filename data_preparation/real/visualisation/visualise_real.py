@@ -6,6 +6,9 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 from pathlib import Path
 from casacore.tables import table
+import sys
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from rfi_bands import LBAND_PERSISTENT_MHZ
 
 RFI_BANDS = [
     (930, 960),
@@ -36,6 +39,9 @@ def load_ms(ms_path, max_time, field=None):
     freqs_table = table(ms_path + '/SPECTRAL_WINDOW')
     freqs = freqs_table.getcol('CHAN_FREQ')[0] / 1e6
     freqs_table.close()
+
+    for flo, fhi in LBAND_PERSISTENT_MHZ:
+        flags[:, (freqs >= flo) & (freqs <= fhi), :] = True
 
     amp = np.abs(data).mean(axis=2).astype(np.float32)
     flagged = flags.any(axis=2)
