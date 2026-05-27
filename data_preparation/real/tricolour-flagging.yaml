@@ -18,7 +18,7 @@ strategies:
         name: background_flags
         task: sum_threshold
         kwargs:
-            outlier_nsigma: 6
+            outlier_nsigma: 8
             windows_time: [1, 2, 4, 8]
             windows_freq: [1, 2, 4, 8]
             background_reject: 2.0
@@ -39,13 +39,13 @@ strategies:
         kwargs:
             major_cycles: 7
             or_original_from_cycle: 0
-            taylor_degrees: 12
-            sigma: 7.0
+            taylor_degrees: 10
+            sigma: 10.0
     -
         name: final_st_very_broad
         task: sum_threshold
         kwargs:
-            outlier_nsigma: 6
+            outlier_nsigma: 8
             windows_time: [1, 2, 4, 8]
             windows_freq: [32, 48, 64, 128]
             background_reject: 2.0
@@ -64,7 +64,7 @@ strategies:
         name: final_st_broad
         task: sum_threshold
         kwargs:
-            outlier_nsigma: 6
+            outlier_nsigma: 8
             windows_time: [1, 2, 4, 8]
             windows_freq: [1, 2, 4, 8]
             background_reject: 2.0
@@ -83,7 +83,7 @@ strategies:
         name: final_st_narrow
         task: sum_threshold
         kwargs:
-            outlier_nsigma: 6
+            outlier_nsigma: 8
             windows_time: [1, 2, 4, 8]
             windows_freq: [1, 2, 4, 8]
             background_reject: 2.0
