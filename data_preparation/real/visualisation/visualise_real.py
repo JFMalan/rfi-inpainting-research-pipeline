@@ -72,6 +72,88 @@ def green_overlay(flag_mask_2d):
     return rgba
 
 
+def plot_flagging_diagnostics(amp, flagged, freqs, avg_waterfall, avg_flag_mask, out_dir, patches_path=None):
+    # flag fraction per frequency channel (averaged over all baselines and time)
+    flag_per_freq = flagged.mean(axis=(0, 1))
+    # flag fraction per time bin (averaged over all baselines and channels)
+    flag_per_time = flagged.mean(axis=(1, 2))
+
+    fig, axes = plt.subplots(3, 1, figsize=(14, 12))
+
+    # --- flag fraction vs frequency ---
+    ax = axes[0]
+    ax.plot(freqs, flag_per_freq, linewidth=0.7, color='steelblue')
+    ax.set_ylim(0, 1)
+    ax.set_xlabel("Freq (MHz)")
+    ax.set_ylabel("Flag fraction")
+    ax.set_title("Flag fraction per channel (all baselines × time)")
+    for lo, hi in RFI_BANDS:
+        if lo < freqs[-1] and hi > freqs[0]:
+            ax.axvspan(lo, hi, color='red', alpha=0.12, linewidth=0)
+    ax.axhline(0.5, color='orange', linewidth=0.8, linestyle='--', label='50%')
+    ax.axhline(0.9, color='red',    linewidth=0.8, linestyle='--', label='90%')
+    ax.legend(fontsize=8)
+
+    # --- mean spectrum: flagged vs unflagged pixels overlaid ---
+    ax = axes[1]
+    mean_unflagged = np.where(avg_flag_mask == 0, avg_waterfall, np.nan)
+    mean_flagged   = np.where(avg_flag_mask  > 0, avg_waterfall, np.nan)
+    with np.errstate(all='ignore'):
+        mean_unflagged = np.nanmean(mean_unflagged, axis=0)
+        mean_flagged   = np.nanmean(mean_flagged,   axis=0)
+    ax.plot(freqs, mean_unflagged, linewidth=0.7, color='steelblue', label='unflagged mean')
+    ax.plot(freqs, mean_flagged,   linewidth=0.7, color='red',       label='flagged mean', alpha=0.7)
+    ax.set_yscale('log')
+    ax.set_xlabel("Freq (MHz)")
+    ax.set_ylabel("Mean amplitude (Jy)")
+    ax.set_title("Mean spectrum: flagged vs unflagged — spikes in unflagged = missed RFI")
+    for lo, hi in RFI_BANDS:
+        if lo < freqs[-1] and hi > freqs[0]:
+            ax.axvspan(lo, hi, color='red', alpha=0.08, linewidth=0)
+    ax.legend(fontsize=8)
+
+    # --- flag fraction per time bin ---
+    ax = axes[2]
+    ax.plot(flag_per_time, linewidth=0.8, color='steelblue')
+    ax.set_ylim(0, 1)
+    ax.set_xlabel("Time bin")
+    ax.set_ylabel("Flag fraction")
+    ax.set_title("Flag fraction per time bin (all baselines × channels) — spikes = over-flagged timestamps")
+    ax.axhline(0.5, color='orange', linewidth=0.8, linestyle='--', label='50%')
+    ax.axhline(0.9, color='red',    linewidth=0.8, linestyle='--', label='90%')
+    ax.legend(fontsize=8)
+
+    plt.tight_layout()
+    plt.savefig(out_dir / "flag_diagnostics.png", dpi=130, bbox_inches="tight")
+    plt.close()
+    print("saved flag_diagnostics.png")
+
+    # --- per-patch flag fraction histogram (from HDF5 if available) ---
+    if patches_path is not None:
+        try:
+            with h5py.File(patches_path, 'r') as hf:
+                patch_flags = hf['flags'][:]
+            patch_flag_fracs = patch_flags.mean(axis=(1, 2))
+            fig, ax = plt.subplots(figsize=(8, 4))
+            ax.hist(patch_flag_fracs, bins=50, color='steelblue', alpha=0.8, edgecolor='none')
+            ax.axvline(patch_flag_fracs.mean(), color='red', linewidth=1,
+                       label=f"mean={patch_flag_fracs.mean():.3f}")
+            ax.set_xlabel("Flag fraction per patch")
+            ax.set_ylabel("Count")
+            ax.set_title(f"Per-patch flag fraction distribution ({len(patch_flag_fracs)} patches)")
+            ax.legend(fontsize=8)
+            plt.tight_layout()
+            plt.savefig(out_dir / "patch_flag_hist.png", dpi=130)
+            plt.close()
+            print("saved patch_flag_hist.png")
+            # print patches that are suspiciously highly flagged
+            high = patch_flag_fracs[patch_flag_fracs > 0.5]
+            print(f"  patches with >50% flags: {len(high)}/{len(patch_flag_fracs)} "
+                  f"({100*len(high)/len(patch_flag_fracs):.1f}%)")
+        except Exception as e:
+            print(f"skipped patch_flag_hist: {e}")
+
+
 def main(args):
     out_dir = Path(args.output)
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -197,6 +279,8 @@ def main(args):
     print(f"\nstats (unflagged, baseline-averaged):")
     print(f"  mean={avg_unflagged.mean():.4f}  std={avg_unflagged.std():.4f}")
     print(f"  p5={np.percentile(avg_unflagged,5):.4f}  p90={np.percentile(avg_unflagged,90):.4f} Jy")
+
+    plot_flagging_diagnostics(amp, flagged, freqs, avg_waterfall, avg_flag_mask, out_dir, args.patches)
 
     if args.patches:
         plot_patches_hdf5(args.patches, out_dir, args.n_patches_show)
