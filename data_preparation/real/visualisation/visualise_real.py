@@ -73,14 +73,13 @@ def green_overlay(flag_mask_2d):
 
 
 def plot_flagging_diagnostics(amp, flagged, freqs, avg_waterfall, avg_flag_mask, out_dir, patches_path=None):
-    # flag fraction per frequency channel (averaged over all baselines and time)
-    flag_per_freq = flagged.mean(axis=(0, 1))
-    # flag fraction per time bin (averaged over all baselines and channels)
-    flag_per_time = flagged.mean(axis=(1, 2))
+    flag_per_freq    = flagged.mean(axis=(0, 1))
+    flag_per_time    = flagged.mean(axis=(1, 2))
+    flag_per_baseline = flagged.mean(axis=(0, 2))
 
+    # --- main diagnostics: flag/freq, spectrum, flag/time ---
     fig, axes = plt.subplots(3, 1, figsize=(14, 12))
 
-    # --- flag fraction vs frequency ---
     ax = axes[0]
     ax.plot(freqs, flag_per_freq, linewidth=0.7, color='steelblue')
     ax.set_ylim(0, 1)
@@ -94,7 +93,6 @@ def plot_flagging_diagnostics(amp, flagged, freqs, avg_waterfall, avg_flag_mask,
     ax.axhline(0.9, color='red',    linewidth=0.8, linestyle='--', label='90%')
     ax.legend(fontsize=8)
 
-    # --- mean spectrum: flagged vs unflagged pixels overlaid ---
     ax = axes[1]
     mean_unflagged = np.where(avg_flag_mask == 0, avg_waterfall, np.nan)
     mean_flagged   = np.where(avg_flag_mask  > 0, avg_waterfall, np.nan)
@@ -112,13 +110,12 @@ def plot_flagging_diagnostics(amp, flagged, freqs, avg_waterfall, avg_flag_mask,
             ax.axvspan(lo, hi, color='red', alpha=0.08, linewidth=0)
     ax.legend(fontsize=8)
 
-    # --- flag fraction per time bin ---
     ax = axes[2]
     ax.plot(flag_per_time, linewidth=0.8, color='steelblue')
     ax.set_ylim(0, 1)
     ax.set_xlabel("Time bin")
     ax.set_ylabel("Flag fraction")
-    ax.set_title("Flag fraction per time bin (all baselines × channels) — spikes = over-flagged timestamps")
+    ax.set_title("Flag fraction per time bin — spikes = over-flagged timestamps")
     ax.axhline(0.5, color='orange', linewidth=0.8, linestyle='--', label='50%')
     ax.axhline(0.9, color='red',    linewidth=0.8, linestyle='--', label='90%')
     ax.legend(fontsize=8)
@@ -128,7 +125,78 @@ def plot_flagging_diagnostics(amp, flagged, freqs, avg_waterfall, avg_flag_mask,
     plt.close()
     print("saved flag_diagnostics.png")
 
-    # --- per-patch flag fraction histogram (from HDF5 if available) ---
+    # --- zoomed spectrum panels around known missed RFI regions ---
+    zoom_regions = [(1050, 1160), (1350, 1430), (1480, 1530)]
+    fig, axes = plt.subplots(1, len(zoom_regions), figsize=(15, 4))
+    for ax, (flo, fhi) in zip(axes, zoom_regions):
+        mask = (freqs >= flo) & (freqs <= fhi)
+        if mask.sum() < 2:
+            ax.set_visible(False)
+            continue
+        ax.plot(freqs[mask], mean_unflagged[mask], linewidth=0.9, color='steelblue', label='unflagged')
+        ax.plot(freqs[mask], mean_flagged[mask],   linewidth=0.9, color='red', alpha=0.7, label='flagged')
+        ax.set_yscale('log')
+        ax.set_xlabel("Freq (MHz)", fontsize=8)
+        ax.set_ylabel("Mean amplitude (Jy)", fontsize=8)
+        ax.set_title(f"{flo}–{fhi} MHz", fontsize=9)
+        ax.tick_params(labelsize=7)
+        ax.legend(fontsize=7)
+    plt.suptitle("Zoomed mean spectrum — missed RFI shows as spikes above local continuum", fontsize=9)
+    plt.tight_layout()
+    plt.savefig(out_dir / "flag_diagnostics_zoom.png", dpi=130, bbox_inches="tight")
+    plt.close()
+    print("saved flag_diagnostics_zoom.png")
+
+    # --- flag fraction per baseline ---
+    n_baseline = flag_per_baseline.shape[0]
+    fig, ax = plt.subplots(figsize=(max(10, n_baseline // 10), 4))
+    ax.bar(np.arange(n_baseline), flag_per_baseline, width=1.0, color='steelblue', alpha=0.8)
+    ax.set_xlabel("Baseline index")
+    ax.set_ylabel("Flag fraction")
+    ax.set_title("Flag fraction per baseline — outliers = bad antennas")
+    ax.axhline(flag_per_baseline.mean(), color='red', linewidth=0.8, linestyle='--',
+               label=f"mean={flag_per_baseline.mean():.3f}")
+    ax.axhline(flag_per_baseline.mean() + 3 * flag_per_baseline.std(),
+               color='orange', linewidth=0.8, linestyle='--', label='mean+3σ')
+    ax.legend(fontsize=8)
+    plt.tight_layout()
+    plt.savefig(out_dir / "flag_per_baseline.png", dpi=130, bbox_inches="tight")
+    plt.close()
+    print("saved flag_per_baseline.png")
+
+    # --- flag fraction CDF per channel ---
+    sorted_ff = np.sort(flag_per_freq)
+    cdf = np.arange(1, len(sorted_ff) + 1) / len(sorted_ff)
+    fig, ax = plt.subplots(figsize=(7, 4))
+    ax.plot(sorted_ff, cdf, linewidth=1.0, color='steelblue')
+    ax.set_xlabel("Flag fraction")
+    ax.set_ylabel("CDF")
+    ax.set_title("CDF of per-channel flag fraction")
+    for thresh, label, col in [(0.1, '10%', 'green'), (0.5, '50%', 'orange'), (0.9, '90%', 'red')]:
+        frac_above = (flag_per_freq > thresh).mean()
+        ax.axvline(thresh, color=col, linewidth=0.8, linestyle='--',
+                   label=f">{thresh:.0%}: {frac_above:.1%} of channels")
+    ax.legend(fontsize=8)
+    plt.tight_layout()
+    plt.savefig(out_dir / "flag_cdf.png", dpi=130)
+    plt.close()
+    print("saved flag_cdf.png")
+
+    # --- stdout statistics ---
+    top_freq_idx = np.argsort(flag_per_freq)[-10:][::-1]
+    print("\ntop 10 most-flagged channels:")
+    for idx in top_freq_idx:
+        print(f"  {freqs[idx]:.1f} MHz  flag={flag_per_freq[idx]:.3f}")
+    top_bl_idx = np.argsort(flag_per_baseline)[-10:][::-1]
+    print("\ntop 10 most-flagged baselines:")
+    for idx in top_bl_idx:
+        print(f"  baseline {idx}  flag={flag_per_baseline[idx]:.3f}")
+    print(f"\noverall flag fraction: {flagged.mean():.4f}")
+    print(f"channels >10% flagged: {(flag_per_freq > 0.1).sum()}/{len(flag_per_freq)}")
+    print(f"channels >50% flagged: {(flag_per_freq > 0.5).sum()}/{len(flag_per_freq)}")
+    print(f"channels >90% flagged: {(flag_per_freq > 0.9).sum()}/{len(flag_per_freq)}")
+
+    # --- per-patch flag fraction histogram ---
     if patches_path is not None:
         try:
             with h5py.File(patches_path, 'r') as hf:
@@ -146,7 +214,6 @@ def plot_flagging_diagnostics(amp, flagged, freqs, avg_waterfall, avg_flag_mask,
             plt.savefig(out_dir / "patch_flag_hist.png", dpi=130)
             plt.close()
             print("saved patch_flag_hist.png")
-            # print patches that are suspiciously highly flagged
             high = patch_flag_fracs[patch_flag_fracs > 0.5]
             print(f"  patches with >50% flags: {len(high)}/{len(patch_flag_fracs)} "
                   f"({100*len(high)/len(patch_flag_fracs):.1f}%)")
