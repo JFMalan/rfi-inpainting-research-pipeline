@@ -54,7 +54,7 @@ singularity exec $ASTROPY python $SCRIPTS/data_preparation/real/extract_ms.py \
     --freq-min 900 \
     --freq-max 1650 \
     --field 0 \
-    --max-patches-per-bl 10
+    --max-patches-per-bl 50
 
 echo "[4/4] $(date '+%H:%M:%S') visualising"
 singularity exec $ASTROPY python $SCRIPTS/data_preparation/real/visualisation/visualise_real.py \
