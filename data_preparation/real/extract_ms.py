@@ -77,6 +77,29 @@ def main(args):
     freqs = freqs[chan_mask]
     n_chan = int(chan_mask.sum())
 
+    # MeerKAT L-band persistent RFI — from oxkat/MeerKAT Cookbook (short-baseline emitters).
+    # These are quasi-static across time so tricolour's background estimator absorbs them
+    # rather than flagging them as outliers.
+    LBAND_PERSISTENT_MHZ = [
+        (900,  915),   # GSM / aviation
+        (925,  960),
+        (1080, 1095),
+        (1166, 1186),
+        (1191, 1217),  # Galileo
+        (1217, 1237),
+        (1242, 1249),
+        (1260, 1300),
+        (1375, 1387),
+        (1453, 1490),  # Afristar
+        (1526, 1554),  # Inmarsat
+        (1565, 1585),  # GPS
+        (1592, 1610),  # GLONASS
+        (1616, 1626),  # Iridium
+        (1599, 1601),  # Alkantpan
+    ]
+    for flo, fhi in LBAND_PERSISTENT_MHZ:
+        flags[:, (freqs >= flo) & (freqs <= fhi), :] = True
+
     amp     = np.abs(data).mean(axis=2).astype(np.float32)
     flagged = flags.any(axis=2)
 

@@ -1,8 +1,7 @@
-# uvcontsub_flagger: taylor_degrees=10, sigma=7.5, catches smooth-riding broadband RFI.
-# final_st_medium_hump: targets 1378-1385 MHz broad hump (spike_width_freq=40, nsigma=5.0).
-# final_st_single_channel: targets persistent narrow spikes (1083-1095, 1140, 1515-1519 MHz).
-# time_extend/freq_extend: 0 throughout — pixel-specific flags only, no dilation.
-# flag_all_time_frac/flag_all_freq_frac: 1.0 throughout — no blanket row/column flagging.
+# time_extend/freq_extend: 0 — pixel-specific flags, no dilation.
+# flag_all_time_frac/flag_all_freq_frac: 1.0 — no blanket row/column flagging.
+# Persistent L-band emitters from oxkat/MeerKAT Cookbook are applied statically
+# in extract_ms.py — tricolour absorbs them into its background estimate.
 strategies:
     -
         name: flag_nans_zeros
@@ -40,44 +39,6 @@ strategies:
             or_original_from_cycle: 0
             taylor_degrees: 10
             sigma: 7.5
-    -
-        name: final_st_medium_hump
-        task: sum_threshold
-        kwargs:
-            outlier_nsigma: 5.0
-            windows_time: [1, 2, 4, 8]
-            windows_freq: [16, 32, 48]
-            background_reject: 2.0
-            background_iterations: 8
-            spike_width_time: 6.5
-            spike_width_freq: 40.0
-            time_extend: 0
-            freq_extend: 0
-            freq_chunks: 20
-            average_freq: 1
-            flag_all_time_frac: 1.0
-            flag_all_freq_frac: 1.0
-            rho: 1.3
-            num_major_iterations: 1
-    -
-        name: final_st_single_channel
-        task: sum_threshold
-        kwargs:
-            outlier_nsigma: 4.5
-            windows_time: [1, 2, 4, 8]
-            windows_freq: [1, 2]
-            background_reject: 2.0
-            background_iterations: 8
-            spike_width_time: 6.5
-            spike_width_freq: 1.0
-            time_extend: 0
-            freq_extend: 0
-            freq_chunks: 20
-            average_freq: 1
-            flag_all_time_frac: 1.0
-            flag_all_freq_frac: 1.0
-            rho: 1.3
-            num_major_iterations: 2
     -
         name: flag_autos
         task: flag_autos
