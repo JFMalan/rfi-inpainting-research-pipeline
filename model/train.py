@@ -60,10 +60,14 @@ def main(args):
     (out / 'samples').mkdir(exist_ok=True)
 
     ds = PatchDataset(cfg.data_glob, pe_channels=cfg.pe_channels,
-                      augment=cfg.augment, max_patches=cfg.max_patches)
-    print(f"dataset: {len(ds)} patches  {ds.n_time}x{ds.n_freq}  device={device}")
+                      augment=cfg.augment, max_patches=cfg.max_patches, split='train')
+    val_ds = PatchDataset(cfg.data_glob, pe_channels=cfg.pe_channels,
+                          augment=False, split='val')
+    print(f"dataset: train {len(ds)}  val {len(val_ds)}  {ds.n_time}x{ds.n_freq}  device={device}")
     dl = DataLoader(ds, batch_size=cfg.batch_size, shuffle=True,
                     num_workers=cfg.num_workers, drop_last=True, pin_memory=True)
+    val_dl = DataLoader(val_ds, batch_size=cfg.batch_size, shuffle=False,
+                        num_workers=2, pin_memory=True)
 
     model = UNet(cfg.in_channels, out_ch=1, base=cfg.base, ch_mult=cfg.ch_mult,
                  attn_res=cfg.attn_res, num_res=cfg.num_res, img_size=cfg.img_size).to(device)
@@ -83,7 +87,7 @@ def main(args):
         start_epoch = ck['epoch'] + 1
         print(f"resumed from epoch {start_epoch}")
 
-    fixed = next(iter(dl))
+    fixed = next(iter(val_dl))
     log = []
     for epoch in range(start_epoch, cfg.epochs):
         model.train()

@@ -18,11 +18,12 @@ def positional_encoding(freq_min, freq_max, n_freq, n_time, n_channels):
 
 
 class PatchDataset(Dataset):
-    def __init__(self, paths, pe_channels=4, augment=False, max_patches=None):
+    def __init__(self, paths, pe_channels=4, augment=False, max_patches=None,
+                 split='train', val_frac=0.05, test_frac=0.05, split_seed=1234):
         if isinstance(paths, str):
             paths = [paths]
         self.files = []
-        self.index = []
+        full = []
         for p in paths:
             for fp in sorted(glob.glob(p)):
                 with h5py.File(fp, 'r') as f:
@@ -32,13 +33,26 @@ class PatchDataset(Dataset):
                 self.files.append(fp)
                 fidx = len(self.files) - 1
                 for i in range(n):
-                    self.index.append((fidx, i))
-        if not self.index:
+                    full.append((fidx, i))
+        if not full:
             raise RuntimeError(f"no patches found in {paths}")
-        if max_patches is not None:
-            self.index = self.index[:max_patches]
 
-        self.augment = augment
+        rng = np.random.default_rng(split_seed)
+        perm = rng.permutation(len(full))
+        n_val = int(len(full) * val_frac)
+        n_test = int(len(full) * test_frac)
+        test_ids = perm[:n_test]
+        val_ids = perm[n_test:n_test + n_val]
+        train_ids = perm[n_test + n_val:]
+        chosen = {'train': train_ids, 'val': val_ids, 'test': test_ids}[split]
+
+        self.index = [full[k] for k in sorted(chosen)]
+        if split == 'train' and max_patches is not None and max_patches < len(self.index):
+            sub = rng.choice(len(self.index), size=max_patches, replace=False)
+            self.index = [self.index[k] for k in sorted(sub)]
+
+        self.split = split
+        self.augment = augment and split == 'train'
         self.pe_channels = pe_channels
         self._handles = {}
         self._pe_cache = {}
