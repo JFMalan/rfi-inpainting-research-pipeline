@@ -7,9 +7,9 @@ import torch
 from torch.utils.data import Dataset
 
 
-def positional_encoding(freq_min, freq_max, n_freq, n_time, n_channels):
-    f = np.linspace(freq_min, freq_max, n_freq)
-    f_norm = (f - f.min()) / (f.max() - f.min() + 1e-8)
+def positional_encoding(patch_fmin, patch_fmax, band_min, band_max, n_freq, n_time, n_channels):
+    f = np.linspace(patch_fmin, patch_fmax, n_freq)
+    f_norm = (f - band_min) / (band_max - band_min + 1e-8)
     pe = np.empty((n_channels, n_freq), dtype=np.float32)
     for c in range(n_channels):
         pe[c] = np.sin(f_norm * np.pi / (2.0 ** ((c + 1) / n_channels)))
@@ -30,6 +30,8 @@ class PatchDataset(Dataset):
                     n = f['clean'].shape[0]
                     self.n_time = int(f.attrs['n_time'])
                     self.n_freq = int(f.attrs['n_freq'])
+                    self.band_min = float(f.attrs['freq_min_mhz'])
+                    self.band_max = float(f.attrs['freq_max_mhz'])
                 self.files.append(fp)
                 fidx = len(self.files) - 1
                 for i in range(n):
@@ -68,7 +70,8 @@ class PatchDataset(Dataset):
         key = (round(float(fmin), 3), round(float(fmax), 3))
         pe = self._pe_cache.get(key)
         if pe is None:
-            pe = positional_encoding(fmin, fmax, self.n_freq, self.n_time, self.pe_channels)
+            pe = positional_encoding(fmin, fmax, self.band_min, self.band_max,
+                                     self.n_freq, self.n_time, self.pe_channels)
             self._pe_cache[key] = pe
         return pe
 
