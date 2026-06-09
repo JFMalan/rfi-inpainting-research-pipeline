@@ -54,14 +54,18 @@ class Diffusion:
         glob = err.mean()
         return cfg.mask_weight * masked + (1 - cfg.mask_weight) * glob
 
-    def predict_x0(self, model, xt, cond, t):
+    def predict_x0(self, model, xt, cond, t, clip=None):
         pred = model(torch.cat([xt, cond], dim=1), t)
         sqrt_acp = self._gather(self.sqrt_acp, t, xt.shape)
         sqrt_omacp = self._gather(self.sqrt_one_minus_acp, t, xt.shape)
-        return (xt - sqrt_omacp * pred) / sqrt_acp, pred
+        x0 = (xt - sqrt_omacp * pred) / sqrt_acp
+        if clip is not None:
+            x0 = x0.clamp(*clip)
+            pred = (xt - sqrt_acp * x0) / sqrt_omacp
+        return x0, pred
 
     @torch.no_grad()
-    def sample(self, model, cond, x0_known, mask, predict='noise'):
+    def sample(self, model, cond, x0_known, mask, predict='noise', clip=(-2.0, 4.0)):
         device = self.device
         shape = x0_known.shape
         x = torch.randn(shape, device=device)
@@ -69,9 +73,11 @@ class Diffusion:
         for i in reversed(range(self.T)):
             t = torch.full((shape[0],), i, device=device, dtype=torch.long)
             if predict == 'noise':
-                x0_pred, eps = self.predict_x0(model, x, cond, t)
+                x0_pred, eps = self.predict_x0(model, x, cond, t, clip=clip)
             else:
                 x0_pred = model(torch.cat([x, cond], dim=1), t)
+                if clip is not None:
+                    x0_pred = x0_pred.clamp(*clip)
                 eps = (x - self._gather(self.sqrt_acp, t, shape) * x0_pred) \
                     / self._gather(self.sqrt_one_minus_acp, t, shape)
             mean = (self._gather(torch.sqrt(self.acp_prev), t, shape) * x0_pred
