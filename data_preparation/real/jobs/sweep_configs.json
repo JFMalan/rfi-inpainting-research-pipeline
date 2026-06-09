@@ -1,0 +1,10 @@
+[
+  {"id": "baseline",  "smooth_bins": 64,  "sigma_clip": 3.0, "max_flag_frac": 0.5},
+  {"id": "tight_sc",  "smooth_bins": 64,  "sigma_clip": 2.5, "max_flag_frac": 0.5},
+  {"id": "loose_sc",  "smooth_bins": 64,  "sigma_clip": 4.0, "max_flag_frac": 0.5},
+  {"id": "no_sc",     "smooth_bins": 64,  "sigma_clip": 0.0, "max_flag_frac": 0.5},
+  {"id": "wide_sm",   "smooth_bins": 128, "sigma_clip": 3.0, "max_flag_frac": 0.5},
+  {"id": "narrow_sm", "smooth_bins": 32,  "sigma_clip": 3.0, "max_flag_frac": 0.5},
+  {"id": "tight_all", "smooth_bins": 64,  "sigma_clip": 2.5, "max_flag_frac": 0.3},
+  {"id": "loose_all", "smooth_bins": 64,  "sigma_clip": 3.5, "max_flag_frac": 0.6}
+]

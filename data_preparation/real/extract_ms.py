@@ -6,6 +6,27 @@ from casacore.tables import table
 from rfi_bands import LBAND_PERSISTENT_MHZ
 
 
+def sigma_clip_flags(waterfall, flagged, sigma=3.0, n_iter=3):
+    out = flagged.copy()
+    n_time = waterfall.shape[0]
+    for t in range(n_time):
+        row = waterfall[t].copy().astype(np.float64)
+        mask = out[t].copy()
+        for _ in range(n_iter):
+            valid = ~mask
+            if valid.sum() < 4:
+                break
+            med = np.median(row[valid])
+            mad = np.median(np.abs(row[valid] - med))
+            thresh = med + sigma * mad * 1.4826
+            new_flags = row > thresh
+            if not np.any(new_flags & ~mask):
+                break
+            mask |= new_flags
+        out[t] = mask
+    return out
+
+
 def divisive_norm(waterfall, flagged, smooth_bins=64):
     norm = waterfall.copy()
     n_time, n_chan = waterfall.shape
@@ -123,6 +144,9 @@ def main(args):
             baselines_skipped += 1
             continue
 
+        if args.sigma_clip > 0:
+            fm = sigma_clip_flags(wf, fm, sigma=args.sigma_clip)
+
         wf_norm = divisive_norm(wf, fm, smooth_bins=args.smooth_bins)
 
         patches, flag_patches, freq_offsets = extract_patches(
@@ -196,4 +220,5 @@ if __name__ == '__main__':
     parser.add_argument('--max-bl-flag-frac',    type=float, default=0.8)
     parser.add_argument('--smooth-bins',         type=int,   default=64)
     parser.add_argument('--max-time',            type=int,   default=None)
+    parser.add_argument('--sigma-clip',          type=float, default=3.0)
     main(parser.parse_args())
