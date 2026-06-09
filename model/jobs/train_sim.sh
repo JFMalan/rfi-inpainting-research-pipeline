@@ -1,10 +1,11 @@
 #!/bin/bash
 #SBATCH --job-name='rfi-train'
 #SBATCH --partition=GPU
-#SBATCH --gpus=1
+#SBATCH --gres=gpu:1
+#SBATCH --constraint=A100|A40
 #SBATCH --cpus-per-task=8
-#SBATCH --mem=32GB
-#SBATCH --time=12:00:00
+#SBATCH --mem=64GB
+#SBATCH --time=72:00:00
 #SBATCH --output=logs/train-%j-stdout.log
 #SBATCH --error=logs/train-%j-stderr.log
 #SBATCH --mail-type=BEGIN,END,FAIL
@@ -13,8 +14,8 @@
 set -e
 
 RUN_ID=${RUN_ID:-1}
-EPOCHS=${EPOCHS:-400}
-BATCH=${BATCH:-16}
+EPOCHS=${EPOCHS:-40}
+BATCH=${BATCH:-32}
 MAX_PATCHES=${MAX_PATCHES:-}
 PHASE=${PHASE:-1}
 

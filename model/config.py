@@ -23,17 +23,17 @@ class Config:
     fake_mask: bool = False
     fake_mask_frac: tuple = (0.05, 0.25)
 
-    batch_size: int = 16
+    batch_size: int = 32
     lr: float = 1e-4
-    epochs: int = 400
-    ema_decay: float = 0.999
+    epochs: int = 40
+    ema_decay: float = 0.9999
     grad_clip: float = 1.0
-    num_workers: int = 4
+    num_workers: int = 6
     augment: bool = True
     seed: int = 0
 
-    sample_every: int = 50
-    ckpt_every: int = 50
+    sample_every: int = 2
+    ckpt_every: int = 2
     max_patches: int = None
 
     @property

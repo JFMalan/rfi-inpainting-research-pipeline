@@ -20,38 +20,46 @@ Network input channels = `noisy x_t (1) + corrupted (1) + mask (1) + PE (pe_chan
 The positional encoding uses each patch's absolute frequency bounds, so a patch at 1200 MHz and one at
 1500 MHz get different PE — this is what breaks translation symmetry along frequency.
 
-## Before launching anything — inspect the data
-The data-prep memory is weeks old. Confirm a dataset exists and is well-formed first:
-
+## Inspect the data (verify before launching)
+Confirm the dataset before a long run (note: `$USER` does not expand inside a `<<'PY'` heredoc — read
+the path from the environment in Python):
 ```bash
 ls -lh /scratch3/users/$USER/rfi/simulated/run1/dataset.h5
 singularity exec /idia/software/containers/ASTRO-PY3.10.sif python - <<'PY'
-import h5py, numpy as np
-f = h5py.File('/scratch3/users/$USER/rfi/simulated/run1/dataset.h5','r')
-for k in ['clean','corrupted','mask']:
+import os, h5py
+f = h5py.File(f"/scratch3/users/{os.environ['USER']}/rfi/simulated/run1/dataset.h5", 'r')
+for k in ['clean', 'corrupted', 'mask']:
     print(k, f[k].shape, f[k].dtype)
-m = f['mask'][:200]
 print('patches:', f['clean'].shape[0])
-print('mask frac mean:', m.mean())
-print('clean amp mean/std:', f['clean'][:200].mean(), f['clean'][:200].std())
+print('mask frac mean:', float(f['mask'][:200].mean()))
+print('clean amp mean/std:', float(f['clean'][:200].mean()), float(f['clean'][:200].std()))
 print('has freq_min_patch:', 'freq_min_patch' in f)
 PY
 ```
-Expect ~hundreds of patches, mask fraction ~0.05–0.40, clean amplitude O(0.1–1) (divisive-normalised).
-If patch count is only a few hundred this is fine for the smoke test below — DDPMs want thousands,
-so generate more runs (`simulate.sh` with different `SEED`/`SKY_MODEL`) before a real training run and
-point `--data` at a glob like `'.../run*/dataset.h5'`.
+run1 currently holds **100,800 patches**, mask fraction ~0.12, clean amplitude mean≈1.0 std≈0.31
+(divisive normalisation centred it at unit scale — no extra normalisation is applied or needed). This is
+a full training set; no additional runs are required for phase 1. To use several runs, point `--data` at
+a glob like `'.../run*/dataset.h5'` (the loader concatenates them).
 
-## Smoke test (one run, prove the loop learns)
+## Quick correctness check first (~minutes, optional)
+Prove the loop runs end-to-end on a small subset before committing GPU days:
 ```bash
 cd /users/$USER/rfi-inpainting-research-pipeline
-sbatch --export=ALL,RUN_ID=1,EPOCHS=300,BATCH=8 model/jobs/train_sim.sh
+sbatch --export=ALL,RUN_ID=1,EPOCHS=4,BATCH=16,MAX_PATCHES=512 model/jobs/train_sim.sh
 ```
-The job uses `ASTRO-GPU-PyTorch-2026-01-28.sif` (the bare `ASTRO-GPU.simg` is TensorFlow/JAX — no torch).
-It asserts CUDA + torch inside the GPU allocation and prints the device, then trains. The CUDA check
-only passes on a GPU node — running it on a login/compute node reports False because there is no GPU there.
-Watch the loss in `logs/train-<jobid>-stdout.log`; MAE/PSNR (mask region) are logged every
-`sample_every` epochs and sample `.npz` files written to the output dir for visual inspection.
+
+## Full phase-1 training
+```bash
+cd /users/$USER/rfi-inpainting-research-pipeline
+sbatch --export=ALL,RUN_ID=1 model/jobs/train_sim.sh        # defaults: 40 epochs, batch 32
+```
+The job requests an A100 or A40 (`--constraint=A100|A40`) — batch 32 at 256² needs ≥32 GB, so the 12 GB
+P100 nodes are excluded. Drop `BATCH` to ~8 and remove the constraint if you must run on a P100/V100.
+It uses `ASTRO-GPU-PyTorch-2026-01-28.sif` (the bare `ASTRO-GPU.simg` is TensorFlow/JAX — no torch),
+asserts CUDA + torch inside the GPU allocation, prints the device, then trains. The CUDA check only
+passes on a GPU node. One epoch is ~3,150 batches at batch 32 — expect hours per epoch depending on GPU.
+Watch the loss in `logs/train-<jobid>-stdout.log`; mask-region MAE/PSNR are logged every `sample_every`
+epochs (default 2) and sample `.npz` files written for visual inspection.
 
 Outputs go to `/idia/users/$USER/rfi/runs/phase1_run1/` (`ckpt.pt`, `log.json`, `samples/`).
 
