@@ -2,7 +2,7 @@
 #SBATCH --job-name='rfi-train'
 #SBATCH --partition=GPU
 #SBATCH --gres=gpu:1
-#SBATCH --constraint=A100|A40
+#SBATCH --constraint=A100|A40|V100
 #SBATCH --cpus-per-task=8
 #SBATCH --mem=64GB
 #SBATCH --time=72:00:00
@@ -26,13 +26,24 @@ OUT=/idia/users/$USER/rfi/runs/phase${PHASE}_run${RUN_ID}
 
 mkdir -p $OUT logs
 
+# ilifu singularity.conf has no ldconfig path, so --nv autodetect finds no driver
+# libs. Bind the versioned driver libs in manually (filenames vary per node/driver).
+LIBDIR=/usr/lib/x86_64-linux-gnu
+LIBCUDA=$(ls $LIBDIR/libcuda.so.*.* 2>/dev/null | head -1)
+LIBNVML=$(ls $LIBDIR/libnvidia-ml.so.*.* 2>/dev/null | head -1)
+if [ -z "$LIBCUDA" ] || [ -z "$LIBNVML" ]; then
+    echo "could not find driver libs on $(hostname) in $LIBDIR"; exit 1
+fi
+NVBIND="--bind $LIBCUDA:$LIBDIR/libcuda.so.1 --bind $LIBNVML:$LIBDIR/libnvidia-ml.so.1"
+echo "node $(hostname)  binding $LIBCUDA  $LIBNVML"
+
 echo "verifying GPU + torch inside container"
-singularity exec --nv $GPU python -c "import torch; assert torch.cuda.is_available(), 'no CUDA in container'; print('torch', torch.__version__, 'cuda', torch.version.cuda, torch.cuda.get_device_name(0))"
+singularity exec --nv $NVBIND $GPU python -c "import torch; assert torch.cuda.is_available(), 'no CUDA in container'; print('torch', torch.__version__, 'cuda', torch.version.cuda, torch.cuda.get_device_name(0))"
 
 EXTRA=""
 if [ -n "$MAX_PATCHES" ]; then EXTRA="--max-patches $MAX_PATCHES"; fi
 
-singularity exec --nv $GPU python $SCRIPTS/train.py \
+singularity exec --nv $NVBIND $GPU python $SCRIPTS/train.py \
     --data $DATASET \
     --out $OUT \
     --phase $PHASE \
