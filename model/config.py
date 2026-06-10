@@ -37,7 +37,7 @@ class Config:
     ckpt_every: int = 2
     max_patches: int = None
 
-    val_eval_patches: int = 256
+    val_eval_patches: int = 64
     early_stop: bool = True
     patience: int = 8          # consecutive evals with no real PSNR gain before stopping
     min_delta: float = 0.05    # dB; smaller gains count as no improvement (sampler is noisy)
