@@ -53,15 +53,33 @@ sbatch --export=ALL,RUN_ID=1,EPOCHS=4,BATCH=16,MAX_PATCHES=512 model/jobs/train_
 cd /users/$USER/rfi-inpainting-research-pipeline
 sbatch --export=ALL,RUN_ID=1 model/jobs/train_sim.sh        # defaults: 40 epochs, batch 32
 ```
-The job requests an A100 or A40 (`--constraint=A100|A40`) — batch 32 at 256² needs ≥32 GB, so the 12 GB
-P100 nodes are excluded. Drop `BATCH` to ~8 and remove the constraint if you must run on a P100/V100.
-It uses `ASTRO-GPU-PyTorch-2026-01-28.sif` (the bare `ASTRO-GPU.simg` is TensorFlow/JAX — no torch),
-asserts CUDA + torch inside the GPU allocation, prints the device, then trains. The CUDA check only
-passes on a GPU node. One epoch is ~3,150 batches at batch 32 — expect hours per epoch depending on GPU.
-Watch the loss in `logs/train-<jobid>-stdout.log`; mask-region MAE/PSNR are logged every `sample_every`
-epochs (default 2) and sample `.npz` files written for visual inspection.
+### GPU notes (verified on ilifu)
+- **P100 nodes (gpu-001–004) are unusable** — CUDA capability sm_60, torch 2.10 needs sm_70+.
+- Usable: V100 (gpu-005, 32 GB), A40 (gpu-006, 48 GB), A100 (gpu-007, 40 GB). Constraint is `A100|A40|V100`.
+- **Batch 32 OOMs on the V100's 32 GB.** Use `BATCH=16` on the V100; batch 32 is fine on A40/A100.
+- `singularity --nv` finds no driver libs on these nodes (`ldconfig not set in singularity.conf`); the job
+  manually binds the versioned `libcuda`/`libnvidia-ml` (auto-detected) — see the top of the job script.
+- It uses `ASTRO-GPU-PyTorch-2026-01-28.sif` (the bare `ASTRO-GPU.simg` is TensorFlow/JAX — no torch).
+
+At batch 16, one epoch over 20k patches is ~1,250 batches ≈ 23 min on the V100 (~15 h for 40 epochs).
+
+### Data splits
+`PatchDataset` deterministically splits the full pool into train/val/test (90/5/5%, fixed `split_seed`,
+disjoint, stable across runs and resumes). `MAX_PATCHES` caps only the **train** split — val and test
+always come from the full held-out pools. The MAE/PSNR in the training log are on **val** (one batch,
+noisy — for watching the trend only). The reportable result comes from `evaluation/evaluate.py` on the
+**test** split. Do not report the in-training val numbers as the final figure.
 
 Outputs go to `/idia/users/$USER/rfi/runs/phase1_run1/` (`ckpt.pt`, `log.json`, `samples/`).
+
+## Test-set evaluation (the reportable result)
+After training, evaluate on the held-out **test** split. Each patch needs a full 1000-step DDPM reverse
+pass, so sampling is slow — start with a subset (~512 patches gives a stable mean):
+```bash
+sbatch --export=ALL,RUN_ID=1,SPLIT=test,MAX_EVAL=512 evaluation/jobs/eval.sh
+```
+For the full 5,040-patch test set drop `MAX_EVAL` and raise the walltime. Results land in
+`runs/phase1_run1/eval_test/metrics.json` (mean ± std MAE/PSNR) with sample `.npz` files.
 
 ## Inspect reconstructions
 The training loop writes `samples/sample_e<epoch>.npz` (clean / corrupted / mask / pred). Render them:

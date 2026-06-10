@@ -30,20 +30,28 @@ class EMA:
             s.copy_(p)
 
 
-def save_sample(diff, ema_model, batch, cfg, out, epoch):
+@torch.no_grad()
+def val_eval(diff, ema_model, val_dl, cfg, out, epoch):
     ema_model.eval()
-    cond = build_cond(batch['corrupted'].to(diff.device),
-                      batch['mask'].to(diff.device),
-                      batch['pe'].to(diff.device))
-    x0 = batch['clean'].to(diff.device)
-    mask = batch['mask'].to(diff.device)
-    pred = diff.sample(ema_model, cond, x0, mask, predict=cfg.predict)
-    m = mae(pred, x0, mask)
-    p = psnr(pred, x0, mask)
+    seen = 0
+    maes, psnrs = [], []
+    first = None
+    for batch in val_dl:
+        x0 = batch['clean'].to(diff.device)
+        mask = batch['mask'].to(diff.device)
+        cond = build_cond(batch['corrupted'].to(diff.device), mask, batch['pe'].to(diff.device))
+        pred = diff.sample(ema_model, cond, x0, mask, predict=cfg.predict)
+        maes.append(float(mae(pred, x0, mask)))
+        psnrs.append(float(psnr(pred, x0, mask)))
+        if first is None:
+            first = (x0.cpu().numpy(), batch['corrupted'].numpy(),
+                     batch['mask'].numpy(), pred.cpu().numpy())
+        seen += x0.shape[0]
+        if seen >= cfg.val_eval_patches:
+            break
     np.savez(out / f'sample_e{epoch}.npz',
-             clean=x0.cpu().numpy(), corrupted=batch['corrupted'].numpy(),
-             mask=batch['mask'].numpy(), pred=pred.cpu().numpy())
-    return m, p
+             clean=first[0], corrupted=first[1], mask=first[2], pred=first[3])
+    return float(np.mean(maes)), float(np.mean(psnrs))
 
 
 def main(args):
@@ -87,7 +95,8 @@ def main(args):
         start_epoch = ck['epoch'] + 1
         print(f"resumed from epoch {start_epoch}")
 
-    fixed = next(iter(val_dl))
+    best_psnr = ck['best_psnr'] if args.resume and Path(args.resume).exists() and 'best_psnr' in ck else -1e9
+    stale = 0
     log = []
     for epoch in range(start_epoch, cfg.epochs):
         model.train()
@@ -105,19 +114,34 @@ def main(args):
         dt = time.time() - t0
         line = {'epoch': epoch, 'loss': avg, 'sec': round(dt, 1)}
 
-        if (epoch + 1) % cfg.sample_every == 0 or epoch == cfg.epochs - 1:
-            m, p = save_sample(diff, ema.shadow, fixed, cfg, out / 'samples', epoch)
-            line['mae'] = round(float(m), 5)
-            line['psnr'] = round(float(p), 3)
+        evaluated = (epoch + 1) % cfg.sample_every == 0 or epoch == cfg.epochs - 1
+        if evaluated:
+            m, p = val_eval(diff, ema.shadow, val_dl, cfg, out / 'samples', epoch)
+            line['mae'] = round(m, 5)
+            line['psnr'] = round(p, 3)
 
         print(json.dumps(line), flush=True)
         log.append(line)
         (out / 'log.json').write_text(json.dumps(log, indent=2))
 
+        state = {'model': model.state_dict(), 'ema': ema.shadow.state_dict(),
+                 'opt': opt.state_dict(), 'epoch': epoch, 'best_psnr': best_psnr,
+                 'cfg': vars(cfg)}
         if (epoch + 1) % cfg.ckpt_every == 0 or epoch == cfg.epochs - 1:
-            torch.save({'model': model.state_dict(), 'ema': ema.shadow.state_dict(),
-                        'opt': opt.state_dict(), 'epoch': epoch, 'cfg': vars(cfg)},
-                       out / 'ckpt.pt')
+            torch.save(state, out / 'ckpt.pt')
+
+        if evaluated:
+            improved = p > best_psnr + cfg.min_delta
+            if p > best_psnr:
+                best_psnr = p
+                state['best_psnr'] = best_psnr
+                torch.save(state, out / 'best.pt')
+                print(f"  new best psnr {p:.3f} -> best.pt", flush=True)
+            stale = 0 if improved else stale + 1
+            if cfg.early_stop and epoch + 1 >= cfg.min_epochs and stale >= cfg.patience:
+                print(f"early stop: no >{cfg.min_delta}dB gain for {stale} evals "
+                      f"(best psnr {best_psnr:.3f})", flush=True)
+                break
 
     ds.close()
     print("done")

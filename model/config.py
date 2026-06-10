@@ -36,6 +36,12 @@ class Config:
     ckpt_every: int = 2
     max_patches: int = None
 
+    val_eval_patches: int = 256
+    early_stop: bool = True
+    patience: int = 8          # consecutive evals with no real PSNR gain before stopping
+    min_delta: float = 0.05    # dB; smaller gains count as no improvement (sampler is noisy)
+    min_epochs: int = 20       # never stop before this many epochs
+
     @property
     def in_channels(self):
         return 1 + 1 + 1 + self.pe_channels  # noisy x_t + corrupted + mask + PE
