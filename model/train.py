@@ -12,7 +12,7 @@ from config import phase1, phase2
 from data import PatchDataset, build_cond
 from diffusion import Diffusion
 from unet import UNet
-from metrics import mae, psnr
+from metrics import mae, psnr, phase_error
 
 
 class EMA:
@@ -34,7 +34,7 @@ class EMA:
 def val_eval(diff, ema_model, val_dl, cfg, out, epoch):
     ema_model.eval()
     seen = 0
-    maes, psnrs = [], []
+    maes, psnrs, pherrs = [], [], []
     first = None
     for batch in val_dl:
         x0 = batch['clean'].to(diff.device)
@@ -43,15 +43,18 @@ def val_eval(diff, ema_model, val_dl, cfg, out, epoch):
         pred = diff.sample(ema_model, cond, x0, mask, predict=cfg.predict)
         maes.append(float(mae(pred, x0, mask)))
         psnrs.append(float(psnr(pred, x0, mask)))
+        pherrs.append(float(phase_error(pred, x0, mask)))
         if first is None:
             first = (x0.cpu().numpy(), batch['corrupted'].numpy(),
-                     batch['mask'].numpy(), pred.cpu().numpy())
+                     batch['mask'].numpy(), pred.cpu().numpy(),
+                     batch['fmin'].numpy(), batch['fmax'].numpy())
         seen += x0.shape[0]
         if seen >= cfg.val_eval_patches:
             break
     np.savez(out / f'sample_e{epoch}.npz',
-             clean=first[0], corrupted=first[1], mask=first[2], pred=first[3])
-    return float(np.mean(maes)), float(np.mean(psnrs))
+             clean=first[0], corrupted=first[1], mask=first[2], pred=first[3],
+             fmin=first[4], fmax=first[5])
+    return float(np.mean(maes)), float(np.mean(psnrs)), float(np.mean(pherrs))
 
 
 def main(args):
@@ -77,7 +80,7 @@ def main(args):
     val_dl = DataLoader(val_ds, batch_size=cfg.batch_size, shuffle=False,
                         num_workers=2, pin_memory=True)
 
-    model = UNet(cfg.in_channels, out_ch=1, base=cfg.base, ch_mult=cfg.ch_mult,
+    model = UNet(cfg.in_channels, out_ch=cfg.target_channels, base=cfg.base, ch_mult=cfg.ch_mult,
                  attn_res=cfg.attn_res, num_res=cfg.num_res, img_size=cfg.img_size).to(device)
     n_params = sum(p.numel() for p in model.parameters())
     print(f"model params: {n_params/1e6:.1f}M  in_channels={cfg.in_channels}")
@@ -116,9 +119,10 @@ def main(args):
 
         evaluated = (epoch + 1) % cfg.sample_every == 0 or epoch == cfg.epochs - 1
         if evaluated:
-            m, p = val_eval(diff, ema.shadow, val_dl, cfg, out / 'samples', epoch)
+            m, p, ph = val_eval(diff, ema.shadow, val_dl, cfg, out / 'samples', epoch)
             line['mae'] = round(m, 5)
             line['psnr'] = round(p, 3)
+            line['phase_err'] = round(ph, 4)
 
         print(json.dumps(line), flush=True)
         log.append(line)

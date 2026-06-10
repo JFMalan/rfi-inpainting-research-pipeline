@@ -3,22 +3,58 @@
 Phase 1 trains supervised on simulated paired data (`dataset.h5` from `data_preparation/simulated`).
 Phase 2 (mixed masking on real data) reuses the same core; hooks are stubbed in `config.py` / `metrics.py`.
 
+The model is **3-channel**: it reconstructs amplitude *and* phase so the inpainted patch can be turned
+back into a complex visibility and written into an MS. The target/output is `(3, T, F)`:
+- **ch0 — amplitude**, divisively normalised to unit scale (mean≈1).
+- **ch1 — cos(phase)**, **ch2 — sin(phase)**. Phase is carried as a cos/sin pair, not the raw angle, to
+  avoid the ±π wrap discontinuity. Recover the angle with `atan2(ch2, ch1)`.
+
+RFI is injected into amplitude only, so the two phase channels are identical in `clean` and `corrupted`;
+the model still has to denoise/inpaint all three under the diffusion objective.
+
 ## Files
-- `data.py` — `PatchDataset` over one or more `dataset.h5` files, frequency positional encoding, augmentation, conditioning stack
+- `data.py` — `PatchDataset` over one or more `dataset.h5` files, frequency positional encoding, augmentation, 3-channel target stacking, conditioning stack
 - `unet.py` — conditional U-Net (timestep embedding, residual blocks, self-attention at 32/16, skip connections)
 - `diffusion.py` — cosine-schedule DDPM, masked-L1 objective, RePaint-style masked sampling
 - `config.py` — `phase1()` / `phase2()` factories
-- `metrics.py` — MAE, PSNR (mask region); `tre()` is a phase-2 stub
+- `metrics.py` — amplitude MAE/PSNR (mask region, ch0) + `phase_error`; `tre()` is a phase-2 stub
 - `train.py` — training loop, EMA, checkpointing, periodic sampling
 - `jobs/train_sim.sh` — SLURM GPU job
 
-## Input contract (from inject_rfi.py)
-`dataset.h5` holds `clean`, `corrupted`, `mask` each `(N, 256, 256)` float32 (time × freq), plus
-per-patch `freq_min_patch` / `freq_max_patch` and attrs `n_time`, `n_freq`, `freq_min_mhz`, `freq_max_mhz`.
+## Input contract
+`dataset.h5` is produced by `data_preparation/simulated` — `extract_patches_sim.py` writes the clean
+patches and all metadata, `inject_rfi.py` adds `corrupted` and `mask`. The model **requires** all of the
+following (see [data_preparation/simulated/README.md](../data_preparation/simulated/README.md) for the
+full schema):
 
-Network input channels = `noisy x_t (1) + corrupted (1) + mask (1) + PE (pe_channels)`.
-The positional encoding uses each patch's absolute frequency bounds, so a patch at 1200 MHz and one at
-1500 MHz get different PE — this is what breaks translation symmetry along frequency.
+| Dataset | Shape | Why the model / write-back needs it |
+|---------|-------|-------------------------------------|
+| `clean` | `(N, 256, 256)` f32 | normalised amplitude ground truth (ch0 target) |
+| `corrupted` | `(N, 256, 256)` f32 | RFI-injected amplitude (conditioning) |
+| `mask` | `(N, 256, 256)` f32 | RFI mask, 1 = corrupted pixel |
+| `phase` | `(N, 256, 256)` f32 | per-pixel phase; split into cos/sin to form ch1/ch2 and to rebuild the complex visibility |
+| `dn_divisor` | `(N, 256, 256)` f32 | the divisive-norm smoothing curve; multiply ch0 by it to invert the normalisation back to physical Jy |
+| `freq_min_patch` / `freq_max_patch` | `(N,)` f32 | absolute frequency bounds of each patch → positional encoding |
+| `chan_offset` / `time_offset` | `(N,)` i32 | channel/time origin of the patch in the full waterfall → where to write the inpainted patch back |
+| `baseline_id` / `ant1` / `ant2` | `(N,)` i32 | which baseline (and its antennas) the patch came from → MS row placement |
+
+Attrs: `freq_min_mhz`, `freq_max_mhz`, `n_time`, `n_freq`, `n_patches`, `full_n_time`, `full_n_chan`,
+`chan_lo`, `n_baseline`.
+
+`phase`, `dn_divisor`, and the offset/baseline fields are only consumed by the model loader for the
+phase channels (`phase`); the rest exist so the eventual MS write-back can de-normalise and re-place each
+patch. They are carried through `inject_rfi.py` untouched.
+
+Network input channels = **11** = `noisy x_t (3) + masked conditioning (3) + mask (1) + PE (4)`, output
+channels = 3 (`config.in_channels` / `target_channels`). The positional encoding uses each patch's
+absolute frequency bounds, so a patch at 1200 MHz and one at 1500 MHz get different PE — this is what
+breaks translation symmetry along frequency.
+
+**True inpainting, not RFI-removal.** `build_cond` zeroes the masked (RFI) pixels of the conditioning
+(`known = corrupted * (1 - mask)`) so the network never sees the corruption itself — it must fill the
+holes from the surrounding clean context. The mask channel marks where the holes are. An earlier setup
+fed the raw `corrupted` patch as conditioning, which let the model learn to subtract a visible
+corruption (RFI-removal) and leaked the answer; that is fixed.
 
 ## Inspect the data (verify before launching)
 Confirm the dataset before a long run (note: `$USER` does not expand inside a `<<'PY'` heredoc — read
@@ -28,18 +64,29 @@ ls -lh /scratch3/users/$USER/rfi/simulated/run1/dataset.h5
 singularity exec /idia/software/containers/ASTRO-PY3.10.sif python - <<'PY'
 import os, h5py
 f = h5py.File(f"/scratch3/users/{os.environ['USER']}/rfi/simulated/run1/dataset.h5", 'r')
-for k in ['clean', 'corrupted', 'mask']:
+for k in ['clean', 'corrupted', 'mask', 'phase', 'dn_divisor']:
     print(k, f[k].shape, f[k].dtype)
 print('patches:', f['clean'].shape[0])
 print('mask frac mean:', float(f['mask'][:200].mean()))
 print('clean amp mean/std:', float(f['clean'][:200].mean()), float(f['clean'][:200].std()))
-print('has freq_min_patch:', 'freq_min_patch' in f)
+for k in ['phase', 'dn_divisor', 'chan_offset', 'time_offset', 'baseline_id']:
+    print('has', k + ':', k in f)
 PY
 ```
-run1 currently holds **100,800 patches**, mask fraction ~0.12, clean amplitude mean≈1.0 std≈0.31
+A correct run holds ~100,800 patches, mask fraction ~0.12, clean amplitude mean≈1.0 std≈0.31
 (divisive normalisation centred it at unit scale — no extra normalisation is applied or needed). This is
 a full training set; no additional runs are required for phase 1. To use several runs, point `--data` at
 a glob like `'.../run*/dataset.h5'` (the loader concatenates them).
+
+## Regenerate the dataset first (required)
+**The old single-channel `dataset.h5` will not work.** It has no `phase` (the loader reads `f['phase']`
+unconditionally) and no `dn_divisor`/offset/baseline fields. Re-run `data_preparation/simulated`
+end-to-end to produce a 3-channel dataset before training.
+
+The previous **~43 dB amplitude-only PSNR is superseded** and should not be reported: it came from the
+single-channel model *and* from the leaky conditioning (the corruption was visible to the network, so it
+was learning RFI-removal rather than inpainting). Both are fixed here. Treat all numbers from this point
+as the first valid baseline.
 
 ## Quick correctness check first (~minutes, optional)
 Prove the loop runs end-to-end on a small subset before committing GPU days:
@@ -69,6 +116,12 @@ disjoint, stable across runs and resumes). `MAX_PATCHES` caps only the **train**
 always come from the full held-out pools. The MAE/PSNR in the training log are on **val** (one batch,
 noisy — for watching the trend only). The reportable result comes from `evaluation/evaluate.py` on the
 **test** split. Do not report the in-training val numbers as the final figure.
+
+### Metrics
+MAE and PSNR are computed on **amplitude only** (channel 0) inside the mask region — these are the
+reportable figures. `metrics.phase_error` reports mean absolute angular error (radians) over the mask,
+recovered from the cos/sin channels via `atan2`; report it separately, do not fold it into the
+amplitude PSNR. `tre()` stays a phase-2 stub (real data, no clean truth).
 
 Outputs go to `/idia/users/$USER/rfi/runs/phase1_run1/` (`ckpt.pt`, `log.json`, `samples/`).
 

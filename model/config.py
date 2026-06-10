@@ -7,6 +7,7 @@ class Config:
     data_glob: str = ''
     out_dir: str = ''
 
+    target_channels: int = 3        # amplitude + cos(phase) + sin(phase)
     pe_channels: int = 4
     base: int = 64
     ch_mult: tuple = (1, 2, 4, 8)
@@ -44,7 +45,8 @@ class Config:
 
     @property
     def in_channels(self):
-        return 1 + 1 + 1 + self.pe_channels  # noisy x_t + corrupted + mask + PE
+        # noisy x_t (target_channels) + masked cond (target_channels) + mask (1) + PE
+        return 2 * self.target_channels + 1 + self.pe_channels
 
 
 def phase1(**overrides):

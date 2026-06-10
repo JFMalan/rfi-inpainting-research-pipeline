@@ -49,7 +49,7 @@ class Diffusion:
         region = m if cfg.loss_region == 'mask' else torch.ones_like(m)
 
         err = (pred - target).abs()
-        denom = region.sum().clamp(min=1.0)
+        denom = (region.sum() * err.shape[1]).clamp(min=1.0)
         masked = (err * region).sum() / denom
         glob = err.mean()
         return cfg.mask_weight * masked + (1 - cfg.mask_weight) * glob

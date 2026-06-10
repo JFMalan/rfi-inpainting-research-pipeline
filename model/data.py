@@ -84,6 +84,7 @@ class PatchDataset(Dataset):
         clean = f['clean'][row].astype(np.float32)
         corrupted = f['corrupted'][row].astype(np.float32)
         mask = f['mask'][row].astype(np.float32)
+        phase = f['phase'][row].astype(np.float32)
 
         if 'freq_min_patch' in f:
             fmin = float(f['freq_min_patch'][row])
@@ -92,19 +93,27 @@ class PatchDataset(Dataset):
             fmin = float(f.attrs['freq_min_mhz'])
             fmax = float(f.attrs['freq_max_mhz'])
 
-        if self.augment:
-            if np.random.rand() < 0.5:
-                clean = clean[::-1].copy()
-                corrupted = corrupted[::-1].copy()
-                mask = mask[::-1].copy()
+        if self.augment and np.random.rand() < 0.5:
+            clean = clean[::-1].copy()
+            corrupted = corrupted[::-1].copy()
+            mask = mask[::-1].copy()
+            phase = phase[::-1].copy()
 
+        cos_p = np.cos(phase)
+        sin_p = np.sin(phase)
+        # 3-channel target/input: amplitude + cos(phase) + sin(phase).
+        # RFI is injected into amplitude only, so phase channels are shared.
+        clean_3 = np.stack([clean, cos_p, sin_p], axis=0)
+        corrupted_3 = np.stack([corrupted, cos_p, sin_p], axis=0)
         pe = self._pe(fmin, fmax)
 
         return {
-            'clean': torch.from_numpy(clean)[None],         # (1, T, F)
-            'corrupted': torch.from_numpy(corrupted)[None],
-            'mask': torch.from_numpy(mask)[None],
+            'clean': torch.from_numpy(clean_3),             # (3, T, F)
+            'corrupted': torch.from_numpy(corrupted_3),     # (3, T, F)
+            'mask': torch.from_numpy(mask)[None],           # (1, T, F)
             'pe': torch.from_numpy(pe.copy()),              # (C, T, F)
+            'fmin': torch.tensor(fmin, dtype=torch.float32),
+            'fmax': torch.tensor(fmax, dtype=torch.float32),
         }
 
     def close(self):
@@ -114,4 +123,8 @@ class PatchDataset(Dataset):
 
 
 def build_cond(corrupted, mask, pe):
-    return torch.cat([corrupted, mask, pe], dim=1)
+    # masked (RFI) pixels are hidden from the network: it must inpaint from the
+    # surrounding known context, not subtract a corruption it can see. the mask
+    # channel still marks where the holes are.
+    known = corrupted * (1.0 - mask)
+    return torch.cat([known, mask, pe], dim=1)
