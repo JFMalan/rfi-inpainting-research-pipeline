@@ -75,38 +75,48 @@ def inject(clean_patch, gen, synth_cfg):
 def main(args):
     np.random.seed(args.seed)
 
-    with h5py.File(args.input, 'r') as f:
-        clean_patches = f['clean'][:]
-        n_time = int(f.attrs['n_time'])
-        n_freq = int(f.attrs['n_freq'])
-        passthrough = {k: f[k][:] for k in f if k != 'clean'}
-        attrs = dict(f.attrs)
+    fin = h5py.File(args.input, 'r')
+    n_time = int(fin.attrs['n_time'])
+    n_freq = int(fin.attrs['n_freq'])
+    attrs = dict(fin.attrs)
+    clean_ds_in = fin['clean']
+    n_patches = clean_ds_in.shape[0]
+    other_keys = [k for k in fin if k != 'clean']
 
     synth_cfg = _synth_config(n_freq, n_time)
     gen = SyntheticDataGenerator({"synthetic": synth_cfg})
-
-    n_patches = len(clean_patches)
     print(f"injecting RFI into {n_patches} patches")
 
     out_path = Path(args.output)
     out_path.parent.mkdir(parents=True, exist_ok=True)
 
+    chunk = 1000
     with h5py.File(out_path, 'w') as f:
-        f.create_dataset('clean',     data=clean_patches, dtype=clean_patches.dtype)
-        corrupted_ds = f.create_dataset('corrupted', shape=clean_patches.shape, dtype=np.float32)
-        mask_ds      = f.create_dataset('mask',      shape=clean_patches.shape, dtype=np.float32)
-        for k, v in passthrough.items():
-            f.create_dataset(k, data=v)
+        clean_out    = f.create_dataset('clean',     shape=clean_ds_in.shape, dtype=np.float32)
+        corrupted_ds = f.create_dataset('corrupted', shape=clean_ds_in.shape, dtype=np.float32)
+        mask_ds      = f.create_dataset('mask',      shape=clean_ds_in.shape, dtype=np.float32)
+        # stream-copy passthrough datasets to avoid holding phase/dn_divisor in RAM
+        for k in other_keys:
+            src = fin[k]
+            dst = f.create_dataset(k, shape=src.shape, dtype=src.dtype)
+            for s in range(0, src.shape[0], chunk):
+                e = min(s + chunk, src.shape[0])
+                dst[s:e] = src[s:e]
         for k, v in attrs.items():
             f.attrs[k] = v
         f.attrs['seed'] = args.seed
 
-        for i, patch in enumerate(clean_patches):
-            corrupted, mask = inject(patch, gen, synth_cfg)
-            corrupted_ds[i] = corrupted
-            mask_ds[i] = mask
-            if (i + 1) % 100 == 0:
-                print(f"  {i + 1}/{n_patches}")
+        for s in range(0, n_patches, chunk):
+            e = min(s + chunk, n_patches)
+            block = clean_ds_in[s:e]
+            clean_out[s:e] = block
+            for j, patch in enumerate(block):
+                corrupted, mask = inject(patch, gen, synth_cfg)
+                corrupted_ds[s + j] = corrupted
+                mask_ds[s + j] = mask
+            print(f"  {e}/{n_patches}")
+
+    fin.close()
 
     print(f"saved -> {out_path}")
 
