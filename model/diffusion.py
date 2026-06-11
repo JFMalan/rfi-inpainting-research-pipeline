@@ -39,22 +39,24 @@ class Diffusion:
 
     def loss(self, model, batch, cfg):
         x0 = batch['clean'].to(self.device)
-        cond = build_cond(batch['corrupted'].to(self.device),
-                          batch['mask'].to(self.device),
-                          batch['pe'].to(self.device))
+        m = batch['mask'].to(self.device)
+        cond = build_cond(batch['corrupted'].to(self.device), m, batch['pe'].to(self.device))
         b = x0.shape[0]
         t = torch.randint(0, self.T, (b,), device=self.device)
         noise = torch.randn_like(x0)
         xt = self.q_sample(x0, t, noise)
+        # the masked region of xt must carry NO information about x0, or the model
+        # learns to copy the answer out of xt instead of inpainting from context.
+        # replace the hole with pure noise (the statistics it sees at sampling time).
+        xt = (1 - m) * xt + m * noise
         pred = model(torch.cat([xt, cond], dim=1), t)
 
         target = noise if cfg.predict == 'noise' else x0
-        m = batch['mask'].to(self.device)
-        region = m if cfg.loss_region == 'mask' else torch.ones_like(m)
-
         err = (pred - target).abs()
-        denom = (region.sum() * err.shape[1]).clamp(min=1.0)
-        masked = (err * region).sum() / denom
+        # supervise the hole (we have true x0 here in the supervised phase) plus a
+        # weak whole-patch term to keep the denoiser well-behaved on known pixels.
+        denom = (m.sum() * err.shape[1]).clamp(min=1.0)
+        masked = (err * m).sum() / denom
         glob = err.mean()
         return cfg.mask_weight * masked + (1 - cfg.mask_weight) * glob
 
@@ -74,12 +76,16 @@ class Diffusion:
         shape = x0_known.shape
         x = torch.randn(shape, device=device)
         keep = (mask == 0).float()
+        hole = 1 - keep
         for i in reversed(range(self.T)):
             t = torch.full((shape[0],), i, device=device, dtype=torch.long)
+            # feed the model the same input form it saw in training: known region as
+            # is, hole replaced with fresh noise (it must inpaint from context).
+            x_in = keep * x + hole * torch.randn_like(x)
             if predict == 'noise':
-                x0_pred, _ = self.predict_x0(model, x, cond, t, clip=clip)
+                x0_pred, _ = self.predict_x0(model, x_in, cond, t, clip=clip)
             else:
-                x0_pred = model(torch.cat([x, cond], dim=1), t)
+                x0_pred = model(torch.cat([x_in, cond], dim=1), t)
                 if clip is not None:
                     x0_pred = x0_pred.clamp(*clip)
             mean = (self._gather(self.post_c_x0, t, shape) * x0_pred

@@ -17,11 +17,10 @@ class Config:
 
     timesteps: int = 1000
     predict: str = 'noise'          # 'noise' or 'x0'
-    # standard DDPM/Palette training: predict noise over the WHOLE patch and let the
-    # RePaint sampler do the inpainting. Concentrating the loss inside the mask trains
-    # the model to predict noise where it has no visible signal -> degenerate.
-    loss_region: str = 'full'
-    mask_weight: float = 0.0
+    # the masked region of xt is replaced with noise in loss(), so the model must
+    # inpaint the hole from context. supervise mostly in the hole (we have true x0
+    # in the supervised phase) + a weak whole-patch term for the known region.
+    mask_weight: float = 0.8
 
     # phase 2 mixed masking (inactive in phase 1)
     fake_mask: bool = False
@@ -53,14 +52,14 @@ class Config:
 
 
 def phase1(**overrides):
-    cfg = Config(phase=1, fake_mask=False, loss_region='full', mask_weight=0.0)
+    cfg = Config(phase=1, fake_mask=False, mask_weight=0.8)
     for k, v in overrides.items():
         setattr(cfg, k, v)
     return cfg
 
 
 def phase2(**overrides):
-    cfg = Config(phase=2, fake_mask=True, loss_region='mask')
+    cfg = Config(phase=2, fake_mask=True)
     for k, v in overrides.items():
         setattr(cfg, k, v)
     return cfg
