@@ -24,6 +24,10 @@ class Diffusion:
         self.sqrt_acp = torch.sqrt(self.acp)
         self.sqrt_one_minus_acp = torch.sqrt(1 - self.acp)
         self.post_var = betas * (1 - self.acp_prev) / (1 - self.acp)
+        # DDPM posterior mean coefficients (Ho et al. 2020 eq. 7):
+        # mean = c_x0 * x0_pred + c_xt * x_t
+        self.post_c_x0 = torch.sqrt(self.acp_prev) * betas / (1 - self.acp)
+        self.post_c_xt = torch.sqrt(self.alphas) * (1 - self.acp_prev) / (1 - self.acp)
 
     def _gather(self, a, t, shape):
         out = a.gather(0, t)
@@ -73,15 +77,13 @@ class Diffusion:
         for i in reversed(range(self.T)):
             t = torch.full((shape[0],), i, device=device, dtype=torch.long)
             if predict == 'noise':
-                x0_pred, eps = self.predict_x0(model, x, cond, t, clip=clip)
+                x0_pred, _ = self.predict_x0(model, x, cond, t, clip=clip)
             else:
                 x0_pred = model(torch.cat([x, cond], dim=1), t)
                 if clip is not None:
                     x0_pred = x0_pred.clamp(*clip)
-                eps = (x - self._gather(self.sqrt_acp, t, shape) * x0_pred) \
-                    / self._gather(self.sqrt_one_minus_acp, t, shape)
-            mean = (self._gather(torch.sqrt(self.acp_prev), t, shape) * x0_pred
-                    + self._gather(torch.sqrt(1 - self.acp_prev - self.post_var), t, shape) * eps)
+            mean = (self._gather(self.post_c_x0, t, shape) * x0_pred
+                    + self._gather(self.post_c_xt, t, shape) * x)
             if i > 0:
                 noise = torch.randn_like(x)
                 x_unknown = mean + torch.sqrt(self._gather(self.post_var, t, shape)) * noise

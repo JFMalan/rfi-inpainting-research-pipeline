@@ -17,8 +17,11 @@ class Config:
 
     timesteps: int = 1000
     predict: str = 'noise'          # 'noise' or 'x0'
-    loss_region: str = 'mask'       # 'mask' or 'full'
-    mask_weight: float = 0.9        # alpha: mask-region L1 vs weak global term
+    # standard DDPM/Palette training: predict noise over the WHOLE patch and let the
+    # RePaint sampler do the inpainting. Concentrating the loss inside the mask trains
+    # the model to predict noise where it has no visible signal -> degenerate.
+    loss_region: str = 'full'
+    mask_weight: float = 0.0
 
     # phase 2 mixed masking (inactive in phase 1)
     fake_mask: bool = False
@@ -50,7 +53,7 @@ class Config:
 
 
 def phase1(**overrides):
-    cfg = Config(phase=1, fake_mask=False, loss_region='mask')
+    cfg = Config(phase=1, fake_mask=False, loss_region='full', mask_weight=0.0)
     for k, v in overrides.items():
         setattr(cfg, k, v)
     return cfg
