@@ -19,7 +19,8 @@ def positional_encoding(patch_fmin, patch_fmax, band_min, band_max, n_freq, n_ti
 
 class PatchDataset(Dataset):
     def __init__(self, paths, pe_channels=4, augment=False, max_patches=None,
-                 split='train', val_frac=0.05, test_frac=0.05, split_seed=1234):
+                 split='train', val_frac=0.05, test_frac=0.05, split_seed=1234,
+                 amp_only=False):
         if isinstance(paths, str):
             paths = [paths]
         self.files = []
@@ -55,6 +56,7 @@ class PatchDataset(Dataset):
 
         self.split = split
         self.augment = augment and split == 'train'
+        self.amp_only = amp_only
         self.pe_channels = pe_channels
         self._handles = {}
         self._pe_cache = {}
@@ -99,17 +101,20 @@ class PatchDataset(Dataset):
             mask = mask[::-1].copy()
             phase = phase[::-1].copy()
 
-        cos_p = np.cos(phase)
-        sin_p = np.sin(phase)
-        # 3-channel target/input: amplitude + cos(phase) + sin(phase).
-        # RFI is injected into amplitude only, so phase channels are shared.
-        clean_3 = np.stack([clean, cos_p, sin_p], axis=0)
-        corrupted_3 = np.stack([corrupted, cos_p, sin_p], axis=0)
+        if self.amp_only:
+            clean_t = clean[None]
+            corrupted_t = corrupted[None]
+        else:
+            cos_p = np.cos(phase)
+            sin_p = np.sin(phase)
+            # 3-channel: amplitude + cos(phase) + sin(phase).
+            clean_t = np.stack([clean, cos_p, sin_p], axis=0)
+            corrupted_t = np.stack([corrupted, cos_p, sin_p], axis=0)
         pe = self._pe(fmin, fmax)
 
         return {
-            'clean': torch.from_numpy(clean_3),             # (3, T, F)
-            'corrupted': torch.from_numpy(corrupted_3),     # (3, T, F)
+            'clean': torch.from_numpy(clean_t),
+            'corrupted': torch.from_numpy(corrupted_t),
             'mask': torch.from_numpy(mask)[None],           # (1, T, F)
             'pe': torch.from_numpy(pe.copy()),              # (C, T, F)
             'fmin': torch.tensor(fmin, dtype=torch.float32),

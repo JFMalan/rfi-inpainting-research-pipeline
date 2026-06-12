@@ -13,11 +13,13 @@ from metrics import mae, psnr, phase_error
 def main(args):
     dev = 'cuda' if torch.cuda.is_available() else 'cpu'
     cfg = phase1(predict=args.predict)
+    if args.amp_only:
+        cfg.target_channels = 1
     torch.manual_seed(0)
-    print(f"predict mode: {cfg.predict}")
+    print(f"predict mode: {cfg.predict}  amp_only: {args.amp_only}  in_channels: {cfg.in_channels}")
 
     ds = PatchDataset(args.data, pe_channels=cfg.pe_channels, augment=False,
-                      split='train', max_patches=args.n)
+                      split='train', max_patches=args.n, amp_only=args.amp_only)
     full = {k: torch.stack([ds[i][k] for i in range(args.n)]) for k in ds[0]}
     bs = min(args.bs, args.n)
     print(f"overfitting {args.n} patches on {dev}  (batch {bs})")
@@ -100,5 +102,6 @@ if __name__ == '__main__':
     ap.add_argument('--eval-n', type=int, default=8, dest='eval_n')
     ap.add_argument('--lr', type=float, default=2e-4)
     ap.add_argument('--predict', default='noise', choices=['noise', 'x0'])
+    ap.add_argument('--amp-only', action='store_true', dest='amp_only')
     ap.add_argument('--U', type=int, default=1)
     main(ap.parse_args())
