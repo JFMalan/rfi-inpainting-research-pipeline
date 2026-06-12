@@ -25,7 +25,7 @@ def main(args):
                  ch_mult=cfg.ch_mult, attn_res=cfg.attn_res, num_res=cfg.num_res,
                  img_size=cfg.img_size).to(dev)
     diff = Diffusion(T=cfg.timesteps, device=dev)
-    opt = torch.optim.AdamW(model.parameters(), lr=2e-4)
+    opt = torch.optim.AdamW(model.parameters(), lr=args.lr)
 
     g = torch.Generator().manual_seed(0)
     model.train()
@@ -84,5 +84,6 @@ if __name__ == '__main__':
     ap.add_argument('--iters', type=int, default=600)
     ap.add_argument('--bs', type=int, default=8)
     ap.add_argument('--eval-n', type=int, default=8, dest='eval_n')
+    ap.add_argument('--lr', type=float, default=2e-4)
     ap.add_argument('--U', type=int, default=1)
     main(ap.parse_args())
