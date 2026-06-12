@@ -67,7 +67,10 @@ class Diffusion:
         return x0, pred
 
     @torch.no_grad()
-    def sample(self, model, cond, x0_known, mask, predict='noise', clip=(-2.0, 4.0), U=1):
+    def sample(self, model, cond, x0_known, mask, predict='noise', clip=(-2.0, 4.0),
+               U=1, eta=0.0):
+        # DDIM sampling. eta=0 -> deterministic (best point estimate, low MAE);
+        # eta=1 -> ancestral DDPM (stochastic). For scientific reconstruction use eta=0.
         device = self.device
         shape = x0_known.shape
         x = torch.randn(shape, device=device)
@@ -80,21 +83,26 @@ class Diffusion:
                     x_known = self.q_sample(x0_known, t, torch.randn_like(x))
                 else:
                     x_known = x0_known
-                # known region noised to level t; hole carries the evolving reconstruction
                 x_in = keep * x_known + hole * x
                 if predict == 'noise':
-                    x0_pred, _ = self.predict_x0(model, x_in, cond, t, clip=clip)
+                    x0_pred, eps = self.predict_x0(model, x_in, cond, t, clip=clip)
                 else:
                     x0_pred = model(torch.cat([x_in, cond], dim=1), t)
                     if clip is not None:
                         x0_pred = x0_pred.clamp(*clip)
-                mean = (self._gather(self.post_c_x0, t, shape) * x0_pred
-                        + self._gather(self.post_c_xt, t, shape) * x_in)
+                    sqrt_acp = self._gather(self.sqrt_acp, t, shape)
+                    sqrt_omacp = self._gather(self.sqrt_one_minus_acp, t, shape)
+                    eps = (x_in - sqrt_acp * x0_pred) / sqrt_omacp
+
                 if i > 0:
-                    z = torch.randn_like(x)
-                    x_unknown = mean + torch.sqrt(self._gather(self.post_var, t, shape)) * z
+                    acp_prev = self._gather(self.acp_prev, t, shape)
+                    acp = self._gather(self.acp, t, shape)
+                    sigma = eta * torch.sqrt((1 - acp_prev) / (1 - acp) * (1 - acp / acp_prev))
+                    dir_xt = torch.sqrt((1 - acp_prev - sigma ** 2).clamp(min=0.0)) * eps
+                    noise = sigma * torch.randn_like(x) if eta > 0 else 0.0
+                    x_unknown = torch.sqrt(acp_prev) * x0_pred + dir_xt + noise
                 else:
-                    x_unknown = mean
+                    x_unknown = x0_pred
                 x = keep * x_known + hole * x_unknown
                 if u < U - 1 and i > 0:
                     beta = self.betas[i]
