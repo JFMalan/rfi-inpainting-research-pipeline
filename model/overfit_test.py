@@ -12,8 +12,9 @@ from metrics import mae, psnr, phase_error
 
 def main(args):
     dev = 'cuda' if torch.cuda.is_available() else 'cpu'
-    cfg = phase1()
+    cfg = phase1(predict=args.predict)
     torch.manual_seed(0)
+    print(f"predict mode: {cfg.predict}")
 
     ds = PatchDataset(args.data, pe_channels=cfg.pe_channels, augment=False,
                       split='train', max_patches=args.n)
@@ -56,25 +57,38 @@ def main(args):
             chans = "  ".join(f"ch{c}:{err[:,c:c+1][inm].mean().item():.3f}" for c in range(x0.shape[1]))
             print(f"  t={tv:4d}  {chans}")
 
-        # full sample + mask-region PSNR vs mean-fill (the real verdict)
+        # full sample, then judge by MASK-REGION MAE (physical units) vs baselines
         pred = diff.sample(model, cond, x0, m, predict=cfg.predict, U=args.U)
-        p_model = float(psnr(pred, x0, m))
-        # mean-fill baseline on amplitude
         region = (m > 0)
-        amp_pred = pred[:, 0:1]; amp_true = x0[:, 0:1]
-        dr = (amp_true.max() - amp_true.min())
+        amp_true = x0[:, 0:1]
+        amp_pred = pred[:, 0:1]
+        rmask = m > 0  # (B,1,H,W)
+
+        model_mae = (amp_pred - amp_true).abs()[rmask].mean().item()
+        # mean-fill baseline (per-patch local mean of known pixels)
         mf = torch.zeros_like(amp_true)
+        nf = torch.zeros_like(amp_true)
         for i in range(x0.shape[0]):
             known = amp_true[i][m[i] == 0]
             mf[i] = known.mean()
-        mse_mf = ((mf - amp_true) ** 2)[region].mean()
-        p_mf = float(20 * torch.log10(dr / torch.sqrt(mse_mf + 1e-12)))
+            # noise floor: smooth structure target (residual is irreducible)
+            sm = torch.nn.functional.avg_pool2d(amp_true[i:i+1], kernel_size=9, stride=1, padding=4)
+            nf[i] = sm[0]
+        meanfill_mae = (mf - amp_true).abs()[rmask].mean().item()
+        floor_mae = (nf - amp_true).abs()[rmask].mean().item()
+        p_model = float(psnr(pred, x0, m))
         ph = float(phase_error(pred, x0, m))
-    print(f"\nsampled mask PSNR (model): {p_model:.2f} dB")
-    print(f"mean-fill mask PSNR       : {p_mf:.2f} dB")
-    print(f"phase_err                 : {ph:.3f} rad")
-    print("VERDICT:", "PASS (model beats mean-fill on overfit)" if p_model > p_mf + 0.5
-          else "FAIL (model does not beat mean-fill even overfitting -> algorithm bug)")
+    print(f"\nMASK-REGION MAE (physical units, lower=better):")
+    print(f"  MODEL              : {model_mae:.4f}")
+    print(f"  mean-fill baseline : {meanfill_mae:.4f}")
+    print(f"  noise-floor (best) : {floor_mae:.4f}")
+    print(f"  phase_err          : {ph:.3f} rad")
+    print(f"  PSNR (secondary)   : {p_model:.2f} dB")
+    frac = (meanfill_mae - model_mae) / max(meanfill_mae - floor_mae, 1e-6)
+    print(f"  closed {100*frac:.0f}% of the mean-fill -> noise-floor gap")
+    print("VERDICT:", "PASS (model beats mean-fill toward noise floor)"
+          if model_mae < meanfill_mae - 0.005
+          else "FAIL (model ~= mean-fill, not recovering structure)")
 
 
 if __name__ == '__main__':
@@ -85,5 +99,6 @@ if __name__ == '__main__':
     ap.add_argument('--bs', type=int, default=8)
     ap.add_argument('--eval-n', type=int, default=8, dest='eval_n')
     ap.add_argument('--lr', type=float, default=2e-4)
+    ap.add_argument('--predict', default='noise', choices=['noise', 'x0'])
     ap.add_argument('--U', type=int, default=1)
     main(ap.parse_args())
