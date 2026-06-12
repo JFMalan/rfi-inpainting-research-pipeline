@@ -67,6 +67,31 @@ class Diffusion:
         return x0, pred
 
     @torch.no_grad()
+    def reconstruct(self, model, cond, x0_known, mask, predict='noise', clip=(-2.0, 4.0),
+                    steps=(200, 100, 50, 20)):
+        # Direct conditional-mean reconstruction: predict x0 from the conditioning,
+        # blend the known region back, refine over a few descending timesteps.
+        # No stochastic noise injection -> faithful point estimate (low MAE).
+        device = self.device
+        keep = (mask == 0).float()
+        hole = 1.0 - keep
+        # hole starts neutral (no leak of true values); known region is the truth
+        x0_est = keep * x0_known
+        for tv in steps:
+            t = torch.full((x0_known.shape[0],), tv, device=device, dtype=torch.long)
+            noise = torch.randn_like(x0_est)
+            # known region noised from truth; hole noised from current estimate
+            xt = keep * self.q_sample(x0_known, t, noise) + hole * self.q_sample(x0_est, t, noise)
+            if predict == 'noise':
+                x0_pred, _ = self.predict_x0(model, xt, cond, t, clip=clip)
+            else:
+                x0_pred = model(torch.cat([xt, cond], dim=1), t)
+                if clip is not None:
+                    x0_pred = x0_pred.clamp(*clip)
+            x0_est = keep * x0_known + hole * x0_pred
+        return x0_est
+
+    @torch.no_grad()
     def sample(self, model, cond, x0_known, mask, predict='noise', clip=(-2.0, 4.0),
                U=1, eta=0.0):
         # DDIM sampling. eta=0 -> deterministic (best point estimate, low MAE);

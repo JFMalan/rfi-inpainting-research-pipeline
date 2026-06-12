@@ -41,8 +41,9 @@ def main(args):
     for bi, batch in enumerate(dl):
         x0 = batch['clean'].to(device)
         mask = batch['mask'].to(device)
-        cond = build_cond(batch['corrupted'].to(device), mask, batch['pe'].to(device))
-        pred = diff.sample(model, cond, x0, mask, predict=cfg.predict)
+        cond = build_cond(batch['corrupted'].to(device), mask, batch['pe'].to(device),
+                          hole_fill=getattr(cfg, 'hole_fill', 'mean'))
+        pred = diff.reconstruct(model, cond, x0, mask, predict=cfg.predict)
         maes.append(float(mae(pred, x0, mask)))
         psnrs.append(float(psnr(pred, x0, mask)))
         pherrs.append(float(phase_error(pred, x0, mask)))

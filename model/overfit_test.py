@@ -76,8 +76,8 @@ def main(args):
             x0_pred, _ = diff.predict_x0(model, xt, cond, t, clip=(-2, 4))
         x0pred_mae = (x0_pred[:, 0:1] - amp_true).abs()[rmask].mean().item()
 
-        # (B) full stochastic sample (the actual inpainting output)
-        pred = diff.sample(model, cond, x0, m, predict=cfg.predict, U=args.U)
+        # (B) deterministic reconstruction (the actual inpainting output)
+        pred = diff.reconstruct(model, cond, x0, m, predict=cfg.predict)
         amp_pred = pred[:, 0:1]
         model_mae = (amp_pred - amp_true).abs()[rmask].mean().item()
         # mean-fill baseline (per-patch local mean of known pixels)
@@ -101,8 +101,8 @@ def main(args):
         p_model = float(psnr(pred, x0, m))
         ph = float(phase_error(pred, x0, m))
     print(f"\nMASK-REGION MAE (physical units, lower=better):")
-    print(f"  MODEL (sampled)    : {model_mae:.4f}")
-    print(f"  MODEL (x0_pred)    : {x0pred_mae:.4f}   <- conditional mean, no stochastic noise")
+    print(f"  MODEL (reconstruct): {model_mae:.4f}   <- deterministic inference output")
+    print(f"  MODEL (x0_pred)    : {x0pred_mae:.4f}   <- single-shot conditional mean")
     print(f"  interp (target)    : {interp_mae:.4f}   <- classical recoverable structure")
     print(f"  mean-fill baseline : {meanfill_mae:.4f}")
     print(f"  phase_err          : {ph:.3f} rad")
