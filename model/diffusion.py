@@ -40,7 +40,8 @@ class Diffusion:
     def loss(self, model, batch, cfg):
         x0 = batch['clean'].to(self.device)
         m = batch['mask'].to(self.device)
-        cond = build_cond(batch['corrupted'].to(self.device), m, batch['pe'].to(self.device))
+        cond = build_cond(batch['corrupted'].to(self.device), m, batch['pe'].to(self.device),
+                          hole_fill=getattr(cfg, 'hole_fill', 'zero'))
         b = x0.shape[0]
         t = torch.randint(0, self.T, (b,), device=self.device)
         noise = torch.randn_like(x0)

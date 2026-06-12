@@ -127,9 +127,25 @@ class PatchDataset(Dataset):
         self._handles = {}
 
 
-def build_cond(corrupted, mask, pe):
-    # masked (RFI) pixels are hidden from the network: it must inpaint from the
-    # surrounding known context, not subtract a corruption it can see. the mask
-    # channel still marks where the holes are.
-    known = corrupted * (1.0 - mask)
+def build_cond(corrupted, mask, pe, hole_fill='zero', chan_means=None):
+    # masked (RFI) pixels are hidden from the network; it inpaints from context.
+    # the hole is filled with an in-distribution value (the per-channel mean) so it
+    # is not an out-of-distribution cliff on non-zero-mean data.
+    keep = 1.0 - mask
+    if hole_fill == 'zero':
+        known = corrupted * keep
+    elif hole_fill == 'mean':
+        if chan_means is None:
+            chan_means = corrupted.new_tensor([1.0, 0.0, 0.0][:corrupted.shape[1]])
+        fill = chan_means.view(1, -1, 1, 1)
+        known = corrupted * keep + fill * mask
+    elif hole_fill == 'noise':
+        known = corrupted * keep + torch.randn_like(corrupted) * mask
+    elif hole_fill == 'center':
+        if chan_means is None:
+            chan_means = corrupted.new_tensor([1.0, 0.0, 0.0][:corrupted.shape[1]])
+        c = chan_means.view(1, -1, 1, 1)
+        known = (corrupted - c) * keep
+    else:
+        raise ValueError(hole_fill)
     return torch.cat([known, mask, pe], dim=1)

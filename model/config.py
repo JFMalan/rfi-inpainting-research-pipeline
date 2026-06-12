@@ -19,6 +19,7 @@ class Config:
     predict: str = 'noise'          # 'noise' or 'x0'
     # whole-patch noise-prediction loss (Palette) with extra weight in the hole.
     mask_weight: float = 0.6
+    hole_fill: str = 'mean'         # 'zero' | 'mean' | 'noise' | 'center'
 
     # phase 2 mixed masking (inactive in phase 1)
     fake_mask: bool = False

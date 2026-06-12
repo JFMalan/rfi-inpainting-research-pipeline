@@ -13,6 +13,7 @@ from metrics import mae, psnr, phase_error
 def main(args):
     dev = 'cuda' if torch.cuda.is_available() else 'cpu'
     cfg = phase1(predict=args.predict)
+    cfg.hole_fill = args.hole_fill
     if args.amp_only:
         cfg.target_channels = 1
     torch.manual_seed(0)
@@ -48,7 +49,8 @@ def main(args):
     print(f"\nin-mask |pred-eps| by channel vs t (eval on {ne} patches):")
     with torch.no_grad():
         x0 = full['clean'][:ne].to(dev); m = full['mask'][:ne].to(dev)
-        cond = build_cond(full['corrupted'][:ne].to(dev), m, full['pe'][:ne].to(dev))
+        cond = build_cond(full['corrupted'][:ne].to(dev), m, full['pe'][:ne].to(dev),
+                          hole_fill=cfg.hole_fill)
         for tv in [800, 500, 200, 50]:
             t = torch.full((x0.shape[0],), tv, device=dev, dtype=torch.long)
             eps = torch.randn_like(x0)
@@ -103,5 +105,6 @@ if __name__ == '__main__':
     ap.add_argument('--lr', type=float, default=2e-4)
     ap.add_argument('--predict', default='noise', choices=['noise', 'x0'])
     ap.add_argument('--amp-only', action='store_true', dest='amp_only')
+    ap.add_argument('--hole-fill', default='mean', choices=['zero', 'mean', 'noise', 'center'], dest='hole_fill')
     ap.add_argument('--U', type=int, default=1)
     main(ap.parse_args())
