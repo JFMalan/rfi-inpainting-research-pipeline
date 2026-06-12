@@ -16,17 +16,16 @@ class Config:
     img_size: int = 256
 
     timesteps: int = 1000
-    predict: str = 'noise'          # 'noise' or 'x0'
-    # whole-patch noise-prediction loss (Palette) with extra weight in the hole.
-    mask_weight: float = 0.6
-    hole_fill: str = 'mean'         # 'zero' | 'mean' | 'noise' | 'center'
+    predict: str = 'x0'             # 'noise' or 'x0'; x0 validated leak-free
+    mask_weight: float = 0.6        # unused: loss() is now hole-only (Palette contract)
+    hole_fill: str = 'mean'         # conditioning hole fill: 'zero'|'mean'|'noise'|'center'
 
     # phase 2 mixed masking (inactive in phase 1)
     fake_mask: bool = False
     fake_mask_frac: tuple = (0.05, 0.25)
 
     batch_size: int = 32
-    lr: float = 1e-4
+    lr: float = 2e-4
     epochs: int = 40
     ema_decay: float = 0.9999
     grad_clip: float = 1.0
@@ -40,8 +39,8 @@ class Config:
 
     val_eval_patches: int = 64
     early_stop: bool = True
-    patience: int = 8          # consecutive evals with no real PSNR gain before stopping
-    min_delta: float = 0.05    # dB; smaller gains count as no improvement (sampler is noisy)
+    patience: int = 8          # consecutive evals with no real complex-MAE gain before stopping
+    min_delta: float = 0.002   # complex-MAE units; smaller gains count as no improvement
     min_epochs: int = 20       # never stop before this many epochs
 
     @property

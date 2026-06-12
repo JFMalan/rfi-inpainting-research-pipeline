@@ -12,7 +12,7 @@ from config import phase1, phase2
 from data import PatchDataset, build_cond
 from diffusion import Diffusion
 from unet import UNet
-from metrics import mae, psnr, phase_error
+from metrics import mae, psnr, phase_error, complex_mae
 
 
 class EMA:
@@ -34,17 +34,27 @@ class EMA:
 def val_eval(diff, ema_model, val_dl, cfg, out, epoch):
     ema_model.eval()
     seen = 0
-    maes, psnrs, pherrs = [], [], []
+    maes, psnrs, pherrs, cplxs = [], [], [], []
+    mf_maes, mf_cplxs = [], []
     first = None
     for batch in val_dl:
         x0 = batch['clean'].to(diff.device)
         mask = batch['mask'].to(diff.device)
         cond = build_cond(batch['corrupted'].to(diff.device), mask, batch['pe'].to(diff.device),
                           hole_fill=getattr(cfg, 'hole_fill', 'mean'))
-        pred = diff.sample(ema_model, cond, x0, mask, predict=cfg.predict, eta=0.0)
+        pred = diff.sample(ema_model, cond, x0, mask, predict=cfg.predict, eta=0.0, steps=200)
         maes.append(float(mae(pred, x0, mask)))
         psnrs.append(float(psnr(pred, x0, mask)))
         pherrs.append(float(phase_error(pred, x0, mask)))
+        cplxs.append(float(complex_mae(pred, x0, mask)))
+        # mean-fill baseline: per-patch mean of known pixels, all channels
+        base = x0.clone()
+        keep = mask == 0
+        for i in range(x0.shape[0]):
+            for c in range(x0.shape[1]):
+                base[i, c] = x0[i, c][keep[i, 0]].mean()
+        mf_maes.append(float(mae(base, x0, mask)))
+        mf_cplxs.append(float(complex_mae(base, x0, mask)))
         if first is None:
             first = (x0.cpu().numpy(), batch['corrupted'].numpy(),
                      batch['mask'].numpy(), pred.cpu().numpy(),
@@ -55,7 +65,9 @@ def val_eval(diff, ema_model, val_dl, cfg, out, epoch):
     np.savez(out / f'sample_e{epoch}.npz',
              clean=first[0], corrupted=first[1], mask=first[2], pred=first[3],
              fmin=first[4], fmax=first[5])
-    return float(np.mean(maes)), float(np.mean(psnrs)), float(np.mean(pherrs))
+    return {'amp_mae': float(np.mean(maes)), 'psnr': float(np.mean(psnrs)),
+            'phase_err': float(np.mean(pherrs)), 'complex_mae': float(np.mean(cplxs)),
+            'mf_amp_mae': float(np.mean(mf_maes)), 'mf_complex_mae': float(np.mean(mf_cplxs))}
 
 
 def main(args):
@@ -88,6 +100,7 @@ def main(args):
 
     diff = Diffusion(T=cfg.timesteps, device=device)
     opt = torch.optim.AdamW(model.parameters(), lr=cfg.lr)
+    sched = torch.optim.lr_scheduler.CosineAnnealingLR(opt, T_max=cfg.epochs, eta_min=cfg.lr * 0.05)
     ema = EMA(model, cfg.ema_decay)
 
     start_epoch = 0
@@ -99,7 +112,7 @@ def main(args):
         start_epoch = ck['epoch'] + 1
         print(f"resumed from epoch {start_epoch}")
 
-    best_psnr = ck['best_psnr'] if args.resume and Path(args.resume).exists() and 'best_psnr' in ck else -1e9
+    best_cplx = ck['best_cplx'] if args.resume and Path(args.resume).exists() and 'best_cplx' in ck else 1e9
     stale = 0
     log = []
     for epoch in range(start_epoch, cfg.epochs):
@@ -114,38 +127,46 @@ def main(args):
             opt.step()
             ema.update(model)
             running += loss.item()
+        sched.step()
         avg = running / len(dl)
         dt = time.time() - t0
-        line = {'epoch': epoch, 'loss': avg, 'sec': round(dt, 1)}
+        line = {'epoch': epoch, 'loss': round(avg, 5), 'sec': round(dt, 1),
+                'lr': round(opt.param_groups[0]['lr'], 6)}
 
         evaluated = (epoch + 1) % cfg.sample_every == 0 or epoch == cfg.epochs - 1
         if evaluated:
-            m, p, ph = val_eval(diff, ema.shadow, val_dl, cfg, out / 'samples', epoch)
-            line['mae'] = round(m, 5)
-            line['psnr'] = round(p, 3)
-            line['phase_err'] = round(ph, 4)
+            v = val_eval(diff, ema.shadow, val_dl, cfg, out / 'samples', epoch)
+            # headline + baselines on one line so the log shows "beating baseline?" at a glance
+            line['complex_mae'] = round(v['complex_mae'], 5)
+            line['complex_mf'] = round(v['mf_complex_mae'], 5)
+            line['amp_mae'] = round(v['amp_mae'], 5)
+            line['amp_mf'] = round(v['mf_amp_mae'], 5)
+            line['psnr'] = round(v['psnr'], 3)
+            line['phase_err'] = round(v['phase_err'], 4)
+            line['beats_mf'] = bool(v['complex_mae'] < v['mf_complex_mae'])
 
         print(json.dumps(line), flush=True)
         log.append(line)
         (out / 'log.json').write_text(json.dumps(log, indent=2))
 
         state = {'model': model.state_dict(), 'ema': ema.shadow.state_dict(),
-                 'opt': opt.state_dict(), 'epoch': epoch, 'best_psnr': best_psnr,
+                 'opt': opt.state_dict(), 'epoch': epoch, 'best_cplx': best_cplx,
                  'cfg': vars(cfg)}
         if (epoch + 1) % cfg.ckpt_every == 0 or epoch == cfg.epochs - 1:
             torch.save(state, out / 'ckpt.pt')
 
         if evaluated:
-            improved = p > best_psnr + cfg.min_delta
-            if p > best_psnr:
-                best_psnr = p
-                state['best_psnr'] = best_psnr
+            c = v['complex_mae']
+            improved = c < best_cplx - cfg.min_delta
+            if c < best_cplx:
+                best_cplx = c
+                state['best_cplx'] = best_cplx
                 torch.save(state, out / 'best.pt')
-                print(f"  new best psnr {p:.3f} -> best.pt", flush=True)
+                print(f"  new best complex_mae {c:.5f} -> best.pt", flush=True)
             stale = 0 if improved else stale + 1
             if cfg.early_stop and epoch + 1 >= cfg.min_epochs and stale >= cfg.patience:
-                print(f"early stop: no >{cfg.min_delta}dB gain for {stale} evals "
-                      f"(best psnr {best_psnr:.3f})", flush=True)
+                print(f"early stop: no >{cfg.min_delta} complex-MAE gain for {stale} evals "
+                      f"(best {best_cplx:.5f})", flush=True)
                 break
 
     ds.close()

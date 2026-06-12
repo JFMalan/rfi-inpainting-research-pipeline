@@ -72,16 +72,22 @@ class Diffusion:
         return x0, pred
 
     @torch.no_grad()
-    def sample(self, model, cond, x0_known, mask, predict='noise', clip=(-2.0, 4.0), eta=0.0):
+    def sample(self, model, cond, x0_known, mask, predict='noise', clip=(-2.0, 4.0),
+               eta=0.0, steps=None):
         # DDIM sampling matching the training contract: KNOWN region = clean x0_known
-        # (never noised), HOLE = the running iterate (never the truth, never fresh
-        # noise mid-trajectory). eta=0 -> deterministic point estimate.
+        # (never noised), HOLE = the running iterate. eta=0 -> deterministic.
+        # steps=None uses all T timesteps; a smaller int uses a strided DDIM schedule
+        # (fewer model forwards) for fast validation monitoring.
         device = self.device
         shape = x0_known.shape
         keep = (mask == 0).float()
         hole = 1.0 - keep
         x = torch.randn(shape, device=device)
-        for i in reversed(range(self.T)):
+        if steps is None or steps >= self.T:
+            ts = list(reversed(range(self.T)))
+        else:
+            ts = [int(round(v)) for v in torch.linspace(self.T - 1, 0, steps).tolist()]
+        for k, i in enumerate(ts):
             t = torch.full((shape[0],), i, device=device, dtype=torch.long)
             x_in = keep * x0_known + hole * x
             if predict == 'noise':
@@ -93,8 +99,9 @@ class Diffusion:
                 sqrt_acp = self._gather(self.sqrt_acp, t, shape)
                 sqrt_omacp = self._gather(self.sqrt_one_minus_acp, t, shape)
                 eps = (x_in - sqrt_acp * x0_pred) / sqrt_omacp
-            if i > 0:
-                acp_prev = self._gather(self.acp_prev, t, shape)
+            i_prev = ts[k + 1] if k + 1 < len(ts) else -1
+            if i_prev >= 0:
+                acp_prev = self._gather(self.acp, torch.full_like(t, i_prev), shape)
                 acp = self._gather(self.acp, t, shape)
                 sigma = eta * torch.sqrt(((1 - acp_prev) / (1 - acp)) * (1 - acp / acp_prev))
                 dir_xt = torch.sqrt((1 - acp_prev - sigma ** 2).clamp(min=0.0)) * eps
