@@ -45,20 +45,15 @@ class Diffusion:
         t = torch.randint(0, self.T, (b,), device=self.device)
         noise = torch.randn_like(x0)
         xt = self.q_sample(x0, t, noise)
-        # the masked region of xt must carry NO information about x0, or the model
-        # learns to copy the answer out of xt instead of inpainting from context.
-        # replace the hole with pure noise (the statistics it sees at sampling time).
-        xt = (1 - m) * xt + m * noise
         pred = model(torch.cat([xt, cond], dim=1), t)
 
         target = noise if cfg.predict == 'noise' else x0
         err = (pred - target).abs()
-        # supervise the hole (we have true x0 here in the supervised phase) plus a
-        # weak whole-patch term to keep the denoiser well-behaved on known pixels.
+        # whole-patch noise-prediction loss (Palette) with extra weight in the hole.
+        glob = err.mean()
         denom = (m.sum() * err.shape[1]).clamp(min=1.0)
         masked = (err * m).sum() / denom
-        glob = err.mean()
-        return cfg.mask_weight * masked + (1 - cfg.mask_weight) * glob
+        return (1 - cfg.mask_weight) * glob + cfg.mask_weight * masked
 
     def predict_x0(self, model, xt, cond, t, clip=None):
         pred = model(torch.cat([xt, cond], dim=1), t)
@@ -71,31 +66,36 @@ class Diffusion:
         return x0, pred
 
     @torch.no_grad()
-    def sample(self, model, cond, x0_known, mask, predict='noise', clip=(-2.0, 4.0)):
+    def sample(self, model, cond, x0_known, mask, predict='noise', clip=(-2.0, 4.0), U=1):
         device = self.device
         shape = x0_known.shape
         x = torch.randn(shape, device=device)
         keep = (mask == 0).float()
-        hole = 1 - keep
+        hole = 1.0 - keep
         for i in reversed(range(self.T)):
-            t = torch.full((shape[0],), i, device=device, dtype=torch.long)
-            # feed the model the same input form it saw in training: known region as
-            # is, hole replaced with fresh noise (it must inpaint from context).
-            x_in = keep * x + hole * torch.randn_like(x)
-            if predict == 'noise':
-                x0_pred, _ = self.predict_x0(model, x_in, cond, t, clip=clip)
-            else:
-                x0_pred = model(torch.cat([x_in, cond], dim=1), t)
-                if clip is not None:
-                    x0_pred = x0_pred.clamp(*clip)
-            mean = (self._gather(self.post_c_x0, t, shape) * x0_pred
-                    + self._gather(self.post_c_xt, t, shape) * x)
-            if i > 0:
-                noise = torch.randn_like(x)
-                x_unknown = mean + torch.sqrt(self._gather(self.post_var, t, shape)) * noise
-                x_known = self.q_sample(x0_known, t, torch.randn_like(x))
-            else:
-                x_unknown = mean
-                x_known = x0_known
-            x = keep * x_known + (1 - keep) * x_unknown
+            for u in range(U):
+                t = torch.full((shape[0],), i, device=device, dtype=torch.long)
+                if i > 0:
+                    x_known = self.q_sample(x0_known, t, torch.randn_like(x))
+                else:
+                    x_known = x0_known
+                # known region noised to level t; hole carries the evolving reconstruction
+                x_in = keep * x_known + hole * x
+                if predict == 'noise':
+                    x0_pred, _ = self.predict_x0(model, x_in, cond, t, clip=clip)
+                else:
+                    x0_pred = model(torch.cat([x_in, cond], dim=1), t)
+                    if clip is not None:
+                        x0_pred = x0_pred.clamp(*clip)
+                mean = (self._gather(self.post_c_x0, t, shape) * x0_pred
+                        + self._gather(self.post_c_xt, t, shape) * x_in)
+                if i > 0:
+                    z = torch.randn_like(x)
+                    x_unknown = mean + torch.sqrt(self._gather(self.post_var, t, shape)) * z
+                else:
+                    x_unknown = mean
+                x = keep * x_known + hole * x_unknown
+                if u < U - 1 and i > 0:
+                    beta = self.betas[i]
+                    x = torch.sqrt(1 - beta) * x + torch.sqrt(beta) * torch.randn_like(x)
         return x

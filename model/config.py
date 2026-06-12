@@ -17,10 +17,8 @@ class Config:
 
     timesteps: int = 1000
     predict: str = 'noise'          # 'noise' or 'x0'
-    # the masked region of xt is replaced with noise in loss(), so the model must
-    # inpaint the hole from context. supervise mostly in the hole (we have true x0
-    # in the supervised phase) + a weak whole-patch term for the known region.
-    mask_weight: float = 0.8
+    # whole-patch noise-prediction loss (Palette) with extra weight in the hole.
+    mask_weight: float = 0.6
 
     # phase 2 mixed masking (inactive in phase 1)
     fake_mask: bool = False
@@ -52,7 +50,7 @@ class Config:
 
 
 def phase1(**overrides):
-    cfg = Config(phase=1, fake_mask=False, mask_weight=0.8)
+    cfg = Config(phase=1, fake_mask=False, mask_weight=0.6)
     for k, v in overrides.items():
         setattr(cfg, k, v)
     return cfg
