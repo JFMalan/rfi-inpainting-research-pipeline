@@ -45,6 +45,26 @@ def phase_error(pred, target, mask=None):
     return d[region].mean()
 
 
+def complex_mae(pred, target, mask=None, divisor=None):
+    # error on the recombined complex visibility V = amp*(cos + i*sin).
+    # this is the actual reconstructed quantity. divisor (dn_divisor) optionally
+    # de-normalises amplitude back to physical Jy before measuring.
+    if pred.shape[1] < 3:
+        return torch.tensor(0.0)
+    ap, at = pred[:, 0:1], target[:, 0:1]
+    if divisor is not None:
+        ap, at = ap * divisor, at * divisor
+    vp_re, vp_im = ap * pred[:, 1:2], ap * pred[:, 2:3]
+    vt_re, vt_im = at * target[:, 1:2], at * target[:, 2:3]
+    err = torch.sqrt((vp_re - vt_re) ** 2 + (vp_im - vt_im) ** 2 + 1e-12)
+    if mask is None:
+        return err.mean()
+    region = mask > 0
+    if region.sum() == 0:
+        return torch.tensor(0.0)
+    return err[region].mean()
+
+
 def tre(pred, dirty, mask):
     # Phase 2 / real data — no clean ground truth.
     # Total Reconstruction Error per Luo et al.: error built from the binary RFI

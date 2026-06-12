@@ -7,7 +7,7 @@ from config import phase1
 from data import PatchDataset, build_cond
 from diffusion import Diffusion
 from unet import UNet
-from metrics import mae, psnr, phase_error
+from metrics import mae, psnr, phase_error, complex_mae
 
 
 def main(args):
@@ -98,17 +98,42 @@ def main(args):
             interp[i, 0] = torch.from_numpy(a).to(dev)
         meanfill_mae = (mf - amp_true).abs()[rmask].mean().item()
         interp_mae = (interp - amp_true).abs()[rmask].mean().item()
-        p_model = float(psnr(pred, x0, m))
-        ph = float(phase_error(pred, x0, m))
-    print(f"\nMASK-REGION MAE (physical units, lower=better):")
-    print(f"  MODEL (reconstruct): {model_mae:.4f}   <- deterministic inference output")
-    print(f"  MODEL (x0_pred)    : {x0pred_mae:.4f}   <- single-shot conditional mean")
-    print(f"  interp (target)    : {interp_mae:.4f}   <- classical recoverable structure")
-    print(f"  mean-fill baseline : {meanfill_mae:.4f}")
-    print(f"  phase_err          : {ph:.3f} rad")
-    print(f"  PSNR (secondary)   : {p_model:.2f} dB")
-    print("VERDICT:", "PASS (x0_pred beats mean-fill -> structure learned)"
-          if x0pred_mae < meanfill_mae - 0.005
+
+        # build a mean-fill baseline prediction across all channels for fair PSNR/MAE
+        base = x0.clone()
+        base[:, 0:1] = mf
+        if x0.shape[1] >= 3:
+            for i in range(x0.shape[0]):
+                kn = (m[i, 0] == 0)
+                base[i, 1] = x0[i, 1][kn].mean()
+                base[i, 2] = x0[i, 2][kn].mean()
+
+        # amplitude MAE/PSNR (model vs mean-fill)
+        amp_psnr_model = float(psnr(pred, x0, m))
+        amp_psnr_mf = float(psnr(base, x0, m))
+        # phase: angular error (model vs mean-fill) + cos/sin MAE
+        ph_model = float(phase_error(pred, x0, m))
+        ph_mf = float(phase_error(base, x0, m))
+        # complex visibility MAE (model vs mean-fill) — the headline
+        cplx = float(complex_mae(pred, x0, m))
+        cplx_mf = float(complex_mae(base, x0, m))
+
+    has_phase = pred.shape[1] >= 3
+    print(f"\n{'='*60}")
+    print(f"BENCHMARK  (mask region, model vs mean-fill baseline)")
+    print(f"{'='*60}")
+    print(f"COMPLEX VISIBILITY  (headline — full reconstructed V = amp*e^iphi):")
+    print(f"  MAE   model {cplx:.4f}   mean-fill {cplx_mf:.4f}")
+    print(f"\nAMPLITUDE:")
+    print(f"  MAE   model {model_mae:.4f}   mean-fill {meanfill_mae:.4f}   interp {interp_mae:.4f}")
+    print(f"  PSNR  model {amp_psnr_model:.2f} dB   mean-fill {amp_psnr_mf:.2f} dB")
+    print(f"  (x0_pred single-shot MAE {x0pred_mae:.4f})")
+    if has_phase:
+        print(f"\nPHASE:")
+        print(f"  angular err  model {ph_model:.3f} rad   mean-fill {ph_mf:.3f} rad")
+    print(f"{'='*60}")
+    print("VERDICT:", "PASS (model beats mean-fill on amplitude AND complex)"
+          if model_mae < meanfill_mae - 0.005 and cplx < cplx_mf - 0.005
           else "FAIL (model ~= mean-fill, not recovering structure)")
 
 

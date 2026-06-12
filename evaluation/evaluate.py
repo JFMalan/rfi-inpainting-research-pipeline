@@ -13,7 +13,7 @@ from config import phase1
 from data import PatchDataset, build_cond
 from diffusion import Diffusion
 from unet import UNet
-from metrics import mae, psnr, phase_error
+from metrics import mae, psnr, phase_error, complex_mae
 
 
 def main(args):
@@ -34,7 +34,7 @@ def main(args):
     model.eval()
     diff = Diffusion(T=cfg.timesteps, device=device)
 
-    maes, psnrs, pherrs = [], [], []
+    maes, psnrs, pherrs, cplxs = [], [], [], []
     out = Path(args.out)
     out.mkdir(parents=True, exist_ok=True)
     saved = 0
@@ -47,17 +47,19 @@ def main(args):
         maes.append(float(mae(pred, x0, mask)))
         psnrs.append(float(psnr(pred, x0, mask)))
         pherrs.append(float(phase_error(pred, x0, mask)))
+        cplxs.append(float(complex_mae(pred, x0, mask)))
         if saved < args.save_batches:
             np.savez(out / f'eval_b{bi}.npz', clean=x0.cpu().numpy(),
                      corrupted=batch['corrupted'].numpy(), mask=batch['mask'].numpy(),
                      pred=pred.cpu().numpy(),
                      fmin=batch['fmin'].numpy(), fmax=batch['fmax'].numpy())
             saved += 1
-        print(f"batch {bi+1}/{len(dl)}  mae={maes[-1]:.4f}  psnr={psnrs[-1]:.3f}  "
-              f"phase_err={pherrs[-1]:.4f}", flush=True)
+        print(f"batch {bi+1}/{len(dl)}  complex_mae={cplxs[-1]:.4f}  amp_mae={maes[-1]:.4f}  "
+              f"psnr={psnrs[-1]:.3f}  phase_err={pherrs[-1]:.4f}", flush=True)
 
     res = {'split': args.split, 'n_batches': len(maes),
-           'mae_mean': float(np.mean(maes)), 'mae_std': float(np.std(maes)),
+           'complex_mae_mean': float(np.mean(cplxs)), 'complex_mae_std': float(np.std(cplxs)),
+           'amp_mae_mean': float(np.mean(maes)), 'amp_mae_std': float(np.std(maes)),
            'psnr_mean': float(np.mean(psnrs)), 'psnr_std': float(np.std(psnrs)),
            'phase_err_mean': float(np.mean(pherrs)), 'phase_err_std': float(np.std(pherrs)),
            'ckpt': args.ckpt, 'ema': args.ema}
