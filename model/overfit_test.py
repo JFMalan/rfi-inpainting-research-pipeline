@@ -17,8 +17,9 @@ def main(args):
 
     ds = PatchDataset(args.data, pe_channels=cfg.pe_channels, augment=False,
                       split='train', max_patches=args.n)
-    batch = {k: torch.stack([ds[i][k] for i in range(args.n)]).to(dev) for k in ds[0]}
-    print(f"overfitting {args.n} patches on {dev}")
+    full = {k: torch.stack([ds[i][k] for i in range(args.n)]) for k in ds[0]}
+    bs = min(args.bs, args.n)
+    print(f"overfitting {args.n} patches on {dev}  (batch {bs})")
 
     model = UNet(cfg.in_channels, out_ch=cfg.target_channels, base=cfg.base,
                  ch_mult=cfg.ch_mult, attn_res=cfg.attn_res, num_res=cfg.num_res,
@@ -26,10 +27,13 @@ def main(args):
     diff = Diffusion(T=cfg.timesteps, device=dev)
     opt = torch.optim.AdamW(model.parameters(), lr=2e-4)
 
+    g = torch.Generator().manual_seed(0)
     model.train()
     for it in range(args.iters):
+        idx = torch.randint(0, args.n, (bs,), generator=g)
+        mb = {k: full[k][idx].to(dev) for k in full}
         opt.zero_grad()
-        loss = diff.loss(model, batch, cfg)
+        loss = diff.loss(model, mb, cfg)
         loss.backward()
         opt.step()
         if (it + 1) % 50 == 0:
@@ -37,10 +41,11 @@ def main(args):
 
     # in-mask noise-prediction error vs t (the decisive signal)
     model.eval()
-    print("\nin-mask |pred-eps| by channel vs t (should drop as t->0 if learnable):")
+    ne = min(args.n, args.eval_n)
+    print(f"\nin-mask |pred-eps| by channel vs t (eval on {ne} patches):")
     with torch.no_grad():
-        x0 = batch['clean']; m = batch['mask']
-        cond = build_cond(batch['corrupted'], m, batch['pe'])
+        x0 = full['clean'][:ne].to(dev); m = full['mask'][:ne].to(dev)
+        cond = build_cond(full['corrupted'][:ne].to(dev), m, full['pe'][:ne].to(dev))
         for tv in [800, 500, 200, 50]:
             t = torch.full((x0.shape[0],), tv, device=dev, dtype=torch.long)
             eps = torch.randn_like(x0)
@@ -77,5 +82,7 @@ if __name__ == '__main__':
     ap.add_argument('--data', required=True)
     ap.add_argument('--n', type=int, default=16)
     ap.add_argument('--iters', type=int, default=600)
+    ap.add_argument('--bs', type=int, default=8)
+    ap.add_argument('--eval-n', type=int, default=8, dest='eval_n')
     ap.add_argument('--U', type=int, default=1)
     main(ap.parse_args())
