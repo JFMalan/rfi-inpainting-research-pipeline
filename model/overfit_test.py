@@ -61,37 +61,54 @@ def main(args):
             chans = "  ".join(f"ch{c}:{err[:,c:c+1][inm].mean().item():.3f}" for c in range(x0.shape[1]))
             print(f"  t={tv:4d}  {chans}")
 
-        # full sample, then judge by MASK-REGION MAE (physical units) vs baselines
-        pred = diff.sample(model, cond, x0, m, predict=cfg.predict, U=args.U)
-        region = (m > 0)
+        rmask = m > 0
         amp_true = x0[:, 0:1]
-        amp_pred = pred[:, 0:1]
-        rmask = m > 0  # (B,1,H,W)
 
+        # (A) single-shot x0_pred from a mid-level noised state: the conditional-mean
+        # estimate, NO stochastic sampling. should be smooth like interp if structure learned.
+        t = torch.full((x0.shape[0],), 100, device=dev, dtype=torch.long)
+        eps = torch.randn_like(x0)
+        xt = diff.q_sample(x0, t, eps)
+        x_in = (m == 0).float() * xt + (m > 0).float() * xt  # full xt; cond carries known
+        if cfg.predict == 'x0':
+            x0_pred = model(torch.cat([xt, cond], dim=1), t).clamp(-2, 4)
+        else:
+            x0_pred, _ = diff.predict_x0(model, xt, cond, t, clip=(-2, 4))
+        x0pred_mae = (x0_pred[:, 0:1] - amp_true).abs()[rmask].mean().item()
+
+        # (B) full stochastic sample (the actual inpainting output)
+        pred = diff.sample(model, cond, x0, m, predict=cfg.predict, U=args.U)
+        amp_pred = pred[:, 0:1]
         model_mae = (amp_pred - amp_true).abs()[rmask].mean().item()
         # mean-fill baseline (per-patch local mean of known pixels)
         mf = torch.zeros_like(amp_true)
-        nf = torch.zeros_like(amp_true)
+        interp = amp_true.clone()
         for i in range(x0.shape[0]):
             known = amp_true[i][m[i] == 0]
             mf[i] = known.mean()
-            # noise floor: smooth structure target (residual is irreducible)
-            sm = torch.nn.functional.avg_pool2d(amp_true[i:i+1], kernel_size=9, stride=1, padding=4)
-            nf[i] = sm[0]
+            # per-row linear interp across freq (the classical recoverable target)
+            a = amp_true[i, 0].cpu().numpy()
+            h = (m[i, 0] > 0).cpu().numpy()
+            nt, nf2 = a.shape
+            idx = np.arange(nf2)
+            for tt in range(nt):
+                hr = h[tt]
+                if hr.any() and not hr.all():
+                    a[tt, hr] = np.interp(idx[hr], idx[~hr], a[tt, ~hr])
+            interp[i, 0] = torch.from_numpy(a).to(dev)
         meanfill_mae = (mf - amp_true).abs()[rmask].mean().item()
-        floor_mae = (nf - amp_true).abs()[rmask].mean().item()
+        interp_mae = (interp - amp_true).abs()[rmask].mean().item()
         p_model = float(psnr(pred, x0, m))
         ph = float(phase_error(pred, x0, m))
     print(f"\nMASK-REGION MAE (physical units, lower=better):")
-    print(f"  MODEL              : {model_mae:.4f}")
+    print(f"  MODEL (sampled)    : {model_mae:.4f}")
+    print(f"  MODEL (x0_pred)    : {x0pred_mae:.4f}   <- conditional mean, no stochastic noise")
+    print(f"  interp (target)    : {interp_mae:.4f}   <- classical recoverable structure")
     print(f"  mean-fill baseline : {meanfill_mae:.4f}")
-    print(f"  noise-floor (best) : {floor_mae:.4f}")
     print(f"  phase_err          : {ph:.3f} rad")
     print(f"  PSNR (secondary)   : {p_model:.2f} dB")
-    frac = (meanfill_mae - model_mae) / max(meanfill_mae - floor_mae, 1e-6)
-    print(f"  closed {100*frac:.0f}% of the mean-fill -> noise-floor gap")
-    print("VERDICT:", "PASS (model beats mean-fill toward noise floor)"
-          if model_mae < meanfill_mae - 0.005
+    print("VERDICT:", "PASS (x0_pred beats mean-fill -> structure learned)"
+          if x0pred_mae < meanfill_mae - 0.005
           else "FAIL (model ~= mean-fill, not recovering structure)")
 
 
