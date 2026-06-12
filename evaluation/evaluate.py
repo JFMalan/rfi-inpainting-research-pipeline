@@ -43,7 +43,7 @@ def main(args):
         mask = batch['mask'].to(device)
         cond = build_cond(batch['corrupted'].to(device), mask, batch['pe'].to(device),
                           hole_fill=getattr(cfg, 'hole_fill', 'mean'))
-        pred = diff.reconstruct(model, cond, x0, mask, predict=cfg.predict)
+        pred = diff.sample(model, cond, x0, mask, predict=cfg.predict, eta=0.0)
         maes.append(float(mae(pred, x0, mask)))
         psnrs.append(float(psnr(pred, x0, mask)))
         pherrs.append(float(phase_error(pred, x0, mask)))

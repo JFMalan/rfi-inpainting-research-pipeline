@@ -64,20 +64,26 @@ def main(args):
         rmask = m > 0
         amp_true = x0[:, 0:1]
 
-        # (A) single-shot x0_pred from a mid-level noised state: the conditional-mean
-        # estimate, NO stochastic sampling. should be smooth like interp if structure learned.
-        t = torch.full((x0.shape[0],), 100, device=dev, dtype=torch.long)
-        eps = torch.randn_like(x0)
-        xt = diff.q_sample(x0, t, eps)
-        x_in = (m == 0).float() * xt + (m > 0).float() * xt  # full xt; cond carries known
-        if cfg.predict == 'x0':
-            x0_pred = model(torch.cat([xt, cond], dim=1), t).clamp(-2, 4)
-        else:
-            x0_pred, _ = diff.predict_x0(model, xt, cond, t, clip=(-2, 4))
-        x0pred_mae = (x0_pred[:, 0:1] - amp_true).abs()[rmask].mean().item()
+        # (A) LEAK-FREE single-shot: known region = clean truth, hole = noised NEUTRAL
+        # field (never x0). Measures true in-hole prediction from context.
+        keepf = (m == 0).float(); holef = (m > 0).float()
+        x0pred_mae = None
+        for tv in [50, 100, 200]:
+            t = torch.full((x0.shape[0],), tv, device=dev, dtype=torch.long)
+            z = torch.randn_like(x0)
+            hole_state = diff.q_sample(torch.zeros_like(x0), t, z)
+            x_in = keepf * x0 + holef * hole_state
+            if cfg.predict == 'x0':
+                x0_pred = model(torch.cat([x_in, cond], dim=1), t).clamp(-2, 4)
+            else:
+                x0_pred, _ = diff.predict_x0(model, x_in, cond, t, clip=(-2, 4))
+            lf = (x0_pred[:, 0:1] - amp_true).abs()[rmask].mean().item()
+            print(f"  leak-free single-shot t={tv:4d}  amp mask-MAE {lf:.4f}")
+            if tv == 50:
+                x0pred_mae = lf
 
-        # (B) deterministic reconstruction (the actual inpainting output)
-        pred = diff.reconstruct(model, cond, x0, m, predict=cfg.predict)
+        # (B) full deterministic DDIM sample (the actual inpainting output)
+        pred = diff.sample(model, cond, x0, m, predict=cfg.predict, eta=0.0)
         amp_pred = pred[:, 0:1]
         model_mae = (amp_pred - amp_true).abs()[rmask].mean().item()
         # mean-fill baseline (per-patch local mean of known pixels)
@@ -127,7 +133,7 @@ def main(args):
     print(f"\nAMPLITUDE:")
     print(f"  MAE   model {model_mae:.4f}   mean-fill {meanfill_mae:.4f}   interp {interp_mae:.4f}")
     print(f"  PSNR  model {amp_psnr_model:.2f} dB   mean-fill {amp_psnr_mf:.2f} dB")
-    print(f"  (x0_pred single-shot MAE {x0pred_mae:.4f})")
+    print(f"  (leak-free single-shot MAE @t=50 {x0pred_mae:.4f})")
     if has_phase:
         print(f"\nPHASE:")
         print(f"  angular err  model {ph_model:.3f} rad   mean-fill {ph_mf:.3f} rad")

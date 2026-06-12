@@ -41,7 +41,7 @@ def val_eval(diff, ema_model, val_dl, cfg, out, epoch):
         mask = batch['mask'].to(diff.device)
         cond = build_cond(batch['corrupted'].to(diff.device), mask, batch['pe'].to(diff.device),
                           hole_fill=getattr(cfg, 'hole_fill', 'mean'))
-        pred = diff.reconstruct(ema_model, cond, x0, mask, predict=cfg.predict)
+        pred = diff.sample(ema_model, cond, x0, mask, predict=cfg.predict, eta=0.0)
         maes.append(float(mae(pred, x0, mask)))
         psnrs.append(float(psnr(pred, x0, mask)))
         pherrs.append(float(phase_error(pred, x0, mask)))

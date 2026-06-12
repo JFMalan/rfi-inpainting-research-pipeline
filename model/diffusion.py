@@ -46,15 +46,20 @@ class Diffusion:
         t = torch.randint(0, self.T, (b,), device=self.device)
         noise = torch.randn_like(x0)
         xt = self.q_sample(x0, t, noise)
-        pred = model(torch.cat([xt, cond], dim=1), t)
+
+        # Palette input contract: KNOWN region = clean x0, HOLE = the noised state.
+        # This prevents the model from copying the answer out of the hole of xt and
+        # forces it to inpaint the hole from the clean context + conditioning. The
+        # loss is computed ONLY in the hole (the known region is given, so grading it
+        # teaches nothing and is overwritten at sampling).
+        keep = 1.0 - m
+        x_in = keep * x0 + m * xt
+        pred = model(torch.cat([x_in, cond], dim=1), t)
 
         target = noise if cfg.predict == 'noise' else x0
         err = (pred - target).abs()
-        # whole-patch noise-prediction loss (Palette) with extra weight in the hole.
-        glob = err.mean()
         denom = (m.sum() * err.shape[1]).clamp(min=1.0)
-        masked = (err * m).sum() / denom
-        return (1 - cfg.mask_weight) * glob + cfg.mask_weight * masked
+        return (err * m).sum() / denom
 
     def predict_x0(self, model, xt, cond, t, clip=None):
         pred = model(torch.cat([xt, cond], dim=1), t)
@@ -67,69 +72,34 @@ class Diffusion:
         return x0, pred
 
     @torch.no_grad()
-    def reconstruct(self, model, cond, x0_known, mask, predict='noise', clip=(-2.0, 4.0),
-                    steps=(200, 100, 50, 20)):
-        # Direct conditional-mean reconstruction: predict x0 from the conditioning,
-        # blend the known region back, refine over a few descending timesteps.
-        # No stochastic noise injection -> faithful point estimate (low MAE).
-        device = self.device
-        keep = (mask == 0).float()
-        hole = 1.0 - keep
-        # hole starts neutral (no leak of true values); known region is the truth
-        x0_est = keep * x0_known
-        for tv in steps:
-            t = torch.full((x0_known.shape[0],), tv, device=device, dtype=torch.long)
-            noise = torch.randn_like(x0_est)
-            # known region noised from truth; hole noised from current estimate
-            xt = keep * self.q_sample(x0_known, t, noise) + hole * self.q_sample(x0_est, t, noise)
-            if predict == 'noise':
-                x0_pred, _ = self.predict_x0(model, xt, cond, t, clip=clip)
-            else:
-                x0_pred = model(torch.cat([xt, cond], dim=1), t)
-                if clip is not None:
-                    x0_pred = x0_pred.clamp(*clip)
-            x0_est = keep * x0_known + hole * x0_pred
-        return x0_est
-
-    @torch.no_grad()
-    def sample(self, model, cond, x0_known, mask, predict='noise', clip=(-2.0, 4.0),
-               U=1, eta=0.0):
-        # DDIM sampling. eta=0 -> deterministic (best point estimate, low MAE);
-        # eta=1 -> ancestral DDPM (stochastic). For scientific reconstruction use eta=0.
+    def sample(self, model, cond, x0_known, mask, predict='noise', clip=(-2.0, 4.0), eta=0.0):
+        # DDIM sampling matching the training contract: KNOWN region = clean x0_known
+        # (never noised), HOLE = the running iterate (never the truth, never fresh
+        # noise mid-trajectory). eta=0 -> deterministic point estimate.
         device = self.device
         shape = x0_known.shape
-        x = torch.randn(shape, device=device)
         keep = (mask == 0).float()
         hole = 1.0 - keep
+        x = torch.randn(shape, device=device)
         for i in reversed(range(self.T)):
-            for u in range(U):
-                t = torch.full((shape[0],), i, device=device, dtype=torch.long)
-                if i > 0:
-                    x_known = self.q_sample(x0_known, t, torch.randn_like(x))
-                else:
-                    x_known = x0_known
-                x_in = keep * x_known + hole * x
-                if predict == 'noise':
-                    x0_pred, eps = self.predict_x0(model, x_in, cond, t, clip=clip)
-                else:
-                    x0_pred = model(torch.cat([x_in, cond], dim=1), t)
-                    if clip is not None:
-                        x0_pred = x0_pred.clamp(*clip)
-                    sqrt_acp = self._gather(self.sqrt_acp, t, shape)
-                    sqrt_omacp = self._gather(self.sqrt_one_minus_acp, t, shape)
-                    eps = (x_in - sqrt_acp * x0_pred) / sqrt_omacp
-
-                if i > 0:
-                    acp_prev = self._gather(self.acp_prev, t, shape)
-                    acp = self._gather(self.acp, t, shape)
-                    sigma = eta * torch.sqrt((1 - acp_prev) / (1 - acp) * (1 - acp / acp_prev))
-                    dir_xt = torch.sqrt((1 - acp_prev - sigma ** 2).clamp(min=0.0)) * eps
-                    noise = sigma * torch.randn_like(x) if eta > 0 else 0.0
-                    x_unknown = torch.sqrt(acp_prev) * x0_pred + dir_xt + noise
-                else:
-                    x_unknown = x0_pred
-                x = keep * x_known + hole * x_unknown
-                if u < U - 1 and i > 0:
-                    beta = self.betas[i]
-                    x = torch.sqrt(1 - beta) * x + torch.sqrt(beta) * torch.randn_like(x)
-        return x
+            t = torch.full((shape[0],), i, device=device, dtype=torch.long)
+            x_in = keep * x0_known + hole * x
+            if predict == 'noise':
+                x0_pred, eps = self.predict_x0(model, x_in, cond, t, clip=clip)
+            else:
+                x0_pred = model(torch.cat([x_in, cond], dim=1), t)
+                if clip is not None:
+                    x0_pred = x0_pred.clamp(*clip)
+                sqrt_acp = self._gather(self.sqrt_acp, t, shape)
+                sqrt_omacp = self._gather(self.sqrt_one_minus_acp, t, shape)
+                eps = (x_in - sqrt_acp * x0_pred) / sqrt_omacp
+            if i > 0:
+                acp_prev = self._gather(self.acp_prev, t, shape)
+                acp = self._gather(self.acp, t, shape)
+                sigma = eta * torch.sqrt(((1 - acp_prev) / (1 - acp)) * (1 - acp / acp_prev))
+                dir_xt = torch.sqrt((1 - acp_prev - sigma ** 2).clamp(min=0.0)) * eps
+                noise = sigma * torch.randn_like(x) if eta > 0 else 0.0
+                x = torch.sqrt(acp_prev) * x0_pred + dir_xt + noise
+            else:
+                x = x0_pred
+        return keep * x0_known + hole * x
