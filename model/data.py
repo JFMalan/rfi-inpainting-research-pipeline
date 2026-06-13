@@ -17,10 +17,24 @@ def positional_encoding(patch_fmin, patch_fmax, band_min, band_max, n_freq, n_ti
     return np.transpose(pe, (0, 2, 1))               # (C, T, F)
 
 
+def random_mask(n_time, n_freq, frac_range=(0.05, 0.25)):
+    # synthetic RFI-like mask: a few full-width frequency bands + time bursts
+    m = np.zeros((n_time, n_freq), dtype=np.float32)
+    target = np.random.uniform(*frac_range)
+    while m.mean() < target:
+        if np.random.rand() < 0.6:  # narrowband: full-time frequency stripe
+            w = np.random.randint(1, 6); f0 = np.random.randint(0, n_freq - w)
+            m[:, f0:f0 + w] = 1.0
+        else:                       # broadband burst: full-freq time stripe
+            w = np.random.randint(1, 6); t0 = np.random.randint(0, n_time - w)
+            m[t0:t0 + w, :] = 1.0
+    return m
+
+
 class PatchDataset(Dataset):
     def __init__(self, paths, pe_channels=4, augment=False, max_patches=None,
                  split='train', val_frac=0.05, test_frac=0.05, split_seed=1234,
-                 amp_only=False):
+                 amp_only=False, rand_mask=False, time_roll=False):
         if isinstance(paths, str):
             paths = [paths]
         self.files = []
@@ -57,6 +71,8 @@ class PatchDataset(Dataset):
         self.split = split
         self.augment = augment and split == 'train'
         self.amp_only = amp_only
+        self.rand_mask = rand_mask and split == 'train'
+        self.time_roll = time_roll and split == 'train'
         self.pe_channels = pe_channels
         self._handles = {}
         self._pe_cache = {}
@@ -100,6 +116,20 @@ class PatchDataset(Dataset):
             corrupted = corrupted[::-1].copy()
             mask = mask[::-1].copy()
             phase = phase[::-1].copy()
+
+        if self.time_roll:
+            sh = np.random.randint(0, clean.shape[0])
+            clean = np.roll(clean, sh, axis=0)
+            corrupted = np.roll(corrupted, sh, axis=0)
+            mask = np.roll(mask, sh, axis=0)
+            phase = np.roll(phase, sh, axis=0)
+
+        if self.rand_mask:
+            # fresh random hole each time -> model can't memorise per-patch holes.
+            # corrupted==clean (context is the true signal); the hole is hidden by
+            # build_cond regardless, so the hole's corrupted value is irrelevant.
+            mask = random_mask(clean.shape[0], clean.shape[1])
+            corrupted = clean.copy()
 
         if self.amp_only:
             clean_t = clean[None]

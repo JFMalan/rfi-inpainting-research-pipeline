@@ -16,19 +16,20 @@ def timestep_embedding(t, dim):
 
 
 class ResBlock(nn.Module):
-    def __init__(self, in_ch, out_ch, t_dim, groups=8):
+    def __init__(self, in_ch, out_ch, t_dim, groups=8, dropout=0.0):
         super().__init__()
         self.norm1 = nn.GroupNorm(groups, in_ch)
         self.conv1 = nn.Conv2d(in_ch, out_ch, 3, padding=1)
         self.t_proj = nn.Linear(t_dim, out_ch)
         self.norm2 = nn.GroupNorm(groups, out_ch)
+        self.drop = nn.Dropout(dropout)
         self.conv2 = nn.Conv2d(out_ch, out_ch, 3, padding=1)
         self.skip = nn.Conv2d(in_ch, out_ch, 1) if in_ch != out_ch else nn.Identity()
 
     def forward(self, x, t):
         h = self.conv1(F.silu(self.norm1(x)))
         h = h + self.t_proj(t)[:, :, None, None]
-        h = self.conv2(F.silu(self.norm2(h)))
+        h = self.conv2(self.drop(F.silu(self.norm2(h))))
         return h + self.skip(x)
 
 
@@ -70,8 +71,9 @@ class Up(nn.Module):
 
 class UNet(nn.Module):
     def __init__(self, in_ch, out_ch=1, base=64, ch_mult=(1, 2, 4, 8),
-                 attn_res=(16,), num_res=2, img_size=256, groups=8):
+                 attn_res=(16,), num_res=2, img_size=256, groups=8, dropout=0.0):
         super().__init__()
+        self.dropout = dropout
         t_dim = base * 4
         self.time_mlp = nn.Sequential(
             nn.Linear(base, t_dim), nn.SiLU(), nn.Linear(t_dim, t_dim)
@@ -87,7 +89,7 @@ class UNet(nn.Module):
         for level, mult in enumerate(ch_mult):
             out = base * mult
             for _ in range(num_res):
-                blocks = nn.ModuleList([ResBlock(ch, out, t_dim, groups)])
+                blocks = nn.ModuleList([ResBlock(ch, out, t_dim, groups, dropout)])
                 ch = out
                 if res in attn_res:
                     blocks.append(AttnBlock(ch, groups=groups))
@@ -99,16 +101,16 @@ class UNet(nn.Module):
                 res //= 2
 
         self.mid = nn.ModuleList([
-            ResBlock(ch, ch, t_dim, groups),
+            ResBlock(ch, ch, t_dim, groups, dropout),
             AttnBlock(ch, groups=groups),
-            ResBlock(ch, ch, t_dim, groups),
+            ResBlock(ch, ch, t_dim, groups, dropout),
         ])
 
         self.ups = nn.ModuleList()
         for level, mult in reversed(list(enumerate(ch_mult))):
             out = base * mult
             for _ in range(num_res + 1):
-                blocks = nn.ModuleList([ResBlock(ch + chs.pop(), out, t_dim, groups)])
+                blocks = nn.ModuleList([ResBlock(ch + chs.pop(), out, t_dim, groups, dropout)])
                 ch = out
                 if res in attn_res:
                     blocks.append(AttnBlock(ch, groups=groups))

@@ -37,6 +37,10 @@ class Config:
     ckpt_every: int = 2
     max_patches: int = None
 
+    rand_mask: bool = False        # fresh random training masks (paper Method 2 / anti-memorisation)
+    time_roll: bool = False        # random time-axis roll augmentation
+    dropout: float = 0.0           # U-Net dropout
+
     val_eval_patches: int = 64
     early_stop: bool = True
     patience: int = 8          # consecutive evals with no real complex-MAE gain before stopping
