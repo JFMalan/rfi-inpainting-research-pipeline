@@ -66,7 +66,10 @@ def plot_npz(path, out_dir, n_show):
 
         err = np.abs(pred_a[i] - clean_a[i])
         err[m == 0] = np.nan
-        axes[i, 3].imshow(err.T, aspect="auto", origin="lower", extent=ext, cmap="magma")
+        # fixed error scale (0 .. data dynamic range) so magnitude is honest, not
+        # per-panel autoscaled (which makes tiny errors look catastrophic on flat patches)
+        axes[i, 3].imshow(err.T, aspect="auto", origin="lower", extent=ext, cmap="magma",
+                          vmin=0.0, vmax=(vmax - vmin))
 
         if has_phase:
             axes[i, 4].imshow(clean_p[i].T, aspect="auto", origin="lower", vmin=-np.pi, vmax=np.pi,
@@ -75,7 +78,11 @@ def plot_npz(path, out_dir, n_show):
                               extent=ext, cmap="twilight")
 
         mae_mask = err[~np.isnan(err)].mean() if np.isfinite(err).any() else 0.0
-        axes[i, 0].set_ylabel(f"sample {i}\n{ylab}\nmask MAE={mae_mask:.4f}", fontsize=8)
+        in_hole = pred_a[i][m > 0]
+        axes[i, 0].set_ylabel(
+            f"sample {i}\n{ylab}\nmaskMAE={mae_mask:.4f}\n"
+            f"clean[{vmin:.2f},{vmax:.2f}] pred_hole[{in_hole.min():.2f},{in_hole.max():.2f}]",
+            fontsize=7)
         if i == 0:
             for j, t in enumerate(titles):
                 axes[i, j].set_title(t, fontsize=9)
