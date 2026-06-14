@@ -12,18 +12,20 @@ from metrics import mae, complex_mae
 
 
 def add_calibrated_noise(pred, x0_known, mask):
-    # add per-patch Gaussian noise to the hole, matching the known-region high-freq
-    # (speckle) std, so the fill statistically matches the surroundings. Operates on
-    # the amplitude channel (ch0); phase channels left as the smooth estimate.
+    # top up the hole's high-freq (speckle) variance to MATCH the known region's,
+    # accounting for texture the fill already has (so total std = target, not +full).
     out = pred.clone()
     for b in range(pred.shape[0]):
         m = mask[b, 0] > 0
         if m.sum() < 5 or (~m).sum() < 20:
             continue
-        c = x0_known[b, 0]
-        hp = c - torch.nn.functional.avg_pool2d(c[None, None], 5, 1, 2)[0, 0]
-        sd = hp[~m].std()
-        out[b, 0][m] = out[b, 0][m] + sd * torch.randn(int(m.sum()), device=pred.device)
+        c = x0_known[b, 0]; p = out[b, 0]
+        hp_known = (c - torch.nn.functional.avg_pool2d(c[None, None], 5, 1, 2)[0, 0])[~m]
+        hp_fill = (p - torch.nn.functional.avg_pool2d(p[None, None], 5, 1, 2)[0, 0])[m]
+        target_var = hp_known.var()
+        have_var = hp_fill.var()
+        add_var = (target_var - have_var).clamp(min=0.0)
+        out[b, 0][m] = out[b, 0][m] + torch.sqrt(add_var) * torch.randn(int(m.sum()), device=pred.device)
     return out
 
 
