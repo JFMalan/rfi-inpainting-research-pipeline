@@ -2,12 +2,31 @@ import argparse
 
 import numpy as np
 import torch
+from scipy.ndimage import uniform_filter
 
 from config import phase1
 from data import PatchDataset, build_cond
 from diffusion import Diffusion
 from unet import UNet
 from metrics import mae, complex_mae
+
+
+def texture_ratio(pred_amp, clean_amp, mask):
+    # high-freq (speckle) std in the hole vs the known region. ~1.0 = texture matches;
+    # <1 = fill too smooth; >1 = too noisy. Computed on the high-pass residual.
+    ratios = []
+    for b in range(pred_amp.shape[0]):
+        m = mask[b] > 0
+        if m.sum() < 20 or (~m).sum() < 20:
+            continue
+        p = pred_amp[b]; c = clean_amp[b]
+        hp_pred = p - uniform_filter(p, size=5, mode='nearest')   # fill high-freq
+        hp_known = c - uniform_filter(c, size=5, mode='nearest')  # true high-freq
+        s_hole = hp_pred[m].std()
+        s_known = hp_known[~m].std()
+        if s_known > 1e-6:
+            ratios.append(s_hole / s_known)
+    return float(np.mean(ratios)) if ratios else 0.0
 
 
 def run(diff, model, cond, x0, m, predict, clip, steps, eta=0.0, repaint_u=1):
@@ -49,17 +68,22 @@ def main(args):
             if npx.any(): ne.append((ap - at).abs()[npx].mean().item())
         return (float(np.mean(we)) if we else 0.0), (float(np.mean(ne)) if ne else 0.0)
 
-    configs = [("DDIM_u1", 1), ("RePaint_u5", 5), ("RePaint_u10", 10)]
+    # judge by TEXTURE MATCH (does the fill have the speckle of the surroundings?)
+    # NOT just MAE (which rewards smooth means). texture ~1.0 is the goal.
+    cl_np = x0[:, 0].cpu().numpy(); m_np = m[:, 0].cpu().numpy()
+    configs = [("eta0.0", 0.0), ("eta0.5", 0.5), ("eta0.8", 0.8), ("eta1.0", 1.0)]
     saved = {}
-    for name, u in configs:
-        amp, cx, pred = run(diff, model, cond, x0, m, cfg.predict, (-2.0, 4.0), 1000, repaint_u=u)
+    print("  (texture: 1.0 = fill matches surrounding speckle; <1 too smooth)")
+    for name, eta in configs:
+        amp, cx, pred = run(diff, model, cond, x0, m, cfg.predict, (-2.0, 4.0), 1000, eta=eta)
+        tex = texture_ratio(pred[:, 0].cpu().numpy(), cl_np, m_np)
         we, ne = wide_narrow(pred)
-        print(f"  {name}:  amp_mae {amp:.4f}  complex {cx:.4f}  WIDE {we:.4f}  NARROW {ne:.4f}")
+        print(f"  {name}:  amp_mae {amp:.4f}  TEXTURE {tex:.3f}  WIDE {we:.4f}  NARROW {ne:.4f}")
         saved[name] = pred.cpu().numpy()
 
     np.savez(args.out, clean=x0.cpu().numpy(), corrupted=batch['corrupted'].cpu().numpy(),
-             mask=m.cpu().numpy(), pred_ddim=saved['DDIM_u1'],
-             pred_repaint5=saved['RePaint_u5'], pred_repaint10=saved['RePaint_u10'],
+             mask=m.cpu().numpy(), pred_eta0=saved['eta0.0'], pred_eta05=saved['eta0.5'],
+             pred_eta08=saved['eta0.8'], pred_eta10=saved['eta1.0'],
              fmin=batch['fmin'].cpu().numpy(), fmax=batch['fmax'].cpu().numpy())
     print(f"saved -> {args.out}")
 
