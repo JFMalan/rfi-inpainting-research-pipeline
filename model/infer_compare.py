@@ -10,8 +10,8 @@ from unet import UNet
 from metrics import mae, complex_mae
 
 
-def run(diff, model, cond, x0, m, predict, clip, steps):
-    pred = diff.sample(model, cond, x0, m, predict=predict, clip=clip, eta=0.0, steps=steps)
+def run(diff, model, cond, x0, m, predict, clip, steps, eta=0.0):
+    pred = diff.sample(model, cond, x0, m, predict=predict, clip=clip, eta=eta, steps=steps)
     return float(mae(pred, x0, m)), float(complex_mae(pred, x0, m)), pred
 
 
@@ -35,21 +35,33 @@ def main(args):
     lo, hi = float(known.mean() - 5 * known.std()), float(known.mean() + 5 * known.std())
     print(f"data range (known amp): mean {known.mean():.3f} std {known.std():.3f}  tight clip ({lo:.2f},{hi:.2f})")
 
-    configs = [
-        ("current  (200 steps, clip -2..4)", (-2.0, 4.0), 200),
-        ("full     (1000 steps, clip -2..4)", (-2.0, 4.0), 1000),
-        ("tight    (1000 steps, clip tight)", (lo, hi),    1000),
-    ]
+    # test deterministic (eta=0, smooth) vs stochastic (eta>0, adds texture) sampling.
+    # also report error split by WIDE vs NARROW masked columns to expose the wide-hole failure.
+    configs = [("eta0.0", 0.0), ("eta0.5", 0.5), ("eta1.0", 1.0)]
     saved = {}
-    for name, clip, steps in configs:
-        amp, cx, pred = run(diff, model, cond, x0, m, cfg.predict, clip, steps)
-        oh = pred[:, 0][m[:, 0] > 0]
-        print(f"  {name}:  amp_mae {amp:.4f}  complex {cx:.4f}  pred_hole[{oh.min():.2f},{oh.max():.2f}]")
-        saved[name.split()[0]] = pred.cpu().numpy()
+    for name, eta in configs:
+        amp, cx, pred = run(diff, model, cond, x0, m, cfg.predict, (-2.0, 4.0), 1000, eta=eta)
+        # wide vs narrow: per masked column, width = contiguous masked extent along time
+        wide_err, narrow_err = [], []
+        for b in range(pred.shape[0]):
+            mm = m[b, 0] > 0
+            col_frac = mm.float().mean(dim=0)  # fraction masked per time column
+            wide_cols = col_frac > 0.5
+            ap, at = pred[b, 0], x0[b, 0]
+            wide_px = mm & wide_cols[None, :]
+            narrow_px = mm & ~wide_cols[None, :]
+            if wide_px.any():
+                wide_err.append((ap - at).abs()[wide_px].mean().item())
+            if narrow_px.any():
+                narrow_err.append((ap - at).abs()[narrow_px].mean().item())
+        we = float(np.mean(wide_err)) if wide_err else 0.0
+        ne = float(np.mean(narrow_err)) if narrow_err else 0.0
+        print(f"  {name}:  amp_mae {amp:.4f}  complex {cx:.4f}  WIDE-mask MAE {we:.4f}  NARROW-mask MAE {ne:.4f}")
+        saved[name] = pred.cpu().numpy()
 
     np.savez(args.out, clean=x0.cpu().numpy(), corrupted=batch['corrupted'].cpu().numpy(),
-             mask=m.cpu().numpy(), pred_current=saved['current'],
-             pred_full=saved['full'], pred_tight=saved['tight'],
+             mask=m.cpu().numpy(), pred_eta0=saved['eta0.0'],
+             pred_eta05=saved['eta0.5'], pred_eta10=saved['eta1.0'],
              fmin=batch['fmin'].cpu().numpy(), fmax=batch['fmax'].cpu().numpy())
     print(f"saved -> {args.out}")
 
