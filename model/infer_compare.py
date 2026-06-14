@@ -11,6 +11,22 @@ from unet import UNet
 from metrics import mae, complex_mae
 
 
+def add_calibrated_noise(pred, x0_known, mask):
+    # add per-patch Gaussian noise to the hole, matching the known-region high-freq
+    # (speckle) std, so the fill statistically matches the surroundings. Operates on
+    # the amplitude channel (ch0); phase channels left as the smooth estimate.
+    out = pred.clone()
+    for b in range(pred.shape[0]):
+        m = mask[b, 0] > 0
+        if m.sum() < 5 or (~m).sum() < 20:
+            continue
+        c = x0_known[b, 0]
+        hp = c - torch.nn.functional.avg_pool2d(c[None, None], 5, 1, 2)[0, 0]
+        sd = hp[~m].std()
+        out[b, 0][m] = out[b, 0][m] + sd * torch.randn(int(m.sum()), device=pred.device)
+    return out
+
+
 def texture_ratio(pred_amp, clean_amp, mask):
     # high-freq (speckle) std in the hole vs the known region. ~1.0 = texture matches;
     # <1 = fill too smooth; >1 = too noisy. Computed on the high-pass residual.
@@ -71,19 +87,19 @@ def main(args):
     # judge by TEXTURE MATCH (does the fill have the speckle of the surroundings?)
     # NOT just MAE (which rewards smooth means). texture ~1.0 is the goal.
     cl_np = x0[:, 0].cpu().numpy(); m_np = m[:, 0].cpu().numpy()
-    configs = [("eta0.0", 0.0), ("eta0.5", 0.5), ("eta0.8", 0.8), ("eta1.0", 1.0)]
-    saved = {}
     print("  (texture: 1.0 = fill matches surrounding speckle; <1 too smooth)")
-    for name, eta in configs:
-        amp, cx, pred = run(diff, model, cond, x0, m, cfg.predict, (-2.0, 4.0), 1000, eta=eta)
-        tex = texture_ratio(pred[:, 0].cpu().numpy(), cl_np, m_np)
-        we, ne = wide_narrow(pred)
-        print(f"  {name}:  amp_mae {amp:.4f}  TEXTURE {tex:.3f}  WIDE {we:.4f}  NARROW {ne:.4f}")
-        saved[name] = pred.cpu().numpy()
+    # smooth mean (eta=0, current) vs mean + calibrated noise post-hoc
+    amp0, cx0, pred_mean = run(diff, model, cond, x0, m, cfg.predict, (-2.0, 4.0), 1000, eta=0.0)
+    pred_noisy = add_calibrated_noise(pred_mean, x0, m)
+    tex0 = texture_ratio(pred_mean[:, 0].cpu().numpy(), cl_np, m_np)
+    texn = texture_ratio(pred_noisy[:, 0].cpu().numpy(), cl_np, m_np)
+    amn = float(mae(pred_noisy, x0, m)); cxn = float(complex_mae(pred_noisy, x0, m))
+    print(f"  mean (eta0)        :  amp_mae {amp0:.4f}  complex {cx0:.4f}  TEXTURE {tex0:.3f}")
+    print(f"  mean + calib noise :  amp_mae {amn:.4f}  complex {cxn:.4f}  TEXTURE {texn:.3f}")
 
     np.savez(args.out, clean=x0.cpu().numpy(), corrupted=batch['corrupted'].cpu().numpy(),
-             mask=m.cpu().numpy(), pred_eta0=saved['eta0.0'], pred_eta05=saved['eta0.5'],
-             pred_eta08=saved['eta0.8'], pred_eta10=saved['eta1.0'],
+             mask=m.cpu().numpy(), pred_mean=pred_mean.cpu().numpy(),
+             pred_meannoise=pred_noisy.cpu().numpy(),
              fmin=batch['fmin'].cpu().numpy(), fmax=batch['fmax'].cpu().numpy())
     print(f"saved -> {args.out}")
 
