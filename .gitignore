@@ -5,6 +5,9 @@ __pycache__/
 *.hdf5
 *.pkl
 *.npy
+*.npz
+*.pt
+model_checkpoints/
 logs/*.log
 *.png
 *.pdf

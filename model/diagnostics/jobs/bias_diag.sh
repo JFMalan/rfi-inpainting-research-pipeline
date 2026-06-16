@@ -35,7 +35,7 @@ fi
 NVBIND="--bind $LIBCUDA:$LIBDIR/libcuda.so.1 --bind $LIBNVML:$LIBDIR/libnvidia-ml.so.1"
 echo "node $(hostname)  bias diag ckpt $CKPT"
 
-singularity exec --nv $NVBIND $GPU python $ROOT/model/bias_diag.py \
+singularity exec --nv $NVBIND $GPU python $ROOT/model/diagnostics/bias_diag.py \
     --data $DATASET --ckpt $CKPT --n $N --predict $PREDICT --steps $STEPS
 
 echo "done"

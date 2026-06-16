@@ -12,14 +12,28 @@ back into a complex visibility and written into an MS. The target/output is `(3,
 RFI is injected into amplitude only, so the two phase channels are identical in `clean` and `corrupted`;
 the model still has to denoise/inpaint all three under the diffusion objective.
 
-## Files
+## Layout
+Shared core (used by both phases) lives at the `model/` root; phase-specific entry points and one-off
+diagnostics are in subfolders.
+
+**Core**
 - `data.py` — `PatchDataset` over one or more `dataset.h5` files, frequency positional encoding, augmentation, 3-channel target stacking, conditioning stack
 - `unet.py` — conditional U-Net (timestep embedding, residual blocks, self-attention at 32/16, skip connections)
-- `diffusion.py` — cosine-schedule DDPM, masked-L1 objective, RePaint-style masked sampling
+- `diffusion.py` — cosine-schedule DDPM, masked-L1 objective, RePaint-style masked sampling (optional `progress` callback)
 - `config.py` — `phase1()` / `phase2()` factories
 - `metrics.py` — amplitude MAE/PSNR (mask region, ch0) + `phase_error`; `tre()` is a phase-2 stub
 - `train.py` — training loop, EMA, checkpointing, periodic sampling
-- `jobs/train_sim.sh` — SLURM GPU job
+
+**`sim/`** — simulation-trained (Phase 1) entry point
+- `sim/train_sim.sh` — SLURM GPU job for supervised training on simulated `dataset.h5`
+
+**`real/`** — raw-data (Phase 2) entry point (mixed masking on real MeerKAT data; stubs)
+
+**`diagnostics/`** — one-off investigation/test scripts built during Phase 1 (not part of the training
+pipeline). Each adds `sys.path` to import the core. Notable: `pipeline_doctor.py` (stage isolation),
+`info_ceiling.py` / `recoverability.py` (is structure recoverable), `sampler_sweep.py` / `bias_diag.py`
+(texture/bias investigation), `overfit_test.py`, `visualise_samples.py` / `viz_eta.py` (rendering).
+Their SLURM wrappers are in `diagnostics/jobs/`.
 
 ## Input contract
 `dataset.h5` is produced by `data_preparation/simulated` — `extract_patches_sim.py` writes the clean
@@ -92,13 +106,13 @@ as the first valid baseline.
 Prove the loop runs end-to-end on a small subset before committing GPU days:
 ```bash
 cd /users/$USER/rfi-inpainting-research-pipeline
-sbatch --export=ALL,RUN_ID=1,EPOCHS=4,BATCH=16,MAX_PATCHES=512 model/jobs/train_sim.sh
+sbatch --export=ALL,RUN_ID=1,EPOCHS=4,BATCH=16,MAX_PATCHES=512 model/sim/train_sim.sh
 ```
 
 ## Full phase-1 training
 ```bash
 cd /users/$USER/rfi-inpainting-research-pipeline
-sbatch --export=ALL,RUN_ID=1 model/jobs/train_sim.sh        # defaults: 40 epochs, batch 32
+sbatch --export=ALL,RUN_ID=1 model/sim/train_sim.sh        # defaults: 40 epochs, batch 32
 ```
 ### GPU notes (verified on ilifu)
 - **P100 nodes (gpu-001–004) are unusable** — CUDA capability sm_60, torch 2.10 needs sm_70+.
@@ -138,7 +152,7 @@ For the full 5,040-patch test set drop `MAX_EVAL` and raise the walltime. Result
 The training loop writes `samples/sample_e<epoch>.npz` (clean / corrupted / mask / pred). Render them:
 ```bash
 singularity exec /idia/software/containers/ASTRO-GPU-PyTorch-2026-01-28.sif \
-    python model/visualise_samples.py \
+    python model/diagnostics/visualise_samples.py \
     --input '/idia/users/$USER/rfi/runs/phase1_run1/samples/*.npz' \
     --output /idia/users/$USER/rfi/runs/phase1_run1/sample_pngs --n-show 6
 ```

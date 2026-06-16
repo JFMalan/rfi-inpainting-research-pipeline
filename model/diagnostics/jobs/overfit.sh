@@ -22,7 +22,7 @@ HOLE_FILL=${HOLE_FILL:-mean}
 ETA=${ETA:-0.0}
 
 GPU=/idia/software/containers/ASTRO-GPU-PyTorch-2026-01-28.sif
-SCRIPTS=/users/$USER/rfi-inpainting-research-pipeline/model
+SCRIPTS=/users/$USER/rfi-inpainting-research-pipeline/model/diagnostics
 DATASET=/scratch3/users/$USER/rfi/simulated/run${RUN_ID}/dataset.h5
 
 mkdir -p logs
