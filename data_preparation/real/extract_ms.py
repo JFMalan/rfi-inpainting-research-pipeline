@@ -81,13 +81,16 @@ def main(args):
         ms = ms.query(" AND ".join(query))
 
     cols = ms.colnames()
-    col = 'DATA'
-    if 'CORRECTED_DATA' in cols:
-        try:
-            ms.getcell('CORRECTED_DATA', 0)
-            col = 'CORRECTED_DATA'
-        except Exception:
-            pass
+    if args.column is not None:
+        col = args.column
+    else:
+        col = 'DATA'
+        if 'CORRECTED_DATA' in cols:
+            try:
+                ms.getcell('CORRECTED_DATA', 0)
+                col = 'CORRECTED_DATA'
+            except Exception:
+                pass
 
     data    = ms.getcol(col)
     flags   = ms.getcol('FLAG')
@@ -208,6 +211,7 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--ms',                  required=True)
     parser.add_argument('--output',              required=True)
+    parser.add_argument('--column',              default=None)
     parser.add_argument('--field',               type=int,   default=None)
     parser.add_argument('--freq-min',            type=float, default=900.0)
     parser.add_argument('--freq-max',            type=float, default=1650.0)
