@@ -19,6 +19,7 @@ LR=${LR:-1e-4}
 PREDICT=${PREDICT:-noise}
 AMP_ONLY=${AMP_ONLY:-0}
 HOLE_FILL=${HOLE_FILL:-mean}
+ETA=${ETA:-0.0}
 
 GPU=/idia/software/containers/ASTRO-GPU-PyTorch-2026-01-28.sif
 SCRIPTS=/users/$USER/rfi-inpainting-research-pipeline/model
@@ -34,4 +35,4 @@ if [ "$AMP_ONLY" = "1" ]; then EXTRA="--amp-only"; fi
 
 singularity exec --nv $NVBIND $GPU python $SCRIPTS/overfit_test.py \
     --data $DATASET --n $N --iters $ITERS --bs $BS --lr $LR \
-    --predict $PREDICT --hole-fill $HOLE_FILL $EXTRA
+    --predict $PREDICT --hole-fill $HOLE_FILL --eta $ETA $EXTRA
