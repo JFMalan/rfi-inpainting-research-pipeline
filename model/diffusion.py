@@ -95,7 +95,7 @@ class Diffusion:
 
     @torch.no_grad()
     def sample(self, model, cond, x0_known, mask, predict='noise', clip=(-2.0, 4.0),
-               eta=0.0, steps=None, repaint_u=1):
+               eta=0.0, steps=None, repaint_u=1, progress=None):
         # DDIM sampling matching the training contract: KNOWN region = clean x0_known,
         # HOLE = the running iterate. eta=0 -> deterministic.
         # repaint_u>1 enables RePaint resampling: at each step, jump back up and
@@ -123,4 +123,6 @@ class Diffusion:
                                           dtype=torch.long), shape)
                     a = acp_i / acp_ip
                     x = torch.sqrt(a) * x + torch.sqrt(1 - a) * torch.randn_like(x)
+            if progress is not None:
+                progress(k + 1, len(ts))
         return keep * x0_known + hole * x

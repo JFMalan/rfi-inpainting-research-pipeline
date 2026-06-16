@@ -1,4 +1,5 @@
 import argparse
+import time
 
 import numpy as np
 import torch
@@ -26,11 +27,15 @@ def texture_ratio(pred_amp, clean_amp, mask):
 
 def main(args):
     dev = 'cuda' if torch.cuda.is_available() else 'cpu'
+    gpu_name = torch.cuda.get_device_name(0) if dev == 'cuda' else 'CPU'
+    print(f"device={dev} ({gpu_name})", flush=True)
     cfg = phase1(predict=args.predict)
+    print("loading dataset", flush=True)
     ds = PatchDataset(args.data, pe_channels=cfg.pe_channels, augment=False, split='val')
     batch = {k: torch.stack([ds[i][k] for i in range(args.n)]).to(dev) for k in ds[0]}
     x0, m = batch['clean'], batch['mask']
     cond = build_cond(batch['corrupted'], m, batch['pe'], hole_fill=cfg.hole_fill)
+    print(f"loaded {args.n} patches, building model", flush=True)
 
     model = UNet(cfg.in_channels, out_ch=cfg.target_channels, base=cfg.base, ch_mult=cfg.ch_mult,
                  attn_res=cfg.attn_res, num_res=cfg.num_res, img_size=cfg.img_size).to(dev)
@@ -38,6 +43,7 @@ def main(args):
     model.load_state_dict(ck['ema'] if 'ema' in ck else ck['model'])
     model.eval()
     diff = Diffusion(T=cfg.timesteps, device=dev)
+    print("model loaded, starting sweep", flush=True)
 
     configs = [(eta, u) for eta in args.etas for u in args.repaint_u]
     cl = x0[:, 0].cpu().numpy(); mk = m[:, 0].cpu().numpy()
@@ -46,8 +52,16 @@ def main(args):
     print(f"{'eta':>5} {'U':>3} | {'amp_mae':>8} {'cplx':>8} {'psnr':>7} {'phase':>7} {'TEXTURE':>8}")
     print("-" * 56)
     for eta, u in configs:
+        t0 = time.time()
+
+        def prog(k, total, _t0=t0, _eta=eta, _u=u):
+            if k % 100 == 0 or k == total:
+                el = time.time() - _t0
+                print(f"  [eta{_eta} u{_u}] step {k}/{total}  {el:.1f}s  {k / max(el, 1e-6):.1f} step/s",
+                      flush=True)
+
         pred = diff.sample(model, cond, x0, m, predict=cfg.predict, clip=tuple(args.clip),
-                           eta=eta, steps=args.steps, repaint_u=u)
+                           eta=eta, steps=args.steps, repaint_u=u, progress=prog)
         amp_mae = float(mae(pred, x0, m))
         cplx = float(complex_mae(pred, x0, m))
         ps = float(psnr(pred, x0, m))
