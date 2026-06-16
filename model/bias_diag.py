@@ -1,4 +1,5 @@
 import argparse
+import time
 
 import numpy as np
 import torch
@@ -40,12 +41,16 @@ def band_geometry(mask_2d):
 
 def main(args):
     dev = 'cuda' if torch.cuda.is_available() else 'cpu'
+    gpu_name = torch.cuda.get_device_name(0) if dev == 'cuda' else 'CPU'
+    print(f"device={dev} ({gpu_name})", flush=True)
     cfg = phase1(predict=args.predict)
+    print("loading dataset", flush=True)
     ds = PatchDataset(args.data, pe_channels=cfg.pe_channels, augment=False, split='val')
     n = args.n
     batch = {k: torch.stack([ds[i][k] for i in range(n)]).to(dev) for k in ds[0]}
     x0, m = batch['clean'], batch['mask']
     cond = build_cond(batch['corrupted'], m, batch['pe'], hole_fill=cfg.hole_fill)
+    print(f"loaded {n} patches, building model", flush=True)
 
     model = UNet(cfg.in_channels, out_ch=cfg.target_channels, base=cfg.base, ch_mult=cfg.ch_mult,
                  attn_res=cfg.attn_res, num_res=cfg.num_res, img_size=cfg.img_size).to(dev)
@@ -53,8 +58,18 @@ def main(args):
     model.load_state_dict(ck['ema'] if 'ema' in ck else ck['model'])
     model.eval()
     diff = Diffusion(T=cfg.timesteps, device=dev)
+    print(f"model loaded, sampling {n} patches x {args.steps} steps", flush=True)
 
-    pred = diff.sample(model, cond, x0, m, predict=cfg.predict, eta=0.0, steps=args.steps)
+    t0 = time.time()
+
+    def prog(k, total):
+        if k % 50 == 0 or k == total:
+            el = time.time() - t0
+            print(f"  step {k}/{total}  {el:.1f}s  {k / max(el, 1e-6):.1f} step/s", flush=True)
+
+    pred = diff.sample(model, cond, x0, m, predict=cfg.predict, eta=0.0, steps=args.steps,
+                       progress=prog)
+    print("sampling done, computing band geometry", flush=True)
 
     ap = pred[:, 0].cpu().numpy()
     at = x0[:, 0].cpu().numpy()
