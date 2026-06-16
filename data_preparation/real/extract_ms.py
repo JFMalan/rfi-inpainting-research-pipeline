@@ -73,10 +73,12 @@ def main(args):
     query = []
     if args.field is not None:
         query.append(f"FIELD_ID == {args.field}")
-    if args.max_time is not None:
+    if args.max_time is not None or args.time_start > 0:
         all_times = np.unique(ms.getcol('TIME'))
-        cutoff = all_times[min(args.max_time, len(all_times)) - 1]
-        query.append(f"TIME <= {cutoff}")
+        lo = min(args.time_start, len(all_times) - 1)
+        hi = len(all_times) if args.max_time is None else min(lo + args.max_time, len(all_times))
+        query.append(f"TIME >= {all_times[lo]}")
+        query.append(f"TIME <= {all_times[hi - 1]}")
     if query:
         ms = ms.query(" AND ".join(query))
 
@@ -224,5 +226,6 @@ if __name__ == '__main__':
     parser.add_argument('--max-bl-flag-frac',    type=float, default=0.8)
     parser.add_argument('--smooth-bins',         type=int,   default=64)
     parser.add_argument('--max-time',            type=int,   default=None)
+    parser.add_argument('--time-start',          type=int,   default=0)
     parser.add_argument('--sigma-clip',          type=float, default=3.0)
     main(parser.parse_args())
