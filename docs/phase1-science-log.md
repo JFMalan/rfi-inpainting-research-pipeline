@@ -93,7 +93,28 @@ are the point-estimate quality; realistic texture is a separate, open considerat
   colour-scaling artifact (per-patch percentile scaling against real bright signal),
   confirmed 3×. Fixed the visualiser (honest error scale + value-range labels).
 
+### Methodology pivot — why the headline config is x0/deterministic (off-spec)
+The proposal (GOAL.md eq. 2, §4.3) specifies noise-prediction (eps) + L1 + RePaint
+stochastic resampling — the Palette default. The current validated result was instead
+obtained with **predict=x0 + deterministic DDIM (eta=0)**, which is a deliberate
+deviation: it predicts the conditional MEAN of the hole, minimising MAE/PSNR (the
+proposal's headline metrics) at the cost of speckle texture. This pivot happened
+because the spec'd eps/RePaint path, optimised for MAE, gave fills that were
+statistically plausible but visibly over-smooth, and the numerical metrics rewarded
+the mean. The two configs are kept as a tracked tradeoff (point-estimate fidelity vs.
+statistical realism); GOAL.md §4.4.1 now records this revision. The eps/RePaint path
+is being re-examined (below) to find the best approach — not because texture is itself
+a success metric, but because it is the proposal's named methodology and the right
+config is still open.
+
 ### Texture (the open item)
+Caveat on the texture-ratio diagnostic: it is a high-pass std RATIO (hole vs. known
+region), so it measures variance match, not reconstruction fidelity — it can be driven
+to ~1.0 by calibrated white noise carrying no recovered signal (which is why post-hoc
+noise was rejected). It is a reporting/diagnostic number, NOT an optimisation target,
+and it is in direct tension with MAE (a realistic sample is further from the mean than
+the mean is). Treat low MAE and texture=1.0 as answers to different questions
+(best point estimate vs. statistically realistic sample), not jointly optimisable.
 - Deterministic DDIM predicts the conditional MEAN → the fill is visibly SMOOTHER
   than the surrounding thermal-noise speckle (texture ratio ~0.27 vs target 1.0).
   Low MAE actually REWARDS this (smooth mean beats any specific noise guess).
