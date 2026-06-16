@@ -122,8 +122,32 @@ the mean is). Treat low MAE and texture=1.0 as answers to different questions
   smoothness is baked into predict=x0 + L1, not the sampler.
 - Post-hoc calibrated noise (add noise matched to the known-region speckle) restores
   texture but needs empirical scaling and only cosmetically re-adds irreducible
-  noise — not reconstructed signal. **Decided against this; instead consider training
-  the model to reproduce the noise texture directly (next step).**
+  noise — not reconstructed signal. Decided against this.
+
+### Texture/bias investigation RESOLVED (sampler sweep + bias diagnostic)
+Before committing an eps retrain to "fix smoothness", ran two cheap no-retrain tests on
+the existing run2 best.pt (model/sampler_sweep.py, model/bias_diag.py). Findings overturned
+the premise:
+- Real texture ratio at the headline config (eta=0, U=1) is **0.748, not 0.27** — the 0.27
+  was a measurement artifact (different window/sample). The fills are only mildly smoother
+  than the surroundings, not drastically.
+- eta 0→1 barely moves texture (0.748→0.777): on a predict=x0 model stochastic sampling
+  CANNOT add texture (the x0 head emits the mean; no eps mechanism). RePaint U=5 overshoots
+  to 1.4–2.0 (too noisy) and costs 3–7 dB PSNR. So no sampler setting improves seamlessness;
+  eta=0, U=1 is the best config visually and numerically.
+- Bias diagnostic (signed fill error vs band depth / width / per-patch structure, 64 patches,
+  515k hole pixels): overall signed bias **−0.0038** vs abs error 0.033 (essentially unbiased).
+  Error is FLAT across depth into the band (edge 0.032 ≈ centre 0.034 — no centre-drift, the
+  "guessed from far away" worry is disproven), FLAT across band width (widest 0.034), and FLAT
+  across structure terciles including the noise-dominated one. There is no fixable systematic
+  error anywhere.
+- CONCLUSION: the band that remains *visible* on noise-dominated patches is the
+  **perception–distortion gap**, not reconstruction error. A numerically-correct fill
+  (error 0.033, unbiased) in a thermal-speckle field still reads as "too smooth" to the eye
+  because it lacks the specific speckle grain — which is irreducible noise and cannot be
+  recovered, only resampled. This is expected and not a model defect. DECISION (2026-06-16):
+  ship eta=0/U=1 as the validated Phase-1 config; do NOT retrain for texture (it would cost
+  GPU-hours for a cosmetic gain the MAE/PSNR metrics do not reward and would worsen).
 
 ## Key learnings
 1. **Amplitude inpaintability is bounded by field SNR.** On realistic noise-dominated
@@ -145,8 +169,9 @@ the mean is). Treat low MAE and texture=1.0 as answers to different questions
    or a statistically realistic visibility.
 
 ## Open / next
-- Train the model to reproduce noise texture (rather than post-hoc noise) — e.g.
-  noise/eps-prediction with generative sampling, or a spectral/texture loss term.
+- Texture/smoothness: RESOLVED above — ship eta=0/U=1, no retrain. (The eps-retrain idea
+  was tested cheaply and rejected: it would not improve the accurate, unbiased fills, only
+  cosmetically resample irreducible noise at GPU/metric cost.)
 - Evaluate best.pt (run2) on the held-out TEST split for citable numbers.
 - Build inference/ patch→waterfall stitching + MS write-back (data has the metadata).
 - Phase 2: mixed-masking self-supervised training on real MeerKAT data (tricolour
