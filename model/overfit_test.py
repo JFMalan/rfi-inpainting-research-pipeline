@@ -82,10 +82,22 @@ def main(args):
             if tv == 50:
                 x0pred_mae = lf
 
-        # (B) full deterministic DDIM sample (the actual inpainting output)
-        pred = diff.sample(model, cond, x0, m, predict=cfg.predict, eta=0.0)
+        # (B) sample at chosen eta (0=deterministic/smooth, 1=stochastic/textured)
+        pred = diff.sample(model, cond, x0, m, predict=cfg.predict, eta=args.eta)
         amp_pred = pred[:, 0:1]
         model_mae = (amp_pred - amp_true).abs()[rmask].mean().item()
+        # texture ratio: hole high-freq std / known high-freq std (1.0 = matches speckle)
+        ap = pred[:, 0].cpu().numpy(); at = x0[:, 0].cpu().numpy(); mk = m[:, 0].cpu().numpy() > 0
+        from scipy.ndimage import uniform_filter
+        trs = []
+        for b in range(ap.shape[0]):
+            if mk[b].sum() < 20 or (~mk[b]).sum() < 20:
+                continue
+            hp_p = ap[b] - uniform_filter(ap[b], 5, mode='nearest')
+            hp_k = at[b] - uniform_filter(at[b], 5, mode='nearest')
+            if hp_k[~mk[b]].std() > 1e-6:
+                trs.append(hp_p[mk[b]].std() / hp_k[~mk[b]].std())
+        texture = float(np.mean(trs)) if trs else 0.0
         # mean-fill baseline (per-patch local mean of known pixels)
         mf = torch.zeros_like(amp_true)
         interp = amp_true.clone()
@@ -130,10 +142,10 @@ def main(args):
     print(f"{'='*60}")
     print(f"COMPLEX VISIBILITY  (headline — full reconstructed V = amp*e^iphi):")
     print(f"  MAE   model {cplx:.4f}   mean-fill {cplx_mf:.4f}")
-    print(f"\nAMPLITUDE:")
-    print(f"  MAE   model {model_mae:.4f}   mean-fill {meanfill_mae:.4f}   interp {interp_mae:.4f}")
-    print(f"  PSNR  model {amp_psnr_model:.2f} dB   mean-fill {amp_psnr_mf:.2f} dB")
-    print(f"  (leak-free single-shot MAE @t=50 {x0pred_mae:.4f})")
+    print(f"\nAMPLITUDE  (predict={cfg.predict}, eta={args.eta}):")
+    print(f"  MAE     model {model_mae:.4f}   mean-fill {meanfill_mae:.4f}   interp {interp_mae:.4f}")
+    print(f"  PSNR    model {amp_psnr_model:.2f} dB   mean-fill {amp_psnr_mf:.2f} dB")
+    print(f"  TEXTURE model {texture:.3f}   (1.0 = matches surrounding speckle; <1 too smooth)")
     if has_phase:
         print(f"\nPHASE:")
         print(f"  angular err  model {ph_model:.3f} rad   mean-fill {ph_mf:.3f} rad")
@@ -155,4 +167,5 @@ if __name__ == '__main__':
     ap.add_argument('--amp-only', action='store_true', dest='amp_only')
     ap.add_argument('--hole-fill', default='mean', choices=['zero', 'mean', 'noise', 'center'], dest='hole_fill')
     ap.add_argument('--U', type=int, default=1)
+    ap.add_argument('--eta', type=float, default=0.0)
     main(ap.parse_args())
