@@ -12,11 +12,11 @@
 set -e
 
 RUN_ID=${RUN_ID:-1}
-N=${N:-256}
-ITERS=${ITERS:-8000}
-BS=${BS:-12}
-LR=${LR:-1e-4}
-PREDICT=${PREDICT:-noise}
+N=${N:-4}
+ITERS=${ITERS:-4000}
+BS=${BS:-4}
+LR=${LR:-2e-4}
+PREDICT=${PREDICT:-x0}
 AMP_ONLY=${AMP_ONLY:-0}
 HOLE_FILL=${HOLE_FILL:-mean}
 ETA=${ETA:-0.0}
