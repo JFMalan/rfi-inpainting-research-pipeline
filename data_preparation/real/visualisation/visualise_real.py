@@ -1,6 +1,5 @@
 import argparse
 import numpy as np
-import h5py
 import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
@@ -13,7 +12,6 @@ RFI_BANDS = [
     (1525, 1630),
 ]
 
-PATCH_SIZE = 256
 
 
 def load_ms(ms_path, max_time, field=None, column='DATA'):
@@ -70,7 +68,7 @@ def green_overlay(flag_mask_2d):
     return rgba
 
 
-def plot_flagging_diagnostics(amp, flagged, freqs, avg_waterfall, avg_flag_mask, out_dir, patches_path=None):
+def plot_flagging_diagnostics(amp, flagged, freqs, avg_waterfall, avg_flag_mask, out_dir):
     flag_per_freq    = flagged.mean(axis=(0, 1))
     flag_per_time    = flagged.mean(axis=(1, 2))
     flag_per_baseline = flagged.mean(axis=(0, 2))
@@ -194,30 +192,6 @@ def plot_flagging_diagnostics(amp, flagged, freqs, avg_waterfall, avg_flag_mask,
     print(f"channels >50% flagged: {(flag_per_freq > 0.5).sum()}/{len(flag_per_freq)}")
     print(f"channels >90% flagged: {(flag_per_freq > 0.9).sum()}/{len(flag_per_freq)}")
 
-    # --- per-patch flag fraction histogram ---
-    if patches_path is not None:
-        try:
-            with h5py.File(patches_path, 'r') as hf:
-                patch_flags = hf['flags'][:]
-            patch_flag_fracs = patch_flags.mean(axis=(1, 2))
-            fig, ax = plt.subplots(figsize=(8, 4))
-            ax.hist(patch_flag_fracs, bins=50, color='steelblue', alpha=0.8, edgecolor='none')
-            ax.axvline(patch_flag_fracs.mean(), color='red', linewidth=1,
-                       label=f"mean={patch_flag_fracs.mean():.3f}")
-            ax.set_xlabel("Flag fraction per patch")
-            ax.set_ylabel("Count")
-            ax.set_title(f"Per-patch flag fraction distribution ({len(patch_flag_fracs)} patches)")
-            ax.legend(fontsize=8)
-            plt.tight_layout()
-            plt.savefig(out_dir / "patch_flag_hist.png", dpi=130)
-            plt.close()
-            print("saved patch_flag_hist.png")
-            high = patch_flag_fracs[patch_flag_fracs > 0.5]
-            print(f"  patches with >50% flags: {len(high)}/{len(patch_flag_fracs)} "
-                  f"({100*len(high)/len(patch_flag_fracs):.1f}%)")
-        except Exception as e:
-            print(f"skipped patch_flag_hist: {e}")
-
 
 def main(args):
     out_dir = Path(args.output)
@@ -260,18 +234,16 @@ def main(args):
 
     for i, bl in enumerate(baseline_indices):
         wf, fm = get_baseline_waterfall(amp, flagged, int(bl))
-        patch = wf[:PATCH_SIZE, :]
-        pflags = fm[:PATCH_SIZE, :]
-        unflagged_vals = patch[pflags == 0]
+        unflagged_vals = wf[fm == 0]
         vmin = np.percentile(unflagged_vals, 2) if len(unflagged_vals) > 10 else global_vmin
         vmax = args.vmax if args.vmax is not None else (np.percentile(unflagged_vals, 90) if len(unflagged_vals) > 10 else global_vmax)
         ax = axes[i]
-        ax.imshow(patch.T, aspect='auto', origin='lower',
-                  extent=[0, patch.shape[0], freqs[0], freqs[-1]],
+        ax.imshow(wf.T, aspect='auto', origin='lower',
+                  extent=[0, wf.shape[0], freqs[0], freqs[-1]],
                   vmin=vmin, vmax=vmax, cmap='plasma')
-        ax.imshow(green_overlay(pflags), aspect='auto', origin='lower',
-                  extent=[0, patch.shape[0], freqs[0], freqs[-1]])
-        ax.set_title(f"baseline {bl}", fontsize=9)
+        ax.imshow(green_overlay(fm), aspect='auto', origin='lower',
+                  extent=[0, wf.shape[0], freqs[0], freqs[-1]])
+        ax.set_title(f"baseline {bl}  flag={fm.mean():.2f}", fontsize=9)
         ax.set_xlabel("Time bins", fontsize=8)
         if i % ncols == 0:
             ax.set_ylabel("Freq (MHz)", fontsize=8)
@@ -280,9 +252,9 @@ def main(args):
         ax.set_visible(False)
     plt.suptitle("Real MeerKAT — per-baseline waterfalls (green = flagged)", y=1.01)
     plt.tight_layout()
-    plt.savefig(out_dir / "patches.png", dpi=120, bbox_inches="tight")
+    plt.savefig(out_dir / "baselines.png", dpi=120, bbox_inches="tight")
     plt.close()
-    print("saved patches.png")
+    print("saved baselines.png")
 
     # --- Amplitude distribution (unflagged only, all baselines) ---
     avg_unflagged = avg_waterfall[avg_flag_mask == 0]
@@ -345,126 +317,19 @@ def main(args):
     print(f"  mean={avg_unflagged.mean():.4f}  std={avg_unflagged.std():.4f}")
     print(f"  p5={np.percentile(avg_unflagged,5):.4f}  p90={np.percentile(avg_unflagged,90):.4f} Jy")
 
-    plot_flagging_diagnostics(amp, flagged, freqs, avg_waterfall, avg_flag_mask, out_dir, args.patches)
-
-    if args.patches:
-        plot_patches_hdf5(args.patches, out_dir, args.n_patches_show)
+    plot_flagging_diagnostics(amp, flagged, freqs, avg_waterfall, avg_flag_mask, out_dir)
 
     print(f"\nall plots -> {out_dir}/")
-
-
-def plot_patches_hdf5(h5_path, out_dir, n_show, per_page=6):
-    with h5py.File(h5_path, 'r') as hf:
-        n_total   = hf['data'].shape[0]
-        indices   = np.linspace(0, n_total - 1, min(n_show, n_total), dtype=int)
-        patches   = hf['data'][indices]
-        flags     = hf['flags'][indices]
-        has_raw   = 'data_raw' in hf
-        raw       = hf['data_raw'][indices] if has_raw else None
-        if 'freq_min_patch' in hf:
-            patch_fmin = hf['freq_min_patch'][:][indices]
-            patch_fmax = hf['freq_max_patch'][:][indices]
-        else:
-            patch_fmin = np.full(len(indices), hf.attrs['freq_min_mhz'])
-            patch_fmax = np.full(len(indices), hf.attrs['freq_max_mhz'])
-
-    patch_dir = out_dir / "patches_hdf5"
-    patch_dir.mkdir(exist_ok=True)
-
-    # 2 columns per patch (raw | dn), 1 patch per row, 6 rows per page
-    patches_per_row = 1
-    ncols  = patches_per_row * 2
-    pages  = (len(indices) + per_page - 1) // per_page
-    n_saved = 0
-
-    for page in range(pages):
-        sl           = slice(page * per_page, (page + 1) * per_page)
-        page_indices = indices[sl]
-        page_patches = patches[sl]
-        page_flags   = flags[sl]
-        page_raw     = raw[sl] if has_raw else None
-        page_fmin    = patch_fmin[sl]
-        page_fmax    = patch_fmax[sl]
-        n            = len(page_indices)
-        nrows        = (n + patches_per_row - 1) // patches_per_row
-
-        fig, axes = plt.subplots(nrows, ncols, figsize=(ncols * 6, nrows * 3.5))
-        axes = np.array(axes).reshape(nrows, ncols)
-
-        for i in range(n):
-            row = i // patches_per_row
-            col = (i % patches_per_row) * 2
-            patch = page_patches[i]
-            fm    = page_flags[i]
-            fmin  = page_fmin[i]
-            fmax  = page_fmax[i]
-
-            unflagged_vals = patch[fm == 0]
-            dn_vmin = np.percentile(unflagged_vals, 2)  if len(unflagged_vals) > 10 else patch.min()
-            dn_vmax = np.percentile(unflagged_vals, 90) if len(unflagged_vals) > 10 else patch.max()
-
-            # left: raw pre-DN
-            ax_raw = axes[row, col]
-            if page_raw is not None:
-                r = page_raw[i]
-                unfl_raw = r[fm == 0]
-                rv_min = np.percentile(unfl_raw, 2)  if len(unfl_raw) > 10 else r.min()
-                rv_max = np.percentile(unfl_raw, 90) if len(unfl_raw) > 10 else r.max()
-                ax_raw.imshow(r.T, aspect='auto', origin='lower',
-                              extent=[0, r.shape[0], fmin, fmax],
-                              vmin=rv_min, vmax=rv_max, cmap='plasma')
-                ax_raw.imshow(green_overlay(fm), aspect='auto', origin='lower',
-                              extent=[0, r.shape[0], fmin, fmax])
-                ax_raw.set_title(f"patch {page_indices[i]}  raw", fontsize=7)
-            else:
-                ax_raw.set_visible(False)
-            ax_raw.tick_params(labelsize=5)
-            if col == 0:
-                ax_raw.set_ylabel("Freq (MHz)", fontsize=6)
-
-            # right: post-DN with flags
-            ax_dn = axes[row, col + 1]
-            ax_dn.imshow(patch.T, aspect='auto', origin='lower',
-                         extent=[0, patch.shape[0], fmin, fmax],
-                         vmin=dn_vmin, vmax=dn_vmax, cmap='plasma')
-            ax_dn.imshow(green_overlay(fm), aspect='auto', origin='lower',
-                         extent=[0, patch.shape[0], fmin, fmax])
-            ax_dn.set_title(f"patch {page_indices[i]}  dn  flag={fm.mean():.2f}", fontsize=7)
-            ax_dn.tick_params(labelsize=5)
-
-            if row == nrows - 1:
-                ax_raw.set_xlabel("Time bins", fontsize=6)
-                ax_dn.set_xlabel("Time bins", fontsize=6)
-
-        for i in range(n, nrows * patches_per_row):
-            row = i // patches_per_row
-            col = (i % patches_per_row) * 2
-            axes[row, col].set_visible(False)
-            axes[row, col + 1].set_visible(False)
-
-        plt.suptitle(
-            f"Real MeerKAT — raw (left) vs post-DN (right), green = flagged  "
-            f"[page {page + 1}/{pages}, {n_total} total]",
-            y=1.01)
-        plt.tight_layout()
-        out_path = patch_dir / f"page_{page + 1:03d}.png"
-        plt.savefig(out_path, dpi=120, bbox_inches="tight")
-        plt.close()
-        n_saved += n
-
-    print(f"saved {pages} pages -> {patch_dir}/  ({n_saved} of {n_total} patches shown)")
 
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--ms',             required=True)
     parser.add_argument('--output',         required=True)
-    parser.add_argument('--patches',        default=None)
     parser.add_argument('--column',         default='DATA')
     parser.add_argument('--field',          type=int,   default=None)
     parser.add_argument('--max-time',       type=int,   default=9999)
     parser.add_argument('--n-baselines',    type=int,   default=16)
-    parser.add_argument('--n-patches-show', type=int,   default=200)
     parser.add_argument('--freq-min',       type=float, default=900.0)
     parser.add_argument('--freq-max',       type=float, default=1650.0)
     parser.add_argument('--vmax',           type=float, default=None)
