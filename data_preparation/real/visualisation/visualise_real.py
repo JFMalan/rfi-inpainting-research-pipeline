@@ -6,9 +6,6 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 from pathlib import Path
 from casacore.tables import table
-import sys
-sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from rfi_bands import LBAND_PERSISTENT_MHZ
 
 RFI_BANDS = [
     (930, 960),
@@ -28,9 +25,6 @@ def load_ms(ms_path, max_time, field=None, column='DATA'):
     freqs_table = table(ms_path + '/SPECTRAL_WINDOW')
     freqs = freqs_table.getcol('CHAN_FREQ')[0] / 1e6
     freqs_table.close()
-    persistent = np.zeros(len(freqs), bool)
-    for flo, fhi in LBAND_PERSISTENT_MHZ:
-        persistent |= (freqs >= flo) & (freqs <= fhi)
 
     times_all = ms.getcol('TIME')
     unique_times = np.unique(times_all)
@@ -46,9 +40,7 @@ def load_ms(ms_path, max_time, field=None, column='DATA'):
         d = ms.getcol(col, r0, nr)
         fl = ms.getcol('FLAG', r0, nr)
         amp[r0:r0 + nr] = np.abs(d).mean(axis=2).astype(np.float32)
-        f = fl.any(axis=2)
-        f[:, persistent] = True
-        flagged[r0:r0 + nr] = f
+        flagged[r0:r0 + nr] = fl.any(axis=2)
         print(f"  read rows {r0}/{n_keep}", flush=True)
     ms.close()
 
