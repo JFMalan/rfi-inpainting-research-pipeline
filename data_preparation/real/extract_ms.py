@@ -95,41 +95,59 @@ def main(args):
     ant2_bl = ant2[:n_baseline]
     autocorr = ant1_bl == ant2_bl
 
-    # drop near-fully-flagged timestamps — they carry no signal and inflate every
-    # baseline's flag fraction. ~half this MS's dumps are dead (setup/slew scans).
+    # find contiguous runs of good timestamps. near-fully-flagged dumps (setup/slew)
+    # split the observation into separate good time-blocks; each block is extracted
+    # as its own contiguous waterfall so the time axis stays seam-free.
     ts_frac = flagged.mean(axis=(1, 2))
     good_ts = ts_frac < args.max_ts_flag_frac
-    n_bad_ts = int((~good_ts).sum())
-    amp     = amp[good_ts]
-    phase   = phase[good_ts]
-    flagged = flagged[good_ts]
-    n_time_good = int(good_ts.sum())
-    print(f"timestamps: {n_time} total, dropped {n_bad_ts} bad (>{args.max_ts_flag_frac:.2f}), "
-          f"kept {n_time_good}", flush=True)
+    runs = []
+    i = 0
+    while i < n_time:
+        if good_ts[i]:
+            j = i
+            while j < n_time and good_ts[j]:
+                j += 1
+            if (j - i) >= args.min_run:
+                runs.append((i, j))
+            i = j
+        else:
+            i += 1
+    if not runs:
+        raise RuntimeError(f"no contiguous good run >= {args.min_run} timestamps")
+    print(f"timestamps: {n_time} total, {int(good_ts.sum())} good, "
+          f"{len(runs)} contiguous run(s) >= {args.min_run}: "
+          f"{[(lo, hi - lo) for lo, hi in runs]}", flush=True)
 
     freq_min, freq_max = float(freqs[0]), float(freqs[-1])
     sz = args.img_size
     n_cross = int((~autocorr).sum())
+    cross_bls = np.where(~autocorr)[0]
 
-    bl_frac = flagged[:, ~autocorr, :].mean(axis=(0, 2))
-    print(f"per-baseline flag frac (force_persistent={args.force_persistent}, good-TS): "
-          f"min {bl_frac.min():.3f}  p25 {np.percentile(bl_frac, 25):.3f}  "
-          f"p50 {np.percentile(bl_frac, 50):.3f}  mean {bl_frac.mean():.3f}  | "
-          f"<{args.max_bl_flag_frac:.2f}: {(bl_frac <= args.max_bl_flag_frac).sum()}/{n_cross}",
+    # per (baseline, run) flag fraction, to size the cut and the output
+    fracs = []
+    for lo, hi in runs:
+        fracs.append(flagged[lo:hi][:, ~autocorr, :].mean(axis=(0, 2)))
+    fracs = np.concatenate(fracs)
+    n_units = len(runs) * n_cross
+    print(f"per (baseline,run) flag frac (force_persistent={args.force_persistent}): "
+          f"min {fracs.min():.3f}  p25 {np.percentile(fracs, 25):.3f}  "
+          f"p50 {np.percentile(fracs, 50):.3f}  mean {fracs.mean():.3f}  | "
+          f"<{args.max_bl_flag_frac:.2f}: {(fracs <= args.max_bl_flag_frac).sum()}/{n_units}",
           flush=True)
-    if (bl_frac <= args.max_bl_flag_frac).sum() == 0:
+    if (fracs <= args.max_bl_flag_frac).sum() == 0:
         raise RuntimeError(
-            f"no baselines <= max_bl_flag_frac={args.max_bl_flag_frac} "
-            f"(cleanest is {bl_frac.min():.3f}); raise --max-bl-flag-frac")
+            f"no (baseline,run) <= max_bl_flag_frac={args.max_bl_flag_frac} "
+            f"(cleanest is {fracs.min():.3f}); raise --max-bl-flag-frac")
 
     out = Path(args.output)
     out.parent.mkdir(parents=True, exist_ok=True)
     n_written = 0
     baselines_skipped = 0
 
+    cap = n_units
     with h5py.File(out, 'w') as hf:
         def mk(name, dtype, last=None):
-            shape = (n_cross,) if last is None else (n_cross, last, last)
+            shape = (cap,) if last is None else (cap, last, last)
             maxshape = (None,) if last is None else (None, last, last)
             chunks = None if last is None else (1, last, last)
             return hf.create_dataset(name, shape=shape, maxshape=maxshape,
@@ -144,40 +162,44 @@ def main(args):
         ant2_ds    = mk('ant2', np.int32)
         nchan_ds   = mk('native_n_chan', np.int32)
         ntime_ds   = mk('native_n_time', np.int32)
+        tlo_ds     = mk('time_lo', np.int32)
+        run_ds     = mk('run_id', np.int32)
 
-        cross_idx = 0
-        for bl in range(n_baseline):
-            if autocorr[bl]:
-                continue
-            cross_idx += 1
-            if cross_idx % 200 == 0 or cross_idx == 1:
-                rate = cross_idx / max(time.time() - t_start, 1e-6)
-                print(f"  baseline {cross_idx}/{n_cross}  written: {n_written}  "
-                      f"({rate:.1f} bl/s)", flush=True)
+        unit = 0
+        for r, (lo, hi) in enumerate(runs):
+            run_len = hi - lo
+            for bl in cross_bls:
+                unit += 1
+                if unit % 500 == 0 or unit == 1:
+                    rate = unit / max(time.time() - t_start, 1e-6)
+                    print(f"  run {r} unit {unit}/{n_units}  written: {n_written}  "
+                          f"({rate:.1f}/s)", flush=True)
 
-            wf = amp[:, bl, :]
-            ph = phase[:, bl, :]
-            fm = flagged[:, bl, :]
+                wf = amp[lo:hi, bl, :]
+                ph = phase[lo:hi, bl, :]
+                fm = flagged[lo:hi, bl, :]
 
-            if fm.mean() > args.max_bl_flag_frac:
-                baselines_skipped += 1
-                continue
+                if fm.mean() > args.max_bl_flag_frac:
+                    baselines_skipped += 1
+                    continue
 
-            wf_norm, wf_div = divisive_norm(wf, fm, smooth_bins=args.smooth_bins)
+                wf_norm, wf_div = divisive_norm(wf, fm, smooth_bins=args.smooth_bins)
 
-            amp_ds[n_written]     = resize_to(wf_norm, sz, order=1)
-            phase_ds[n_written]   = resize_to(ph, sz, order=1)
-            flags_ds[n_written]   = (resize_to(fm.astype(np.float32), sz, order=1) > 0.5).astype(np.float32)
-            divisor_ds[n_written] = resize_to(wf_div, sz, order=1)
-            bl_id_ds[n_written]   = bl
-            ant1_ds[n_written]    = int(ant1_bl[bl])
-            ant2_ds[n_written]    = int(ant2_bl[bl])
-            nchan_ds[n_written]   = n_chan
-            ntime_ds[n_written]   = n_time_good
-            n_written += 1
+                amp_ds[n_written]     = resize_to(wf_norm, sz, order=1)
+                phase_ds[n_written]   = resize_to(ph, sz, order=1)
+                flags_ds[n_written]   = (resize_to(fm.astype(np.float32), sz, order=1) > 0.5).astype(np.float32)
+                divisor_ds[n_written] = resize_to(wf_div, sz, order=1)
+                bl_id_ds[n_written]   = int(bl)
+                ant1_ds[n_written]    = int(ant1_bl[bl])
+                ant2_ds[n_written]    = int(ant2_bl[bl])
+                nchan_ds[n_written]   = n_chan
+                ntime_ds[n_written]   = run_len
+                tlo_ds[n_written]     = lo
+                run_ds[n_written]     = r
+                n_written += 1
 
         for ds in (amp_ds, phase_ds, flags_ds, divisor_ds, bl_id_ds, ant1_ds, ant2_ds,
-                   nchan_ds, ntime_ds):
+                   nchan_ds, ntime_ds, tlo_ds, run_ds):
             ds.resize(n_written, axis=0)
 
         hf.attrs['freq_min_mhz'] = freq_min
@@ -186,7 +208,7 @@ def main(args):
         hf.attrs['n_freq']       = sz
         hf.attrs['img_size']     = sz
         hf.attrs['n_baselines']  = n_written
-        hf.attrs['full_n_time']  = n_time_good
+        hf.attrs['n_runs']       = len(runs)
         hf.attrs['full_n_chan']  = n_chan
         hf.attrs['chan_lo']      = chan_lo
         hf.attrs['column']       = col
@@ -196,9 +218,9 @@ def main(args):
 
     print(f"column         : {col}", flush=True)
     print(f"freq range     : {freq_min:.1f}-{freq_max:.1f} MHz  ({n_chan} channels -> {sz})", flush=True)
-    print(f"native n_time  : {n_time_good} (good) -> {sz}", flush=True)
-    print(f"baselines kept : {n_written}  skipped: {baselines_skipped}  autocorr: {autocorr.sum()}", flush=True)
-    print(f"saved {n_written} per-baseline waterfalls ({sz}x{sz}) -> {out}", flush=True)
+    print(f"runs           : {[(lo, hi - lo) for lo, hi in runs]} -> resized to {sz}", flush=True)
+    print(f"waterfalls kept: {n_written}  skipped: {baselines_skipped}  (of {n_units} baseline-run units)", flush=True)
+    print(f"saved {n_written} per-(baseline,run) waterfalls ({sz}x{sz}) -> {out}", flush=True)
 
 
 if __name__ == '__main__':
@@ -212,6 +234,7 @@ if __name__ == '__main__':
     parser.add_argument('--img-size',         type=int,   default=512)
     parser.add_argument('--max-bl-flag-frac', type=float, default=0.5)
     parser.add_argument('--max-ts-flag-frac', type=float, default=0.95)
+    parser.add_argument('--min-run',          type=int,   default=64)
     parser.add_argument('--smooth-bins',      type=int,   default=64)
     parser.add_argument('--force-persistent', action='store_true', default=True)
     parser.add_argument('--no-force-persistent', dest='force_persistent', action='store_false')

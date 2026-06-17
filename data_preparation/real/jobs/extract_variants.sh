@@ -1,0 +1,26 @@
+#!/bin/bash
+#SBATCH --job-name='rfi-extract-variants'
+#SBATCH --partition=Main
+#SBATCH --cpus-per-task=8
+#SBATCH --mem=128GB
+#SBATCH --time=04:00:00
+#SBATCH --output=logs/extract-variants-%j-stdout.log
+#SBATCH --error=logs/extract-variants-%j-stderr.log
+
+set -e
+
+MS=${MS:-/idia/projects/astro-cirg/data_for_rfi/1570802018_sdp_l0-J2018_5539-corr.ms}
+COLUMN=${COLUMN:-DATA}
+
+ASTROPY=/idia/software/containers/ASTRO-PY3.10.sif
+SCRIPTS=/users/$USER/rfi-inpainting-research-pipeline
+OUTDIR=/scratch3/users/$USER/rfi/real/variants
+
+mkdir -p $OUTDIR logs
+
+singularity exec $ASTROPY python $SCRIPTS/data_preparation/real/extract_variants.py \
+    --ms $MS --out-dir $OUTDIR --column $COLUMN \
+    --freq-min 900 --freq-max 1650 --img-size 512
+
+echo "done -> $OUTDIR"
+ls -lh $OUTDIR

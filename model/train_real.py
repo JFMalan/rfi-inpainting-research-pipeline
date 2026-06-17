@@ -120,10 +120,13 @@ def main(args):
     best_tre = 1e9
     stale = 0
     log = []
+    total_iters = 0
+    hit_cap = False
     for epoch in range(start_epoch, cfg.epochs):
         model.train()
         t0 = time.time()
         running = 0.0
+        nit = 0
         for it, batch in enumerate(dl):
             opt.zero_grad()
             loss = diff.loss_phase2(model, batch, cfg)
@@ -132,17 +135,22 @@ def main(args):
             opt.step()
             ema.update(model)
             running += loss.item()
+            nit += 1
+            total_iters += 1
             if it == 0 or (it + 1) % 50 == 0:
                 rate = (it + 1) / max(time.time() - t0, 1e-6)
-                print(f"  e{epoch} it{it+1}/{len(dl)} loss {loss.item():.4f} "
+                print(f"  e{epoch} it{it+1} (tot {total_iters}) loss {loss.item():.4f} "
                       f"({rate:.2f} it/s)", flush=True)
+            if args.max_iters and total_iters >= args.max_iters:
+                hit_cap = True
+                break
         sched.step()
-        avg = running / len(dl)
+        avg = running / max(nit, 1)
         dt = time.time() - t0
         line = {'epoch': epoch, 'loss': round(avg, 5), 'sec': round(dt, 1),
                 'lr': round(opt.param_groups[0]['lr'], 6)}
 
-        evaluated = (epoch + 1) % cfg.sample_every == 0 or epoch == cfg.epochs - 1
+        evaluated = (epoch + 1) % cfg.sample_every == 0 or epoch == cfg.epochs - 1 or hit_cap
         if evaluated:
             v = val_eval(diff, ema.shadow, val_dl, cfg, out / 'samples', epoch)
             line['tre'] = round(v['tre'], 5)
@@ -173,6 +181,9 @@ def main(args):
                 print(f"early stop: no >{cfg.min_delta} TRE gain for {stale} evals "
                       f"(best {best_tre:.5f})", flush=True)
                 break
+        if hit_cap:
+            print(f"reached max_iters={args.max_iters}; stopping", flush=True)
+            break
 
     ds.close()
     print("done", flush=True)
@@ -186,6 +197,7 @@ if __name__ == '__main__':
     ap.add_argument('--epochs', type=int, default=400)
     ap.add_argument('--batch-size', type=int, default=8)
     ap.add_argument('--max-patches', type=int, default=None)
+    ap.add_argument('--max-iters', type=int, default=None)
     ap.add_argument('--resume', default=None)
     ap.add_argument('--seed', type=int, default=0)
     main(ap.parse_args())

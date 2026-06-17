@@ -188,6 +188,8 @@ class RealDataset(Dataset):
             paths = [paths]
         self.files = []
         full = []
+        stored_split = []   # per-sample 0/1 test flag if the file carries one
+        have_split = True
         for p in paths:
             for fp in sorted(glob.glob(p)):
                 with h5py.File(fp, 'r') as f:
@@ -196,20 +198,35 @@ class RealDataset(Dataset):
                     self.n_freq = int(f.attrs['n_freq'])
                     self.band_min = float(f.attrs['freq_min_mhz'])
                     self.band_max = float(f.attrs['freq_max_mhz'])
+                    sp = f['split'][:] if 'split' in f else None
                 self.files.append(fp)
                 fidx = len(self.files) - 1
                 for i in range(n):
                     full.append((fidx, i))
+                if sp is None:
+                    have_split = False
+                else:
+                    stored_split.extend(int(v) for v in sp)
         if not full:
             raise RuntimeError(f"no baselines found in {paths}")
 
-        rng = np.random.default_rng(split_seed)
-        perm = rng.permutation(len(full))
-        n_val = int(len(full) * val_frac)
-        n_test = int(len(full) * test_frac)
-        test_ids = perm[:n_test]
-        val_ids = perm[n_test:n_test + n_val]
-        train_ids = perm[n_test + n_val:]
+        if have_split:
+            # extractor reserved test baselines; val carved from train by seed
+            test_ids = [k for k, s in enumerate(stored_split) if s == 1]
+            train_pool = [k for k, s in enumerate(stored_split) if s == 0]
+            rng = np.random.default_rng(split_seed)
+            rng.shuffle(train_pool)
+            n_val = int(len(train_pool) * val_frac)
+            val_ids = train_pool[:n_val]
+            train_ids = train_pool[n_val:]
+        else:
+            rng = np.random.default_rng(split_seed)
+            perm = rng.permutation(len(full))
+            n_val = int(len(full) * val_frac)
+            n_test = int(len(full) * test_frac)
+            test_ids = perm[:n_test]
+            val_ids = perm[n_test:n_test + n_val]
+            train_ids = perm[n_test + n_val:]
         chosen = {'train': train_ids, 'val': val_ids, 'test': test_ids}[split]
 
         self.index = [full[k] for k in sorted(chosen)]
@@ -222,7 +239,7 @@ class RealDataset(Dataset):
         self.fake_mask_frac = fake_mask_frac
         self.pe_channels = pe_channels
         self._handles = {}
-        self._pe = None
+        self._pe_cache = {}
 
     def _file(self, fidx):
         h = self._handles.get(fidx)
@@ -231,15 +248,17 @@ class RealDataset(Dataset):
             self._handles[fidx] = h
         return h
 
-    def _pe_full(self):
-        if self._pe is None:
-            self._pe = positional_encoding(self.band_min, self.band_max, self.band_min,
-                                           self.band_max, self.n_freq, self.n_time,
-                                           self.pe_channels)
-        return self._pe
-
     def __len__(self):
         return len(self.index)
+
+    def _pe_band(self, fmin, fmax):
+        key = (round(fmin, 3), round(fmax, 3))
+        pe = self._pe_cache.get(key)
+        if pe is None:
+            pe = positional_encoding(fmin, fmax, self.band_min, self.band_max,
+                                     self.n_freq, self.n_time, self.pe_channels)
+            self._pe_cache[key] = pe
+        return pe
 
     def __getitem__(self, i):
         fidx, row = self.index[i]
@@ -247,6 +266,11 @@ class RealDataset(Dataset):
         data = f['data'][row].astype(np.float32)
         phase = f['phase'][row].astype(np.float32)
         real_flags = f['flags'][row].astype(np.float32)
+
+        if 'freq_min_patch' in f:
+            fmin = float(f['freq_min_patch'][row]); fmax = float(f['freq_max_patch'][row])
+        else:
+            fmin, fmax = self.band_min, self.band_max
 
         if self.augment and np.random.rand() < 0.5:
             data = data[::-1].copy()
@@ -259,7 +283,7 @@ class RealDataset(Dataset):
         sin_p = np.sin(phase)
         obs = np.stack([data, cos_p, sin_p], axis=0)
         hidden = np.clip(real_flags + fm, 0.0, 1.0)        # conditioning hides both
-        pe = self._pe_full()
+        pe = self._pe_band(fmin, fmax)
 
         return {
             'obs': torch.from_numpy(obs),                  # observed = self-sup target
