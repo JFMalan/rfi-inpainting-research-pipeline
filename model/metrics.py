@@ -65,9 +65,26 @@ def complex_mae(pred, target, mask=None, divisor=None):
     return err[region].mean()
 
 
-def tre(pred, dirty, mask):
-    # Phase 2 / real data — no clean ground truth.
-    # Total Reconstruction Error per Luo et al.: error built from the binary RFI
-    # mask, the dirty spectrogram, the prediction, and the gradient magnitude of
-    # the reconstruction. Implement against real-data conventions in phase 2.
-    raise NotImplementedError("TRE is implemented in phase 2 (real observational data)")
+def _grad_mag(x):
+    gx = torch.zeros_like(x)
+    gy = torch.zeros_like(x)
+    gx[..., :, 1:] = x[..., :, 1:] - x[..., :, :-1]
+    gy[..., 1:, :] = x[..., 1:, :] - x[..., :-1, :]
+    return torch.sqrt(gx ** 2 + gy ** 2 + 1e-12)
+
+
+def tre(pred, dirty, mask, lam=1.0):
+    # Total Reconstruction Error (Luo et al.) for real data with no clean target.
+    # Two terms, both on amplitude:
+    #   fidelity  — prediction must agree with the observed (dirty) data OUTSIDE the
+    #               mask, where the observation is trusted.
+    #   roughness — gradient magnitude of the reconstruction INSIDE the mask; a
+    #               seamless fill has low boundary/interior roughness.
+    p, d = _amp(pred), _amp(dirty)
+    region = mask > 0
+    keep = ~region
+    if keep.sum() == 0 or region.sum() == 0:
+        return torch.tensor(0.0)
+    fidelity = (p - d).abs()[keep].mean()
+    roughness = _grad_mag(p)[region].mean()
+    return fidelity + lam * roughness

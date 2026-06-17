@@ -1,231 +1,191 @@
 import argparse
+import time
 import numpy as np
 import h5py
 from pathlib import Path
 from casacore.tables import table
+from scipy.ndimage import uniform_filter1d
+from skimage.transform import resize
 from rfi_bands import LBAND_PERSISTENT_MHZ
-
-
-def sigma_clip_flags(waterfall, flagged, sigma=3.0, n_iter=3):
-    out = flagged.copy()
-    n_time = waterfall.shape[0]
-    for t in range(n_time):
-        row = waterfall[t].copy().astype(np.float64)
-        mask = out[t].copy()
-        for _ in range(n_iter):
-            valid = ~mask
-            if valid.sum() < 4:
-                break
-            med = np.median(row[valid])
-            mad = np.median(np.abs(row[valid] - med))
-            thresh = med + sigma * mad * 1.4826
-            new_flags = row > thresh
-            if not np.any(new_flags & ~mask):
-                break
-            mask |= new_flags
-        out[t] = mask
-    return out
 
 
 def divisive_norm(waterfall, flagged, smooth_bins=64):
     norm = waterfall.copy()
+    divisor = np.ones_like(waterfall)
     n_time, n_chan = waterfall.shape
+    idx = np.arange(n_chan)
     for t in range(n_time):
         row = waterfall[t].copy()
         row[flagged[t]] = np.nan
-        kernel = np.ones(smooth_bins) / smooth_bins
         valid = ~np.isnan(row)
         if valid.sum() < smooth_bins:
             continue
-        smoothed = np.full(n_chan, np.nan)
-        smoothed[valid] = np.convolve(row[valid], kernel, mode='same')
-        nans = np.isnan(smoothed)
-        if nans.all():
-            continue
-        idx = np.arange(n_chan)
-        smoothed[nans] = np.interp(idx[nans], idx[~nans], smoothed[~nans])
+        filled = row.copy()
+        filled[~valid] = np.interp(idx[~valid], idx[valid], row[valid])
+        smoothed = uniform_filter1d(filled, size=smooth_bins, mode='nearest')
         smoothed = np.clip(smoothed, 1e-6, None)
         norm[t] = waterfall[t] / smoothed
-    return norm
+        divisor[t] = smoothed
+    return norm, divisor
 
 
-def extract_patches(waterfall, flagged, pt, pf, st, sf, max_flag_frac, max_patches):
-    n_time, n_chan = waterfall.shape
-    patches, flag_patches, freq_offsets = [], [], []
-    t = 0
-    while t + pt <= n_time:
-        f = 0
-        while f + pf <= n_chan:
-            pf_block = flagged[t:t+pt, f:f+pf]
-            if pf_block.mean() <= max_flag_frac:
-                patches.append(waterfall[t:t+pt, f:f+pf])
-                flag_patches.append(pf_block)
-                freq_offsets.append(f)
-            f += sf
-            if len(patches) >= max_patches:
-                return patches, flag_patches, freq_offsets
-        t += st
-    return patches, flag_patches, freq_offsets
+def resize_to(arr, size, order=1):
+    return resize(arr, (size, size), order=order, mode='edge',
+                  anti_aliasing=(order > 0), preserve_range=True).astype(np.float32)
 
 
 def main(args):
+    t_start = time.time()
     ms = table(args.ms, readonly=True)
-    query = []
     if args.field is not None:
-        query.append(f"FIELD_ID == {args.field}")
-    if args.max_time is not None or args.time_start > 0:
-        all_times = np.unique(ms.getcol('TIME'))
-        lo = min(args.time_start, len(all_times) - 1)
-        hi = len(all_times) if args.max_time is None else min(lo + args.max_time, len(all_times))
-        query.append(f"TIME >= {all_times[lo]}")
-        query.append(f"TIME <= {all_times[hi - 1]}")
-    if query:
-        ms = ms.query(" AND ".join(query))
+        ms = ms.query(f"FIELD_ID == {args.field}")
 
     cols = ms.colnames()
-    if args.column is not None:
-        col = args.column
-    else:
-        col = 'DATA'
-        if 'CORRECTED_DATA' in cols:
-            try:
-                ms.getcell('CORRECTED_DATA', 0)
-                col = 'CORRECTED_DATA'
-            except Exception:
-                pass
+    col = args.column if args.column is not None else 'DATA'
+    if col not in cols:
+        raise RuntimeError(f"column {col} not in MS ({cols})")
 
-    data    = ms.getcol(col)
-    flags   = ms.getcol('FLAG')
-    times   = ms.getcol('TIME')
-    ant1    = ms.getcol('ANTENNA1')
-    ant2    = ms.getcol('ANTENNA2')
-    ms.close()
+    freqs_tab = table(args.ms + '/SPECTRAL_WINDOW')
+    freqs_full = freqs_tab.getcol('CHAN_FREQ')[0] / 1e6
+    freqs_tab.close()
 
-    freqs_table = table(args.ms + '/SPECTRAL_WINDOW')
-    freqs = freqs_table.getcol('CHAN_FREQ')[0] / 1e6
-    freqs_table.close()
-
-    chan_mask = (freqs >= args.freq_min) & (freqs <= args.freq_max)
-    data  = data[:, chan_mask, :]
-    flags = flags[:, chan_mask, :]
-    freqs = freqs[chan_mask]
-    n_chan = int(chan_mask.sum())
-
+    chan_mask = (freqs_full >= args.freq_min) & (freqs_full <= args.freq_max)
+    chan_idx = np.where(chan_mask)[0]
+    chan_lo, chan_hi = int(chan_idx[0]), int(chan_idx[-1]) + 1
+    n_chan = chan_hi - chan_lo
+    freqs = freqs_full[chan_lo:chan_hi]
+    persist_band = np.zeros(n_chan, dtype=bool)
     for flo, fhi in LBAND_PERSISTENT_MHZ:
-        flags[:, (freqs >= flo) & (freqs <= fhi), :] = True
+        persist_band |= (freqs >= flo) & (freqs <= fhi)
 
-    amp     = np.abs(data).mean(axis=2).astype(np.float32)
-    flagged = flags.any(axis=2)
+    times = ms.getcol('TIME')
+    ant1 = ms.getcol('ANTENNA1')
+    ant2 = ms.getcol('ANTENNA2')
+
+    n_row = ms.nrows()
+    chunk = 50000
+    amp = np.empty((n_row, n_chan), dtype=np.float32)
+    phase = np.empty((n_row, n_chan), dtype=np.float32)
+    flagged = np.empty((n_row, n_chan), dtype=bool)
+
+    print(f"reading {col} in chunks ({n_row} rows, {n_chan} channels)...", flush=True)
+    for start in range(0, n_row, chunk):
+        end = min(start + chunk, n_row)
+        d = ms.getcol(col,    startrow=start, nrow=end - start)[:, chan_lo:chan_hi, :]
+        f = ms.getcol('FLAG', startrow=start, nrow=end - start)[:, chan_lo:chan_hi, :]
+        amp[start:end]     = np.abs(d).mean(axis=2).astype(np.float32)
+        phase[start:end]   = np.angle(d.mean(axis=2)).astype(np.float32)
+        flagged[start:end] = f.any(axis=2)
+        del d, f
+        if start == 0 or (start // chunk) % 5 == 0:
+            print(f"  rows {end}/{n_row}", flush=True)
+    ms.close()
+    print(f"read complete ({time.time() - t_start:.0f}s)", flush=True)
+
+    flagged[:, persist_band] = True
 
     unique_times = np.unique(times)
-    n_time       = len(unique_times)
-    n_row        = amp.shape[0]
-    n_baseline   = n_row // n_time
-
+    n_time = len(unique_times)
+    n_baseline = amp.shape[0] // n_time
     amp     = amp[:n_time * n_baseline].reshape(n_time, n_baseline, n_chan)
+    phase   = phase[:n_time * n_baseline].reshape(n_time, n_baseline, n_chan)
     flagged = flagged[:n_time * n_baseline].reshape(n_time, n_baseline, n_chan)
-    ant1    = ant1[:n_baseline]
-    ant2    = ant2[:n_baseline]
+    ant1_bl = ant1[:n_baseline]
+    ant2_bl = ant2[:n_baseline]
+    autocorr = ant1_bl == ant2_bl
 
-    autocorr = ant1 == ant2
-
-    freq_min = freqs[0]
-    freq_max = freqs[-1]
-    pt, pf   = args.patch_time, args.patch_freq
-    st, sf   = args.stride_time, args.stride_freq
-
-    all_patches, all_raw, all_flags, all_freq_offsets = [], [], [], []
-    baselines_used = 0
-    baselines_skipped = 0
-
-    for bl in range(n_baseline):
-        if autocorr[bl]:
-            continue
-
-        wf = amp[:, bl, :]
-        fm = flagged[:, bl, :]
-
-        if fm.mean() > args.max_bl_flag_frac:
-            baselines_skipped += 1
-            continue
-
-        if args.sigma_clip > 0:
-            fm = sigma_clip_flags(wf, fm, sigma=args.sigma_clip)
-
-        wf_norm = divisive_norm(wf, fm, smooth_bins=args.smooth_bins)
-
-        patches, flag_patches, freq_offsets = extract_patches(
-            wf_norm, fm, pt, pf, st, sf,
-            args.max_flag_frac, args.max_patches_per_bl
-        )
-
-        if not patches:
-            baselines_skipped += 1
-            continue
-
-        raw_patches, _, _ = extract_patches(
-            wf, fm, pt, pf, st, sf,
-            args.max_flag_frac, args.max_patches_per_bl
-        )
-
-        all_patches.extend(patches)
-        all_raw.extend(raw_patches)
-        all_flags.extend(flag_patches)
-        all_freq_offsets.extend(freq_offsets)
-        baselines_used += 1
-
-    if not all_patches:
-        raise RuntimeError("no patches extracted — check flag fraction thresholds")
-
-    patches_arr     = np.stack(all_patches, axis=0).astype(np.float32)
-    raw_arr         = np.stack(all_raw,     axis=0).astype(np.float32)
-    flags_arr       = np.stack(all_flags,   axis=0).astype(np.float32)
-    offsets_arr     = np.array(all_freq_offsets, dtype=np.int32)
-    patch_freq_min  = freqs[offsets_arr].astype(np.float32)
-    patch_freq_max  = freqs[np.minimum(offsets_arr + pf - 1, len(freqs) - 1)].astype(np.float32)
-
-    print(f"column         : {col}")
-    print(f"freq range     : {freq_min:.1f}–{freq_max:.1f} MHz  ({n_chan} channels)")
-    print(f"baselines used : {baselines_used}  skipped: {baselines_skipped}  autocorr: {autocorr.sum()}")
-    print(f"patches total  : {len(all_patches)}  shape: ({pt}, {pf})")
-    print(f"mean flag frac : {flags_arr.mean():.3f}")
+    freq_min, freq_max = float(freqs[0]), float(freqs[-1])
+    sz = args.img_size
+    n_cross = int((~autocorr).sum())
 
     out = Path(args.output)
     out.parent.mkdir(parents=True, exist_ok=True)
-    with h5py.File(out, 'w') as hf:
-        hf.create_dataset('data',           data=patches_arr,    dtype=np.float32)
-        hf.create_dataset('data_raw',       data=raw_arr,        dtype=np.float32)
-        hf.create_dataset('flags',          data=flags_arr,      dtype=np.float32)
-        hf.create_dataset('freq_min_patch', data=patch_freq_min, dtype=np.float32)
-        hf.create_dataset('freq_max_patch', data=patch_freq_max, dtype=np.float32)
-        hf.attrs['freq_min_mhz']    = freq_min
-        hf.attrs['freq_max_mhz']    = freq_max
-        hf.attrs['n_time']          = pt
-        hf.attrs['n_freq']          = pf
-        hf.attrs['n_patches']       = len(all_patches)
-        hf.attrs['baselines_used']  = baselines_used
-        hf.attrs['smooth_bins']     = args.smooth_bins
+    n_written = 0
+    baselines_skipped = 0
 
-    print(f"saved -> {out}")
+    with h5py.File(out, 'w') as hf:
+        def mk(name, dtype, last=None):
+            shape = (n_cross,) if last is None else (n_cross, last, last)
+            maxshape = (None,) if last is None else (None, last, last)
+            chunks = None if last is None else (1, last, last)
+            return hf.create_dataset(name, shape=shape, maxshape=maxshape,
+                                     dtype=dtype, chunks=chunks)
+
+        amp_ds     = mk('data',       np.float32, sz)
+        phase_ds   = mk('phase',      np.float32, sz)
+        flags_ds   = mk('flags',      np.float32, sz)
+        divisor_ds = mk('dn_divisor', np.float32, sz)
+        bl_id_ds   = mk('baseline_id', np.int32)
+        ant1_ds    = mk('ant1', np.int32)
+        ant2_ds    = mk('ant2', np.int32)
+        nchan_ds   = mk('native_n_chan', np.int32)
+        ntime_ds   = mk('native_n_time', np.int32)
+
+        cross_idx = 0
+        for bl in range(n_baseline):
+            if autocorr[bl]:
+                continue
+            cross_idx += 1
+            if cross_idx % 200 == 0 or cross_idx == 1:
+                rate = cross_idx / max(time.time() - t_start, 1e-6)
+                print(f"  baseline {cross_idx}/{n_cross}  written: {n_written}  "
+                      f"({rate:.1f} bl/s)", flush=True)
+
+            wf = amp[:, bl, :]
+            ph = phase[:, bl, :]
+            fm = flagged[:, bl, :]
+
+            if fm.mean() > args.max_bl_flag_frac:
+                baselines_skipped += 1
+                continue
+
+            wf_norm, wf_div = divisive_norm(wf, fm, smooth_bins=args.smooth_bins)
+
+            amp_ds[n_written]     = resize_to(wf_norm, sz, order=1)
+            phase_ds[n_written]   = resize_to(ph, sz, order=1)
+            flags_ds[n_written]   = (resize_to(fm.astype(np.float32), sz, order=1) > 0.5).astype(np.float32)
+            divisor_ds[n_written] = resize_to(wf_div, sz, order=1)
+            bl_id_ds[n_written]   = bl
+            ant1_ds[n_written]    = int(ant1_bl[bl])
+            ant2_ds[n_written]    = int(ant2_bl[bl])
+            nchan_ds[n_written]   = n_chan
+            ntime_ds[n_written]   = n_time
+            n_written += 1
+
+        for ds in (amp_ds, phase_ds, flags_ds, divisor_ds, bl_id_ds, ant1_ds, ant2_ds,
+                   nchan_ds, ntime_ds):
+            ds.resize(n_written, axis=0)
+
+        hf.attrs['freq_min_mhz'] = freq_min
+        hf.attrs['freq_max_mhz'] = freq_max
+        hf.attrs['n_time']       = sz
+        hf.attrs['n_freq']       = sz
+        hf.attrs['img_size']     = sz
+        hf.attrs['n_baselines']  = n_written
+        hf.attrs['full_n_time']  = n_time
+        hf.attrs['full_n_chan']  = n_chan
+        hf.attrs['chan_lo']      = chan_lo
+        hf.attrs['column']       = col
+
+    if n_written == 0:
+        raise RuntimeError("no baselines extracted — check max_bl_flag_frac")
+
+    print(f"column         : {col}", flush=True)
+    print(f"freq range     : {freq_min:.1f}-{freq_max:.1f} MHz  ({n_chan} channels -> {sz})", flush=True)
+    print(f"native n_time  : {n_time} -> {sz}", flush=True)
+    print(f"baselines kept : {n_written}  skipped: {baselines_skipped}  autocorr: {autocorr.sum()}", flush=True)
+    print(f"saved {n_written} per-baseline waterfalls ({sz}x{sz}) -> {out}", flush=True)
 
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
-    parser.add_argument('--ms',                  required=True)
-    parser.add_argument('--output',              required=True)
-    parser.add_argument('--column',              default=None)
-    parser.add_argument('--field',               type=int,   default=None)
-    parser.add_argument('--freq-min',            type=float, default=900.0)
-    parser.add_argument('--freq-max',            type=float, default=1650.0)
-    parser.add_argument('--patch-time',          type=int,   default=256)
-    parser.add_argument('--patch-freq',          type=int,   default=256)
-    parser.add_argument('--stride-time',         type=int,   default=64)
-    parser.add_argument('--stride-freq',         type=int,   default=64)
-    parser.add_argument('--max-patches-per-bl',  type=int,   default=50)
-    parser.add_argument('--max-flag-frac',       type=float, default=0.5)
-    parser.add_argument('--max-bl-flag-frac',    type=float, default=0.8)
-    parser.add_argument('--smooth-bins',         type=int,   default=64)
-    parser.add_argument('--max-time',            type=int,   default=None)
-    parser.add_argument('--time-start',          type=int,   default=0)
-    parser.add_argument('--sigma-clip',          type=float, default=3.0)
+    parser.add_argument('--ms',               required=True)
+    parser.add_argument('--output',           required=True)
+    parser.add_argument('--column',           default='DATA')
+    parser.add_argument('--field',            type=int,   default=None)
+    parser.add_argument('--freq-min',         type=float, default=900.0)
+    parser.add_argument('--freq-max',         type=float, default=1650.0)
+    parser.add_argument('--img-size',         type=int,   default=512)
+    parser.add_argument('--max-bl-flag-frac', type=float, default=0.5)
+    parser.add_argument('--smooth-bins',      type=int,   default=64)
     main(parser.parse_args())

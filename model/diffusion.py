@@ -61,6 +61,30 @@ class Diffusion:
         denom = (m.sum() * err.shape[1]).clamp(min=1.0)
         return (err * m).sum() / denom
 
+    def loss_phase2(self, model, batch, cfg):
+        # mixed masking (Massoud / GOAL.md 4.3.2): observed real data is the target.
+        # conditioning hides real flags AND fake masks; loss is computed ONLY inside
+        # the fake masks, where the observed value is a trusted self-supervised target.
+        # real-flag pixels never enter the loss (no ground truth there).
+        obs = batch['obs'].to(self.device)
+        hidden = batch['hidden'].to(self.device)
+        fake = batch['fake_mask'].to(self.device)
+        cond = build_cond(obs, hidden, batch['pe'].to(self.device),
+                          hole_fill=getattr(cfg, 'hole_fill', 'mean'))
+        b = obs.shape[0]
+        t = torch.randint(0, self.T, (b,), device=self.device)
+        noise = torch.randn_like(obs)
+        xt = self.q_sample(obs, t, noise)
+
+        keep = 1.0 - hidden
+        x_in = keep * obs + hidden * xt
+        pred = model(torch.cat([x_in, cond], dim=1), t)
+
+        target = noise if cfg.predict == 'noise' else obs
+        err = (pred - target).abs()
+        denom = (fake.sum() * err.shape[1]).clamp(min=1.0)
+        return (err * fake).sum() / denom
+
     def predict_x0(self, model, xt, cond, t, clip=None):
         pred = model(torch.cat([xt, cond], dim=1), t)
         sqrt_acp = self._gather(self.sqrt_acp, t, xt.shape)

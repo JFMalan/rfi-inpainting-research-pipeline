@@ -157,6 +157,126 @@ class PatchDataset(Dataset):
         self._handles = {}
 
 
+def fake_mask(real_flags, frac_range=(0.05, 0.25), max_tries=200):
+    # mixed-masking (Massoud): artificial holes placed over UNFLAGGED pixels, so
+    # the observed data at those pixels is a known self-supervised target. Pixels
+    # already real-flagged carry no ground truth and are excluded.
+    n_time, n_freq = real_flags.shape
+    fm = np.zeros((n_time, n_freq), dtype=np.float32)
+    target = np.random.uniform(*frac_range)
+    unflagged = real_flags < 0.5
+    avail = unflagged.mean()
+    target = min(target, max(avail * 0.8, 1e-3))
+    tries = 0
+    while (fm * unflagged).mean() < target and tries < max_tries:
+        tries += 1
+        if np.random.rand() < 0.6:
+            w = np.random.randint(1, 8); f0 = np.random.randint(0, n_freq - w)
+            fm[:, f0:f0 + w] = 1.0
+        else:
+            w = np.random.randint(1, 8); t0 = np.random.randint(0, n_time - w)
+            fm[t0:t0 + w, :] = 1.0
+    fm = fm * unflagged
+    return fm
+
+
+class RealDataset(Dataset):
+    def __init__(self, paths, pe_channels=4, augment=False, max_patches=None,
+                 split='train', val_frac=0.05, test_frac=0.05, split_seed=1234,
+                 fake_mask_frac=(0.05, 0.25)):
+        if isinstance(paths, str):
+            paths = [paths]
+        self.files = []
+        full = []
+        for p in paths:
+            for fp in sorted(glob.glob(p)):
+                with h5py.File(fp, 'r') as f:
+                    n = f['data'].shape[0]
+                    self.n_time = int(f.attrs['n_time'])
+                    self.n_freq = int(f.attrs['n_freq'])
+                    self.band_min = float(f.attrs['freq_min_mhz'])
+                    self.band_max = float(f.attrs['freq_max_mhz'])
+                self.files.append(fp)
+                fidx = len(self.files) - 1
+                for i in range(n):
+                    full.append((fidx, i))
+        if not full:
+            raise RuntimeError(f"no baselines found in {paths}")
+
+        rng = np.random.default_rng(split_seed)
+        perm = rng.permutation(len(full))
+        n_val = int(len(full) * val_frac)
+        n_test = int(len(full) * test_frac)
+        test_ids = perm[:n_test]
+        val_ids = perm[n_test:n_test + n_val]
+        train_ids = perm[n_test + n_val:]
+        chosen = {'train': train_ids, 'val': val_ids, 'test': test_ids}[split]
+
+        self.index = [full[k] for k in sorted(chosen)]
+        if split == 'train' and max_patches is not None and max_patches < len(self.index):
+            sub = rng.choice(len(self.index), size=max_patches, replace=False)
+            self.index = [self.index[k] for k in sorted(sub)]
+
+        self.split = split
+        self.augment = augment and split == 'train'
+        self.fake_mask_frac = fake_mask_frac
+        self.pe_channels = pe_channels
+        self._handles = {}
+        self._pe = None
+
+    def _file(self, fidx):
+        h = self._handles.get(fidx)
+        if h is None:
+            h = h5py.File(self.files[fidx], 'r')
+            self._handles[fidx] = h
+        return h
+
+    def _pe_full(self):
+        if self._pe is None:
+            self._pe = positional_encoding(self.band_min, self.band_max, self.band_min,
+                                           self.band_max, self.n_freq, self.n_time,
+                                           self.pe_channels)
+        return self._pe
+
+    def __len__(self):
+        return len(self.index)
+
+    def __getitem__(self, i):
+        fidx, row = self.index[i]
+        f = self._file(fidx)
+        data = f['data'][row].astype(np.float32)
+        phase = f['phase'][row].astype(np.float32)
+        real_flags = f['flags'][row].astype(np.float32)
+
+        if self.augment and np.random.rand() < 0.5:
+            data = data[::-1].copy()
+            phase = phase[::-1].copy()
+            real_flags = real_flags[::-1].copy()
+
+        fm = fake_mask(real_flags, self.fake_mask_frac)
+
+        cos_p = np.cos(phase)
+        sin_p = np.sin(phase)
+        obs = np.stack([data, cos_p, sin_p], axis=0)
+        hidden = np.clip(real_flags + fm, 0.0, 1.0)        # conditioning hides both
+        pe = self._pe_full()
+
+        return {
+            'obs': torch.from_numpy(obs),                  # observed = self-sup target
+            'real_flags': torch.from_numpy(real_flags)[None],
+            'fake_mask': torch.from_numpy(fm)[None],       # loss region
+            'hidden': torch.from_numpy(hidden)[None],      # conditioning hole
+            'pe': torch.from_numpy(pe.copy()),
+            'fmin': torch.tensor(self.band_min, dtype=torch.float32),
+            'fmax': torch.tensor(self.band_max, dtype=torch.float32),
+        }
+
+    def close(self):
+        for h in self._handles.values():
+            h.close()
+        self._handles = {}
+
+
 def build_cond(corrupted, mask, pe, hole_fill='zero', chan_means=None):
     # masked (RFI) pixels are hidden from the network; it inpaints from context.
     # the hole is filled with an in-distribution value (the per-channel mean) so it
