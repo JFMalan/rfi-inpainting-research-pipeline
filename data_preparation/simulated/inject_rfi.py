@@ -1,101 +1,84 @@
 import argparse
+import sys
 import numpy as np
 import h5py
 from pathlib import Path
 
-from rfi_toolbox.data_generation.synthetic_generator import SyntheticDataGenerator
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'real'))
+from rfi_bands import LBAND_PERSISTENT_MHZ
 
 
-def _synth_config(n_freq, n_time):
-    return {
-        "num_channels": n_freq,
-        "num_times": n_time,
-        "noise_mjy": 0.0,
-        "rfi_power_min": 60.0,
-        "rfi_power_max": 1500.0,
-        "enable_bandpass_rolloff": False,
-        "bandpass_polynomial_order": 8,
-        "num_polarizations": 1,
-        "polarization_correlation": 0.8,
-        "rfi_types": [
-            "narrowband_persistent",
-            "broadband_persistent",
-            "narrowband_intermittent",
-            "narrowband_bursty",
-            "broadband_bursty",
-            "frequency_sweep",
-        ],
-        "rfi_type_counts": {
-            "narrowband_persistent": [1, 2],
-            "broadband_persistent": [0, 1],
-            "narrowband_intermittent": [0, 1],
-            "narrowband_bursty": [0, 1],
-            "broadband_bursty": [0, 1],
-            "frequency_sweep": [0, 1],
-        },
-    }
+RFI_SCALE_MIN = 5.0
+RFI_SCALE_MAX = 50.0
 
 
-RFI_SCALE_MIN = 5.0    # RFI peaks at least 5× clean std — clearly visible
-RFI_SCALE_MAX = 50.0   # RFI peaks at most 50× clean std
+def persistent_cols(n_freq, freq_min, freq_max):
+    cols = np.zeros(n_freq, dtype=bool)
+    f = np.linspace(freq_min, freq_max, n_freq)
+    for lo, hi in LBAND_PERSISTENT_MHZ:
+        cols |= (f >= lo) & (f <= hi)
+    return cols
 
 
-def inject(clean_patch, gen, synth_cfg):
-    n_time, n_freq = clean_patch.shape
-    rfi_config = gen._parse_rfi_config(synth_cfg)
+def inject(clean, persist_cols, target_frac, scale_min, scale_max, persist_frac=0.7):
+    n_time, n_freq = clean.shape
+    mask = np.zeros((n_time, n_freq), dtype=np.float32)
+    rfi = np.zeros((n_time, n_freq), dtype=np.float32)
+    clean_std = clean.std()
 
-    waterfall, mask, _ = gen._generate_single_sample(
-        num_channels=n_freq,
-        num_times=n_time,
-        noise_level=0.0,
-        rfi_power_min=synth_cfg["rfi_power_min"],
-        rfi_power_max=synth_cfg["rfi_power_max"],
-        rfi_config=rfi_config,
-        enable_bandpass=False,
-        bandpass_order=8,
-        num_polarizations=1,
-        pol_corr=0.8,
-        synth_config=synth_cfg,
-    )
-    # waterfall: (1, 1, n_freq, n_time) complex64
-    rfi_amp = np.abs(waterfall[0, 0]).astype(np.float32)  # (n_freq, n_time)
-    rfi_mask = mask[0, 0].astype(np.float32)               # (n_freq, n_time)
+    def add_rfi(sl_t, sl_f, area_shape):
+        mask[sl_t, sl_f] = 1.0
+        if clean_std > 0:
+            peak = np.random.uniform(scale_min, scale_max) * clean_std
+            rfi[sl_t, sl_f] += peak * np.random.uniform(0.4, 1.0, size=area_shape)
 
-    # rfi_toolbox internal units are unrelated to the MS amplitude scale,
-    # so rescale to a random multiple of the clean patch std
-    clean_std = clean_patch.std()
-    if clean_std > 0 and rfi_amp.max() > 0:
-        target_peak = np.random.uniform(RFI_SCALE_MIN, RFI_SCALE_MAX) * clean_std
-        rfi_amp = rfi_amp * (target_peak / rfi_amp.max())
+    if np.random.rand() < persist_frac:
+        mask[:, persist_cols] = 1.0
 
-    corrupted = clean_patch + rfi_amp.T  # patches are (n_time, n_freq)
-    return corrupted, rfi_mask.T
+    n_burst = np.random.randint(2, 6)
+    for _ in range(n_burst):
+        w = np.random.randint(2, 8)
+        t0 = np.random.randint(0, max(1, n_time - w))
+        add_rfi(slice(t0, t0 + w), slice(None), (w, n_freq))
+
+    guard = 0
+    while mask.mean() < target_frac and guard < 300:
+        guard += 1
+        w = np.random.randint(2, 18)
+        f0 = np.random.randint(0, max(1, n_freq - w))
+        add_rfi(slice(None), slice(f0, f0 + w), (n_time, w))
+
+    corrupted = clean + rfi
+    return corrupted.astype(np.float32), mask
 
 
 def main(args):
     np.random.seed(args.seed)
 
     fin = h5py.File(args.input, 'r')
-    n_time = int(fin.attrs['n_time'])
     n_freq = int(fin.attrs['n_freq'])
+    n_time = int(fin.attrs['n_time'])
+    freq_min = float(fin.attrs['freq_min_mhz'])
+    freq_max = float(fin.attrs['freq_max_mhz'])
     attrs = dict(fin.attrs)
-    clean_ds_in = fin['clean']
-    n_patches = clean_ds_in.shape[0]
+    clean_in = fin['clean']
+    n = clean_in.shape[0]
     other_keys = [k for k in fin if k != 'clean']
 
-    synth_cfg = _synth_config(n_freq, n_time)
-    gen = SyntheticDataGenerator({"synthetic": synth_cfg})
-    print(f"injecting RFI into {n_patches} patches")
+    persist = persistent_cols(n_freq, freq_min, freq_max)
+    print(f"injecting RFI into {n} baselines ({n_time}x{n_freq}), "
+          f"persistent cols {persist.sum()}/{n_freq}, target frac {args.target_frac}",
+          flush=True)
 
     out_path = Path(args.output)
     out_path.parent.mkdir(parents=True, exist_ok=True)
 
-    chunk = 1000
+    chunk = 256
+    fracs = []
     with h5py.File(out_path, 'w') as f:
-        clean_out    = f.create_dataset('clean',     shape=clean_ds_in.shape, dtype=np.float32)
-        corrupted_ds = f.create_dataset('corrupted', shape=clean_ds_in.shape, dtype=np.float32)
-        mask_ds      = f.create_dataset('mask',      shape=clean_ds_in.shape, dtype=np.float32)
-        # stream-copy passthrough datasets to avoid holding phase/dn_divisor in RAM
+        clean_out = f.create_dataset('clean',     shape=clean_in.shape, dtype=np.float32)
+        corr_ds   = f.create_dataset('corrupted', shape=clean_in.shape, dtype=np.float32)
+        mask_ds   = f.create_dataset('mask',      shape=clean_in.shape, dtype=np.float32)
         for k in other_keys:
             src = fin[k]
             dst = f.create_dataset(k, shape=src.shape, dtype=src.dtype)
@@ -106,24 +89,31 @@ def main(args):
             f.attrs[k] = v
         f.attrs['seed'] = args.seed
 
-        for s in range(0, n_patches, chunk):
-            e = min(s + chunk, n_patches)
-            block = clean_ds_in[s:e]
+        for s in range(0, n, chunk):
+            e = min(s + chunk, n)
+            block = clean_in[s:e]
             clean_out[s:e] = block
             for j, patch in enumerate(block):
-                corrupted, mask = inject(patch, gen, synth_cfg)
-                corrupted_ds[s + j] = corrupted
+                corrupted, mask = inject(patch, persist, args.target_frac,
+                                         args.scale_min, args.scale_max,
+                                         persist_frac=args.persist_frac)
+                corr_ds[s + j] = corrupted
                 mask_ds[s + j] = mask
-            print(f"  {e}/{n_patches}")
+                fracs.append(float(mask.mean()))
+            print(f"  {e}/{n}  mean flag frac {np.mean(fracs):.3f}", flush=True)
 
     fin.close()
-
-    print(f"saved -> {out_path}")
+    print(f"mean flag frac : {np.mean(fracs):.3f}  (target {args.target_frac})", flush=True)
+    print(f"saved -> {out_path}", flush=True)
 
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
-    parser.add_argument('--input', required=True)
+    parser.add_argument('--input',  required=True)
     parser.add_argument('--output', required=True)
-    parser.add_argument('--seed', type=int, default=42)
+    parser.add_argument('--seed',        type=int,   default=42)
+    parser.add_argument('--target-frac', type=float, default=0.40)
+    parser.add_argument('--persist-frac', type=float, default=0.7)
+    parser.add_argument('--scale-min',   type=float, default=RFI_SCALE_MIN)
+    parser.add_argument('--scale-max',   type=float, default=RFI_SCALE_MAX)
     main(parser.parse_args())

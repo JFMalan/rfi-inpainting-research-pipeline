@@ -1,9 +1,11 @@
 import argparse
+import time
 import numpy as np
 import h5py
 from pathlib import Path
 from casacore.tables import table
 from scipy.ndimage import uniform_filter1d
+from skimage.transform import resize
 
 
 def divisive_norm(waterfall, flagged, smooth_bins=64):
@@ -26,25 +28,13 @@ def divisive_norm(waterfall, flagged, smooth_bins=64):
     return norm, divisor
 
 
-def extract_patches(waterfall, flagged, pt, pf, st, sf, max_flag_frac, max_patches):
-    n_time, n_chan = waterfall.shape
-    patches, freq_offsets, time_offsets = [], [], []
-    t = 0
-    while t + pt <= n_time:
-        f = 0
-        while f + pf <= n_chan:
-            if flagged[t:t+pt, f:f+pf].mean() <= max_flag_frac:
-                patches.append(waterfall[t:t+pt, f:f+pf].copy())
-                freq_offsets.append(f)
-                time_offsets.append(t)
-            f += sf
-            if len(patches) >= max_patches:
-                return patches, freq_offsets, time_offsets
-        t += st
-    return patches, freq_offsets, time_offsets
+def resize_to(arr, size, order=1):
+    return resize(arr, (size, size), order=order, mode='edge',
+                  anti_aliasing=(order > 0), preserve_range=True).astype(np.float32)
 
 
 def main(args):
+    t_start = time.time()
     ms = table(args.ms, readonly=True)
     cols = ms.colnames()
     col = 'CORRECTED_DATA' if 'CORRECTED_DATA' in cols else 'DATA'
@@ -74,7 +64,7 @@ def main(args):
     phase   = np.empty((n_row, n_chan), dtype=np.float32)
     flagged = np.empty((n_row, n_chan), dtype=bool)
 
-    print(f"reading {col} in chunks ({n_row} rows, {n_chan} channels)...")
+    print(f"reading {col} in chunks ({n_row} rows, {n_chan} channels)...", flush=True)
     for start in range(0, n_row, chunk):
         end = min(start + chunk, n_row)
         d = ms.getcol(col,    startrow=start, nrow=end - start)[:, chan_lo:chan_hi, :]
@@ -84,10 +74,10 @@ def main(args):
         flagged[start:end] = f.any(axis=2)
         del d, f
         if start == 0 or (start // chunk) % 5 == 0:
-            print(f"  rows {end}/{n_row}")
+            print(f"  rows {end}/{n_row}", flush=True)
 
     ms.close()
-    print("read complete")
+    print(f"read complete ({time.time() - t_start:.0f}s)", flush=True)
 
     unique_times = np.unique(times)
     n_time     = len(unique_times)
@@ -102,8 +92,7 @@ def main(args):
 
     freq_min = float(freqs[0])
     freq_max = float(freqs[-1])
-    pt, pf = args.patch_time, args.patch_freq
-    st, sf = args.stride_time, args.stride_freq
+    sz = args.img_size
 
     wf_sum   = np.zeros((n_time, n_chan), dtype=np.float64)
     wf_count = np.zeros((n_time, n_chan), dtype=np.int32)
@@ -115,35 +104,24 @@ def main(args):
     out = Path(args.output)
     out.parent.mkdir(parents=True, exist_ok=True)
 
-    # write patches directly to HDF5 as we go — avoids holding all patches in RAM
-    all_offsets = []
-    n_patches_written = 0
+    n_written = 0
 
     with h5py.File(out, 'w') as hf:
-        max_patches_est = n_cross * args.max_patches_per_bl
-        clean_ds      = hf.create_dataset('clean',          shape=(max_patches_est, pt, pf),
-                                          maxshape=(None, pt, pf), dtype=np.float32,
-                                          chunks=(1, pt, pf))
-        divisor_ds    = hf.create_dataset('dn_divisor',     shape=(max_patches_est, pt, pf),
-                                          maxshape=(None, pt, pf), dtype=np.float32,
-                                          chunks=(1, pt, pf))
-        phase_ds      = hf.create_dataset('phase',          shape=(max_patches_est, pt, pf),
-                                          maxshape=(None, pt, pf), dtype=np.float32,
-                                          chunks=(1, pt, pf))
-        freq_min_ds   = hf.create_dataset('freq_min_patch', shape=(max_patches_est,),
-                                          maxshape=(None,), dtype=np.float32)
-        freq_max_ds   = hf.create_dataset('freq_max_patch', shape=(max_patches_est,),
-                                          maxshape=(None,), dtype=np.float32)
-        chan_off_ds   = hf.create_dataset('chan_offset', shape=(max_patches_est,),
-                                          maxshape=(None,), dtype=np.int32)
-        time_off_ds   = hf.create_dataset('time_offset', shape=(max_patches_est,),
-                                          maxshape=(None,), dtype=np.int32)
-        bl_id_ds      = hf.create_dataset('baseline_id', shape=(max_patches_est,),
-                                          maxshape=(None,), dtype=np.int32)
-        ant1_ds       = hf.create_dataset('ant1', shape=(max_patches_est,),
-                                          maxshape=(None,), dtype=np.int32)
-        ant2_ds       = hf.create_dataset('ant2', shape=(max_patches_est,),
-                                          maxshape=(None,), dtype=np.int32)
+        def mk(name, dtype, last=None):
+            shape = (n_cross,) if last is None else (n_cross, last, last)
+            maxshape = (None,) if last is None else (None, last, last)
+            chunks = None if last is None else (1, last, last)
+            return hf.create_dataset(name, shape=shape, maxshape=maxshape,
+                                     dtype=dtype, chunks=chunks)
+
+        clean_ds   = mk('clean',      np.float32, sz)
+        divisor_ds = mk('dn_divisor', np.float32, sz)
+        phase_ds   = mk('phase',      np.float32, sz)
+        bl_id_ds   = mk('baseline_id', np.int32)
+        ant1_ds    = mk('ant1', np.int32)
+        ant2_ds    = mk('ant2', np.int32)
+        nchan_ds   = mk('native_n_chan', np.int32)
+        ntime_ds   = mk('native_n_time', np.int32)
 
         cross_idx = 0
         for bl in range(n_baseline):
@@ -152,7 +130,9 @@ def main(args):
 
             cross_idx += 1
             if cross_idx % 200 == 0 or cross_idx == 1:
-                print(f"  baseline {cross_idx}/{n_cross}  patches written: {n_patches_written}")
+                rate = cross_idx / max(time.time() - t_start, 1e-6)
+                print(f"  baseline {cross_idx}/{n_cross}  written: {n_written}  "
+                      f"({rate:.1f} bl/s)", flush=True)
 
             wf = amp[:, bl, :]
             ph = phase[:, bl, :]
@@ -168,55 +148,39 @@ def main(args):
 
             wf_norm, wf_div = divisive_norm(wf, fm, smooth_bins=args.smooth_bins)
 
-            patches, offsets, time_offsets = extract_patches(
-                wf_norm, fm, pt, pf, st, sf,
-                args.max_flag_frac, args.max_patches_per_bl
-            )
-
-            if not patches:
-                baselines_skipped += 1
-                continue
-
-            n = len(patches)
-            for i, (p, o, to) in enumerate(zip(patches, offsets, time_offsets)):
-                idx = n_patches_written + i
-                clean_ds[idx]    = p
-                divisor_ds[idx]  = wf_div[to:to+pt, o:o+pf]
-                phase_ds[idx]    = ph[to:to+pt, o:o+pf]
-                freq_min_ds[idx] = freqs[o]
-                freq_max_ds[idx] = freqs[min(o + pf - 1, n_chan - 1)]
-                chan_off_ds[idx] = chan_lo + o
-                time_off_ds[idx] = to
-                bl_id_ds[idx]    = bl
-                ant1_ds[idx]     = int(ant1_bl[bl])
-                ant2_ds[idx]     = int(ant2_bl[bl])
-
-            all_offsets.extend(offsets)
-            n_patches_written += n
+            clean_ds[n_written]   = resize_to(wf_norm, sz, order=1)
+            divisor_ds[n_written] = resize_to(wf_div, sz, order=1)
+            phase_ds[n_written]   = resize_to(ph, sz, order=1)
+            bl_id_ds[n_written]   = bl
+            ant1_ds[n_written]    = int(ant1_bl[bl])
+            ant2_ds[n_written]    = int(ant2_bl[bl])
+            nchan_ds[n_written]   = n_chan
+            ntime_ds[n_written]   = n_time
+            n_written += 1
             baselines_used += 1
 
-        # trim datasets to actual size
-        for ds in (clean_ds, divisor_ds, phase_ds, freq_min_ds, freq_max_ds,
-                   chan_off_ds, time_off_ds, bl_id_ds, ant1_ds, ant2_ds):
-            ds.resize(n_patches_written, axis=0)
+        for ds in (clean_ds, divisor_ds, phase_ds, bl_id_ds, ant1_ds, ant2_ds,
+                   nchan_ds, ntime_ds):
+            ds.resize(n_written, axis=0)
 
-        hf.attrs['freq_min_mhz']  = freq_min
-        hf.attrs['freq_max_mhz']  = freq_max
-        hf.attrs['n_time']        = pt
-        hf.attrs['n_freq']        = pf
-        hf.attrs['n_patches']     = n_patches_written
-        hf.attrs['full_n_time']   = n_time
-        hf.attrs['full_n_chan']   = n_chan
-        hf.attrs['chan_lo']       = chan_lo
-        hf.attrs['n_baseline']    = n_baseline
+        hf.attrs['freq_min_mhz'] = freq_min
+        hf.attrs['freq_max_mhz'] = freq_max
+        hf.attrs['n_time']       = sz
+        hf.attrs['n_freq']       = sz
+        hf.attrs['img_size']     = sz
+        hf.attrs['n_baselines']  = n_written
+        hf.attrs['full_n_time']  = n_time
+        hf.attrs['full_n_chan']  = n_chan
+        hf.attrs['chan_lo']      = chan_lo
 
-    if n_patches_written == 0:
-        raise RuntimeError("no patches extracted — check flag fraction thresholds")
+    if n_written == 0:
+        raise RuntimeError("no baselines extracted — check max_bl_flag_frac")
 
-    print(f"column         : {col}")
-    print(f"freq range     : {freq_min:.1f}-{freq_max:.1f} MHz  ({n_chan} channels)")
-    print(f"baselines used : {baselines_used}  skipped: {baselines_skipped}  autocorr: {autocorr.sum()}")
-    print(f"patches total  : {n_patches_written}  shape: ({pt}, {pf})")
+    print(f"column         : {col}", flush=True)
+    print(f"freq range     : {freq_min:.1f}-{freq_max:.1f} MHz  ({n_chan} channels -> {sz})", flush=True)
+    print(f"native n_time  : {n_time} -> {sz}", flush=True)
+    print(f"baselines used : {baselines_used}  skipped: {baselines_skipped}  autocorr: {autocorr.sum()}", flush=True)
+    print(f"saved {n_written} per-baseline waterfalls ({sz}x{sz}) -> {out}", flush=True)
 
     if args.waterfall_out:
         wf_avg   = np.where(wf_count > 0, wf_sum / wf_count, 0.0).astype(np.float32)
@@ -224,24 +188,17 @@ def main(args):
         np.save(args.waterfall_out + '.npy',       wf_avg)
         np.save(args.waterfall_out + '.meta.npy',  np.array([freq_min, freq_max]))
         np.save(args.waterfall_out + '.flags.npy', flag_avg)
-        print(f"waterfall      -> {args.waterfall_out}.npy")
-
-    print(f"saved -> {out}")
+        print(f"waterfall      -> {args.waterfall_out}.npy", flush=True)
 
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
-    parser.add_argument('--ms',                  required=True)
-    parser.add_argument('--output',              required=True)
-    parser.add_argument('--waterfall-out',       default=None)
-    parser.add_argument('--freq-min',            type=float, default=900.0)
-    parser.add_argument('--freq-max',            type=float, default=1650.0)
-    parser.add_argument('--patch-time',          type=int,   default=256)
-    parser.add_argument('--patch-freq',          type=int,   default=256)
-    parser.add_argument('--stride-time',         type=int,   default=64)
-    parser.add_argument('--stride-freq',         type=int,   default=64)
-    parser.add_argument('--max-patches-per-bl',  type=int,   default=50)
-    parser.add_argument('--max-flag-frac',       type=float, default=0.5)
-    parser.add_argument('--max-bl-flag-frac',    type=float, default=0.8)
-    parser.add_argument('--smooth-bins',         type=int,   default=64)
+    parser.add_argument('--ms',               required=True)
+    parser.add_argument('--output',           required=True)
+    parser.add_argument('--waterfall-out',    default=None)
+    parser.add_argument('--freq-min',         type=float, default=900.0)
+    parser.add_argument('--freq-max',         type=float, default=1650.0)
+    parser.add_argument('--img-size',         type=int,   default=512)
+    parser.add_argument('--max-bl-flag-frac', type=float, default=0.8)
+    parser.add_argument('--smooth-bins',      type=int,   default=64)
     main(parser.parse_args())

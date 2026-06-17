@@ -10,10 +10,10 @@ class Config:
     target_channels: int = 3        # amplitude + cos(phase) + sin(phase)
     pe_channels: int = 4
     base: int = 64
-    ch_mult: tuple = (1, 2, 4, 8)
-    attn_res: tuple = (32, 16)
+    ch_mult: tuple = (1, 2, 4, 8, 8)
+    attn_res: tuple = (64, 32)
     num_res: int = 2
-    img_size: int = 256
+    img_size: int = 512
 
     timesteps: int = 1000
     predict: str = 'x0'             # 'noise' or 'x0'; x0 validated leak-free
