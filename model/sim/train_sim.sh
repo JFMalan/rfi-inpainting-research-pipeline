@@ -21,9 +21,10 @@ PHASE=${PHASE:-1}
 
 GPU=/idia/software/containers/ASTRO-GPU-PyTorch-2026-01-28.sif
 SCRIPTS=/users/$USER/rfi-inpainting-research-pipeline/model
-# RUN_ID=all -> train on every run*/dataset.h5 (the ~10k multi-run set); else one run
+# RUN_ID=all -> train on run[1-9]/dataset.h5 (the diverse multi-run set, excludes
+# runtest and other non-numbered dirs); else one run
 if [ "$RUN_ID" = "all" ]; then
-    DATASET="/scratch3/users/$USER/rfi/simulated/run*/dataset.h5"
+    DATASET="/scratch3/users/$USER/rfi/simulated/run[1-9]/dataset.h5"
 else
     DATASET="/scratch3/users/$USER/rfi/simulated/run${RUN_ID}/dataset.h5"
 fi
