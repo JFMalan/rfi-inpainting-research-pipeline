@@ -1,13 +1,11 @@
 import sys
 import numpy as np
 
-ms_path = None
-for arg in sys.argv[1:]:
-    if not arg.startswith('-'):
-        ms_path = arg
-        break
-if ms_path is None:
+pos = [a for a in sys.argv[1:] if not a.startswith('-')]
+if not pos:
     raise RuntimeError("MS path not found in argv")
+ms_path = pos[0]
+noise_seed = int(pos[1]) if len(pos) > 1 else 0
 
 tb.open(ms_path + '/SPECTRAL_WINDOW')
 chan_freqs = tb.getcol('CHAN_FREQ')[0]   # Hz, shape (nchan,)
@@ -50,7 +48,7 @@ if sigma_residual.max() > 0.001 * sigma_mean:
     import time
     tb.open(ms_path, nomodify=False)
     nrow = tb.nrows()
-    rng = np.random.default_rng(seed=0)
+    rng = np.random.default_rng(seed=noise_seed)
     chunk = 50000
     t0 = time.time()
     print(f"adding per-channel residual noise to {nrow} rows in chunks", flush=True)

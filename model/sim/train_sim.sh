@@ -13,16 +13,21 @@
 
 set -e
 
-RUN_ID=${RUN_ID:-1}
+RUN_ID=${RUN_ID:-all}
 EPOCHS=${EPOCHS:-40}
-BATCH=${BATCH:-12}
+BATCH=${BATCH:-4}
 MAX_PATCHES=${MAX_PATCHES:-}
 PHASE=${PHASE:-1}
 
 GPU=/idia/software/containers/ASTRO-GPU-PyTorch-2026-01-28.sif
 SCRIPTS=/users/$USER/rfi-inpainting-research-pipeline/model
-DATASET=/scratch3/users/$USER/rfi/simulated/run${RUN_ID}/dataset.h5
-OUT=/idia/users/$USER/rfi/runs/phase${PHASE}_run${RUN_ID}
+# RUN_ID=all -> train on every run*/dataset.h5 (the ~10k multi-run set); else one run
+if [ "$RUN_ID" = "all" ]; then
+    DATASET="/scratch3/users/$USER/rfi/simulated/run*/dataset.h5"
+else
+    DATASET="/scratch3/users/$USER/rfi/simulated/run${RUN_ID}/dataset.h5"
+fi
+OUT=/idia/users/$USER/rfi/runs/phase${PHASE}_${RUN_ID}
 
 mkdir -p $OUT logs
 
@@ -44,7 +49,7 @@ EXTRA=""
 if [ -n "$MAX_PATCHES" ]; then EXTRA="--max-patches $MAX_PATCHES"; fi
 
 singularity exec --nv $NVBIND $GPU python $SCRIPTS/train.py \
-    --data $DATASET \
+    --data "$DATASET" \
     --out $OUT \
     --phase $PHASE \
     --epochs $EPOCHS \

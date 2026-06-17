@@ -17,6 +17,7 @@ SYNTHESIS=${SYNTHESIS:-1.2}
 NCHAN=${NCHAN:-1024}
 SKY_MODEL=${SKY_MODEL:-sky_model_bright.txt}
 SEED=${SEED:-42}
+DIR=${DIR:-"J2000,04h00m00.0s,-30d00m00s"}
 IMG_SIZE=${IMG_SIZE:-512}
 TARGET_FRAC=${TARGET_FRAC:-0.37}
 
@@ -45,7 +46,7 @@ DFREQ=$(python3 -c "print(f'{856.0/$NCHAN:.4f}MHz')")
 echo "[1/6] $(date '+%H:%M:%S') creating empty MeerKAT MS (simms)"
 singularity exec $SIMMS simms \
     -T meerkat \
-    -dir "J2000,04h00m00.0s,-30d00m00s" \
+    -dir "$DIR" \
     -dt 8 \
     -st $SYNTHESIS \
     -f0 880MHz \
@@ -65,7 +66,7 @@ singularity exec $AFRICANUS crystalball \
 
 echo "[3/6] $(date '+%H:%M:%S') adding thermal noise (CASA sm.corrupt)"
 singularity exec $CASA casa --nologger --log2term \
-    -c $SCRIPTS/data_preparation/simulated/add_noise.py $SIM_MS
+    -c $SCRIPTS/data_preparation/simulated/add_noise.py $SIM_MS $SEED
 
 echo "[4/6] $(date '+%H:%M:%S') extracting per-baseline ${IMG_SIZE}x${IMG_SIZE} waterfalls"
 singularity exec $ASTROPY python $SCRIPTS/data_preparation/simulated/extract_patches_sim.py \
