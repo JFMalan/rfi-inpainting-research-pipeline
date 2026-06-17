@@ -18,7 +18,7 @@ NCHAN=${NCHAN:-1024}
 SKY_MODEL=${SKY_MODEL:-sky_model_bright.txt}
 SEED=${SEED:-42}
 IMG_SIZE=${IMG_SIZE:-512}
-TARGET_FRAC=${TARGET_FRAC:-0.40}
+TARGET_FRAC=${TARGET_FRAC:-0.37}
 
 SIMMS=/idia/software/containers/STIMELA_IMAGES/stimela_simms_1.2.0.sif
 AFRICANUS=/idia/software/containers/STIMELA_IMAGES/stimela_codex-africanus_1.6.7.sif
