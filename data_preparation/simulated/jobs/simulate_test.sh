@@ -21,6 +21,7 @@ SIMMS=/idia/software/containers/STIMELA_IMAGES/stimela_simms_1.2.0.sif
 AFRICANUS=/idia/software/containers/STIMELA_IMAGES/stimela_codex-africanus_1.6.7.sif
 CASA=/idia/software/containers/casa-stable-v6.sif
 ASTROPY=/idia/software/containers/ASTRO-PY3.10.sif
+VENV=/idia/users/$USER/venvs/rfi_toolbox
 SCRIPTS=/users/$USER/rfi-inpainting-research-pipeline
 
 SIMDIR=/scratch3/users/$USER/rfi/simulated/run${RUN_ID}
@@ -69,8 +70,11 @@ singularity exec $ASTROPY python $SCRIPTS/data_preparation/simulated/extract_pat
     --img-size $IMG_SIZE
 
 echo "[5/6] $(date '+%H:%M:%S') injecting synthetic RFI"
-singularity exec $ASTROPY python $SCRIPTS/data_preparation/simulated/inject_rfi.py \
-    --input $CLEAN_H5 --output $DATASET --seed $SEED --target-frac $TARGET_FRAC
+singularity exec $ASTROPY /bin/bash -c "
+    source $VENV/bin/activate &&
+    python $SCRIPTS/data_preparation/simulated/inject_rfi.py \
+        --input $CLEAN_H5 --output $DATASET --seed $SEED --target-frac $TARGET_FRAC
+"
 
 echo "[6/6] $(date '+%H:%M:%S') validating dataset and generating visualisations"
 singularity exec $ASTROPY python $SCRIPTS/data_preparation/simulated/visualisation/visualise_simulate.py \
