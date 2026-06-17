@@ -19,44 +19,44 @@ RFI_BANDS = [
 PATCH_SIZE = 256
 
 
-def load_ms(ms_path, max_time, field=None):
+def load_ms(ms_path, max_time, field=None, column='DATA'):
     ms = table(ms_path, readonly=True)
     if field is not None:
         ms = ms.query(f"FIELD_ID == {field}")
-    cols = ms.colnames()
-    col = 'CORRECTED_DATA' if 'CORRECTED_DATA' in cols else 'DATA'
-    try:
-        ms.getcell(col, 0)
-    except Exception:
-        col = 'DATA'
-
-    data = ms.getcol(col)
-    flags = ms.getcol('FLAG')
-    times = ms.getcol('TIME')
-    print(f"flag fraction in raw read: {flags.mean():.4f}")
-    ms.close()
+    col = column if column in ms.colnames() else 'DATA'
 
     freqs_table = table(ms_path + '/SPECTRAL_WINDOW')
     freqs = freqs_table.getcol('CHAN_FREQ')[0] / 1e6
     freqs_table.close()
-
+    persistent = np.zeros(len(freqs), bool)
     for flo, fhi in LBAND_PERSISTENT_MHZ:
-        flags[:, (freqs >= flo) & (freqs <= fhi), :] = True
+        persistent |= (freqs >= flo) & (freqs <= fhi)
 
-    amp = np.abs(data).mean(axis=2).astype(np.float32)
-    flagged = flags.any(axis=2)
-
-    unique_times = np.unique(times)
-    n_baseline = amp.shape[0] // len(unique_times)
-    n_chan = amp.shape[1]
+    times_all = ms.getcol('TIME')
+    unique_times = np.unique(times_all)
+    n_baseline = ms.nrows() // len(unique_times)
     n_time = min(len(unique_times), max_time)
+    n_keep = n_time * n_baseline
 
-    amp = amp[:n_time * n_baseline].reshape(n_time, n_baseline, n_chan)
-    flagged = flagged[:n_time * n_baseline].reshape(n_time, n_baseline, n_chan)
+    amp = np.empty((n_keep, len(freqs)), np.float32)
+    flagged = np.empty((n_keep, len(freqs)), bool)
+    block = n_baseline * 50
+    for r0 in range(0, n_keep, block):
+        nr = min(block, n_keep - r0)
+        d = ms.getcol(col, r0, nr)
+        fl = ms.getcol('FLAG', r0, nr)
+        amp[r0:r0 + nr] = np.abs(d).mean(axis=2).astype(np.float32)
+        f = fl.any(axis=2)
+        f[:, persistent] = True
+        flagged[r0:r0 + nr] = f
+        print(f"  read rows {r0}/{n_keep}", flush=True)
+    ms.close()
 
+    n_chan = len(freqs)
+    amp = amp.reshape(n_time, n_baseline, n_chan)
+    flagged = flagged.reshape(n_time, n_baseline, n_chan)
     print(f"column: {col}  shape: ({n_time}, {n_baseline}, {n_chan})  "
-          f"freq: {freqs[0]:.1f}-{freqs[-1]:.1f} MHz")
-
+          f"freq: {freqs[0]:.1f}-{freqs[-1]:.1f} MHz", flush=True)
     return amp, flagged, freqs
 
 
@@ -232,7 +232,7 @@ def main(args):
     out_dir.mkdir(parents=True, exist_ok=True)
 
     print("loading MS...")
-    amp, flagged, freqs = load_ms(args.ms, args.max_time, field=args.field)
+    amp, flagged, freqs = load_ms(args.ms, args.max_time, field=args.field, column=args.column)
 
     chan_mask = (freqs >= args.freq_min) & (freqs <= args.freq_max)
     amp = amp[:, :, chan_mask]
@@ -468,6 +468,7 @@ if __name__ == '__main__':
     parser.add_argument('--ms',             required=True)
     parser.add_argument('--output',         required=True)
     parser.add_argument('--patches',        default=None)
+    parser.add_argument('--column',         default='DATA')
     parser.add_argument('--field',          type=int,   default=None)
     parser.add_argument('--max-time',       type=int,   default=9999)
     parser.add_argument('--n-baselines',    type=int,   default=16)
