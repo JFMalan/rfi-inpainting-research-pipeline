@@ -1,21 +1,21 @@
 #!/bin/bash
 #SBATCH --job-name='rfi-simulate-test'
-#SBATCH --partition=Devel
+#SBATCH --partition=Main
 #SBATCH --cpus-per-task=8
 #SBATCH --mem=128GB
-#SBATCH --time=01:00:00
+#SBATCH --time=03:00:00
 #SBATCH --output=logs/simulate-test-%j-stdout.log
 #SBATCH --error=logs/simulate-test-%j-stderr.log
 
 set -e
 
 RUN_ID=${RUN_ID:-test}
-SYNTHESIS=0.3
-NCHAN=1024
-SKY_MODEL=sky_model_bright.txt
-IMG_SIZE=512
-TARGET_FRAC=0.40
-SEED=42
+SYNTHESIS=${SYNTHESIS:-1.2}
+NCHAN=${NCHAN:-1024}
+SKY_MODEL=${SKY_MODEL:-sky_model_bright.txt}
+IMG_SIZE=${IMG_SIZE:-512}
+TARGET_FRAC=${TARGET_FRAC:-0.40}
+SEED=${SEED:-42}
 
 SIMMS=/idia/software/containers/STIMELA_IMAGES/stimela_simms_1.2.0.sif
 AFRICANUS=/idia/software/containers/STIMELA_IMAGES/stimela_codex-africanus_1.6.7.sif
