@@ -14,8 +14,8 @@ set -e
 # Defaults — override via: sbatch --export=ALL,RUN_ID=2,SYNTHESIS=2.0,NCHAN=4096,SKY_MODEL=sky_model_2.txt simulate.sh
 RUN_ID=${RUN_ID:-1}
 SYNTHESIS=${SYNTHESIS:-1.2}
-NCHAN=${NCHAN:-4096}
-SKY_MODEL=${SKY_MODEL:-sky_model.txt}
+NCHAN=${NCHAN:-1024}
+SKY_MODEL=${SKY_MODEL:-sky_model_bright.txt}
 SEED=${SEED:-42}
 IMG_SIZE=${IMG_SIZE:-512}
 TARGET_FRAC=${TARGET_FRAC:-0.40}

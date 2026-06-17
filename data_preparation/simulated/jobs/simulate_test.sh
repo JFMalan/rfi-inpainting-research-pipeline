@@ -10,9 +10,9 @@
 set -e
 
 RUN_ID=${RUN_ID:-test}
-SYNTHESIS=1.2
-NCHAN=4096
-SKY_MODEL=sky_model.txt
+SYNTHESIS=0.3
+NCHAN=1024
+SKY_MODEL=sky_model_bright.txt
 IMG_SIZE=512
 TARGET_FRAC=0.40
 SEED=42

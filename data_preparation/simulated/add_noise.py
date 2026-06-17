@@ -44,21 +44,25 @@ sm.setnoise(mode='simplenoise', simplenoise=f'{sigma_flat}Jy')
 sm.corrupt()
 sm.close()
 
-# Add per-channel residual noise to reach the target sigma at each channel.
-# Only applied when there is meaningful variation (>0.1% of mean).
+# Add per-channel residual noise to reach the target sigma at each channel,
+# in row chunks so peak RAM stays bounded regardless of synthesis length / nchan.
 if sigma_residual.max() > 0.001 * sigma_mean:
+    import time
     tb.open(ms_path, nomodify=False)
-    data = tb.getcol('DATA')   # (npol, nchan, nrow) in CASA table layout
-    nchan = data.shape[1]
-    npol  = data.shape[0]
-    nrow  = data.shape[2]
-
-    # residual noise shape: (npol, nchan, nrow)
+    nrow = tb.nrows()
     rng = np.random.default_rng(seed=0)
-    noise_real = rng.normal(0.0, 1.0, (npol, nchan, nrow)) * sigma_residual[np.newaxis, :, np.newaxis]
-    noise_imag = rng.normal(0.0, 1.0, (npol, nchan, nrow)) * sigma_residual[np.newaxis, :, np.newaxis]
-    data += (noise_real + 1j * noise_imag).astype(np.complex64)
-
-    tb.putcol('DATA', data)
+    chunk = 50000
+    t0 = time.time()
+    print(f"adding per-channel residual noise to {nrow} rows in chunks", flush=True)
+    for start in range(0, nrow, chunk):
+        n = min(chunk, nrow - start)
+        d = tb.getcol('DATA', startrow=start, nrow=n)   # (npol, nchan, n)
+        sig = sigma_residual[np.newaxis, :, np.newaxis]
+        noise = (rng.normal(0.0, 1.0, d.shape) + 1j * rng.normal(0.0, 1.0, d.shape))
+        d += (noise * sig).astype(np.complex64)
+        tb.putcol('DATA', d, startrow=start, nrow=n)
+        del d, noise
+        rate = (start + n) / max(time.time() - t0, 1e-6)
+        print(f"  rows {start + n}/{nrow}  ({rate:.0f} rows/s)", flush=True)
     tb.close()
-    print(f"added per-channel residual noise  max_residual_sigma={sigma_residual.max():.4f} Jy")
+    print(f"added per-channel residual noise  max_residual_sigma={sigma_residual.max():.4f} Jy", flush=True)
