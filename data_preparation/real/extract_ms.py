@@ -82,7 +82,8 @@ def main(args):
     ms.close()
     print(f"read complete ({time.time() - t_start:.0f}s)", flush=True)
 
-    flagged[:, persist_band] = True
+    if args.force_persistent:
+        flagged[:, persist_band] = True
 
     unique_times = np.unique(times)
     n_time = len(unique_times)
@@ -97,6 +98,17 @@ def main(args):
     freq_min, freq_max = float(freqs[0]), float(freqs[-1])
     sz = args.img_size
     n_cross = int((~autocorr).sum())
+
+    bl_frac = flagged[:, ~autocorr, :].mean(axis=(0, 2))
+    print(f"per-baseline flag frac (force_persistent={args.force_persistent}): "
+          f"min {bl_frac.min():.3f}  p25 {np.percentile(bl_frac, 25):.3f}  "
+          f"p50 {np.percentile(bl_frac, 50):.3f}  mean {bl_frac.mean():.3f}  | "
+          f"<{args.max_bl_flag_frac:.2f}: {(bl_frac <= args.max_bl_flag_frac).sum()}/{n_cross}",
+          flush=True)
+    if (bl_frac <= args.max_bl_flag_frac).sum() == 0:
+        raise RuntimeError(
+            f"no baselines <= max_bl_flag_frac={args.max_bl_flag_frac} "
+            f"(cleanest is {bl_frac.min():.3f}); raise --max-bl-flag-frac")
 
     out = Path(args.output)
     out.parent.mkdir(parents=True, exist_ok=True)
@@ -186,6 +198,8 @@ if __name__ == '__main__':
     parser.add_argument('--freq-min',         type=float, default=900.0)
     parser.add_argument('--freq-max',         type=float, default=1650.0)
     parser.add_argument('--img-size',         type=int,   default=512)
-    parser.add_argument('--max-bl-flag-frac', type=float, default=0.5)
+    parser.add_argument('--max-bl-flag-frac', type=float, default=0.7)
     parser.add_argument('--smooth-bins',      type=int,   default=64)
+    parser.add_argument('--force-persistent', action='store_true', default=True)
+    parser.add_argument('--no-force-persistent', dest='force_persistent', action='store_false')
     main(parser.parse_args())
