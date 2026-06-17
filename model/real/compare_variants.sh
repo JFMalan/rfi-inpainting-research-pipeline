@@ -5,7 +5,7 @@
 #SBATCH --constraint=A100|A40|V100
 #SBATCH --cpus-per-task=4
 #SBATCH --mem=32GB
-#SBATCH --time=12:00:00
+#SBATCH --time=18:00:00
 #SBATCH --output=logs/compare-variants-%j-stdout.log
 #SBATCH --error=logs/compare-variants-%j-stderr.log
 
@@ -13,6 +13,12 @@ set -e
 
 ITERS=${ITERS:-3000}
 BATCH=${BATCH:-4}
+# cheaper in-training eval + early-stop tuned for TRE scale (eval_real does final test scoring)
+SAMPLE_EVERY=${SAMPLE_EVERY:-4}
+VAL_PATCHES=${VAL_PATCHES:-24}
+MIN_EPOCHS=${MIN_EPOCHS:-4}
+MIN_DELTA=${MIN_DELTA:-0.02}
+PATIENCE=${PATIENCE:-4}
 
 GPU=/idia/software/containers/ASTRO-GPU-PyTorch-2026-01-28.sif
 SCRIPTS=/users/$USER/rfi-inpainting-research-pipeline/model
@@ -33,7 +39,9 @@ for H5 in $VARDIR/*.h5; do
     echo ""
     echo "======== TRAIN $NAME (max-iters $ITERS) ========"
     singularity exec --nv $NVBIND $GPU python $SCRIPTS/train_real.py \
-        --data $H5 --out $OUT --epochs 1000 --batch-size $BATCH --max-iters $ITERS || {
+        --data $H5 --out $OUT --epochs 1000 --batch-size $BATCH --max-iters $ITERS \
+        --sample-every $SAMPLE_EVERY --val-eval-patches $VAL_PATCHES \
+        --min-epochs $MIN_EPOCHS --min-delta $MIN_DELTA --patience $PATIENCE || {
             echo "train failed for $NAME"; continue; }
 
     echo "======== EVAL  $NAME (held-out test) ========"
