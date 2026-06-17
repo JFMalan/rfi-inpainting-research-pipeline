@@ -227,10 +227,10 @@ def main(args):
     # --- Per-baseline waterfalls ---
     n_show = min(args.n_baselines, n_baseline)
     baseline_indices = np.linspace(0, n_baseline - 1, n_show, dtype=int)
-    ncols = 2
+    ncols = int(np.ceil(np.sqrt(n_show)))
     nrows = (n_show + ncols - 1) // ncols
-    fig, axes = plt.subplots(nrows, ncols, figsize=(12, 4 * nrows))
-    axes = axes.flatten()
+    fig, axes = plt.subplots(nrows, ncols, figsize=(5 * ncols, 4 * nrows))
+    axes = np.atleast_1d(axes).flatten()
 
     for i, bl in enumerate(baseline_indices):
         wf, fm = get_baseline_waterfall(amp, flagged, int(bl))
@@ -252,9 +252,9 @@ def main(args):
         ax.set_visible(False)
     plt.suptitle("Real MeerKAT — per-baseline waterfalls (green = flagged)", y=1.01)
     plt.tight_layout()
-    plt.savefig(out_dir / "baselines.png", dpi=120, bbox_inches="tight")
+    plt.savefig(out_dir / "baselines.png", dpi=args.dpi, bbox_inches="tight")
     plt.close()
-    print("saved baselines.png")
+    print(f"saved baselines.png ({n_show} baselines, {nrows}x{ncols} grid, dpi {args.dpi})")
 
     # --- Amplitude distribution (unflagged only, all baselines) ---
     avg_unflagged = avg_waterfall[avg_flag_mask == 0]
@@ -330,6 +330,7 @@ if __name__ == '__main__':
     parser.add_argument('--field',          type=int,   default=None)
     parser.add_argument('--max-time',       type=int,   default=9999)
     parser.add_argument('--n-baselines',    type=int,   default=16)
+    parser.add_argument('--dpi',            type=int,   default=150)
     parser.add_argument('--freq-min',       type=float, default=900.0)
     parser.add_argument('--freq-max',       type=float, default=1650.0)
     parser.add_argument('--vmax',           type=float, default=None)
