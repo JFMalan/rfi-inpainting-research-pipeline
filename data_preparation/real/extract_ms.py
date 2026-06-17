@@ -95,12 +95,24 @@ def main(args):
     ant2_bl = ant2[:n_baseline]
     autocorr = ant1_bl == ant2_bl
 
+    # drop near-fully-flagged timestamps — they carry no signal and inflate every
+    # baseline's flag fraction. ~half this MS's dumps are dead (setup/slew scans).
+    ts_frac = flagged.mean(axis=(1, 2))
+    good_ts = ts_frac < args.max_ts_flag_frac
+    n_bad_ts = int((~good_ts).sum())
+    amp     = amp[good_ts]
+    phase   = phase[good_ts]
+    flagged = flagged[good_ts]
+    n_time_good = int(good_ts.sum())
+    print(f"timestamps: {n_time} total, dropped {n_bad_ts} bad (>{args.max_ts_flag_frac:.2f}), "
+          f"kept {n_time_good}", flush=True)
+
     freq_min, freq_max = float(freqs[0]), float(freqs[-1])
     sz = args.img_size
     n_cross = int((~autocorr).sum())
 
     bl_frac = flagged[:, ~autocorr, :].mean(axis=(0, 2))
-    print(f"per-baseline flag frac (force_persistent={args.force_persistent}): "
+    print(f"per-baseline flag frac (force_persistent={args.force_persistent}, good-TS): "
           f"min {bl_frac.min():.3f}  p25 {np.percentile(bl_frac, 25):.3f}  "
           f"p50 {np.percentile(bl_frac, 50):.3f}  mean {bl_frac.mean():.3f}  | "
           f"<{args.max_bl_flag_frac:.2f}: {(bl_frac <= args.max_bl_flag_frac).sum()}/{n_cross}",
@@ -161,7 +173,7 @@ def main(args):
             ant1_ds[n_written]    = int(ant1_bl[bl])
             ant2_ds[n_written]    = int(ant2_bl[bl])
             nchan_ds[n_written]   = n_chan
-            ntime_ds[n_written]   = n_time
+            ntime_ds[n_written]   = n_time_good
             n_written += 1
 
         for ds in (amp_ds, phase_ds, flags_ds, divisor_ds, bl_id_ds, ant1_ds, ant2_ds,
@@ -174,7 +186,7 @@ def main(args):
         hf.attrs['n_freq']       = sz
         hf.attrs['img_size']     = sz
         hf.attrs['n_baselines']  = n_written
-        hf.attrs['full_n_time']  = n_time
+        hf.attrs['full_n_time']  = n_time_good
         hf.attrs['full_n_chan']  = n_chan
         hf.attrs['chan_lo']      = chan_lo
         hf.attrs['column']       = col
@@ -184,7 +196,7 @@ def main(args):
 
     print(f"column         : {col}", flush=True)
     print(f"freq range     : {freq_min:.1f}-{freq_max:.1f} MHz  ({n_chan} channels -> {sz})", flush=True)
-    print(f"native n_time  : {n_time} -> {sz}", flush=True)
+    print(f"native n_time  : {n_time_good} (good) -> {sz}", flush=True)
     print(f"baselines kept : {n_written}  skipped: {baselines_skipped}  autocorr: {autocorr.sum()}", flush=True)
     print(f"saved {n_written} per-baseline waterfalls ({sz}x{sz}) -> {out}", flush=True)
 
@@ -198,7 +210,8 @@ if __name__ == '__main__':
     parser.add_argument('--freq-min',         type=float, default=900.0)
     parser.add_argument('--freq-max',         type=float, default=1650.0)
     parser.add_argument('--img-size',         type=int,   default=512)
-    parser.add_argument('--max-bl-flag-frac', type=float, default=0.7)
+    parser.add_argument('--max-bl-flag-frac', type=float, default=0.5)
+    parser.add_argument('--max-ts-flag-frac', type=float, default=0.95)
     parser.add_argument('--smooth-bins',      type=int,   default=64)
     parser.add_argument('--force-persistent', action='store_true', default=True)
     parser.add_argument('--no-force-persistent', dest='force_persistent', action='store_false')
