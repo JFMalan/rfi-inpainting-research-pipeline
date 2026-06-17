@@ -11,7 +11,7 @@
 
 set -e
 
-ITERS=${ITERS:-1500}
+ITERS=${ITERS:-3000}
 BATCH=${BATCH:-4}
 
 GPU=/idia/software/containers/ASTRO-GPU-PyTorch-2026-01-28.sif
