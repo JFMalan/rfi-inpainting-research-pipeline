@@ -30,12 +30,12 @@ echo "==== SIM inpaint ===="
 singularity exec --nv $NVBIND $GPU python $SCRIPTS/inpaint_viz.py \
     --data $SIM_H5 --ckpt $CKPT --out $OUT/sim_inpaint.npz --n $N
 
-echo "==== REAL inpaint (same sim model) ===="
-singularity exec --nv $NVBIND $GPU python $SCRIPTS/inpaint_viz.py \
-    --data $REAL_H5 --ckpt $CKPT --out $OUT/real_inpaint.npz --real --n $N
+echo "==== REAL inpaint of ACTUAL RFI flags (same sim model) ===="
+singularity exec --nv $NVBIND $GPU python $SCRIPTS/inpaint_real.py \
+    --data $REAL_H5 --ckpt $CKPT --out $OUT/real_inpaint.npz --n $N
 
 echo "==== render both ===="
-singularity exec $ASTROPY python $SCRIPTS/visualise_samples.py --input "$OUT/sim_inpaint.npz"  --output $OUT --n-show $N
-singularity exec $ASTROPY python $SCRIPTS/visualise_samples.py --input "$OUT/real_inpaint.npz" --output $OUT --n-show $N
+singularity exec $ASTROPY python $SCRIPTS/visualise_samples.py --input "$OUT/sim_inpaint.npz" --output $OUT --n-show $N
+singularity exec $ASTROPY python $SCRIPTS/visualise_real_inpaint.py --input "$OUT/real_inpaint.npz" --output $OUT/real_inpaint.png --n-show $N
 
 echo "done -> $OUT/sim_inpaint.png  $OUT/real_inpaint.png"
