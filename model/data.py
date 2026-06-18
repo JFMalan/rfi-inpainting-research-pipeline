@@ -157,24 +157,28 @@ class PatchDataset(Dataset):
         self._handles = {}
 
 
-def fake_mask(real_flags, frac_range=(0.05, 0.25), max_tries=200):
+def fake_mask(real_flags, frac_range=(0.05, 0.25), width_range=(8, 32), max_tries=200):
     # mixed-masking (Massoud): artificial holes placed over UNFLAGGED pixels, so
     # the observed data at those pixels is a known self-supervised target. Pixels
     # already real-flagged carry no ground truth and are excluded.
+    # holes are WIDE freq bands (width_range) like real persistent RFI; narrow 1-px
+    # stripes are trivially solved by linear freq-interp (which beat the model on the
+    # old 1-8px holes), hiding whether the model recovers genuine 2D structure.
     n_time, n_freq = real_flags.shape
     fm = np.zeros((n_time, n_freq), dtype=np.float32)
     target = np.random.uniform(*frac_range)
     unflagged = real_flags < 0.5
     avail = unflagged.mean()
     target = min(target, max(avail * 0.8, 1e-3))
+    wlo, whi = width_range
     tries = 0
     while (fm * unflagged).mean() < target and tries < max_tries:
         tries += 1
         if np.random.rand() < 0.6:
-            w = np.random.randint(1, 8); f0 = np.random.randint(0, n_freq - w)
+            w = np.random.randint(wlo, whi + 1); f0 = np.random.randint(0, max(1, n_freq - w))
             fm[:, f0:f0 + w] = 1.0
         else:
-            w = np.random.randint(1, 8); t0 = np.random.randint(0, n_time - w)
+            w = np.random.randint(max(2, wlo // 2), whi // 2 + 1); t0 = np.random.randint(0, max(1, n_time - w))
             fm[t0:t0 + w, :] = 1.0
     fm = fm * unflagged
     return fm

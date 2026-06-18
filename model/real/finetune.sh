@@ -19,6 +19,7 @@ VARIANTS=${VARIANTS:-"v1_upsample512 v4_relaxed512"}
 INIT=${INIT:-/idia/users/$USER/rfi/runs/phase1_all/best.pt}
 ITERS=${ITERS:-8000}
 BATCH=${BATCH:-4}
+LR=${LR:-2e-4}
 DO_SCRATCH=${DO_SCRATCH:-1}
 
 GPU=/idia/software/containers/ASTRO-GPU-PyTorch-2026-01-28.sif
@@ -40,7 +41,7 @@ run_one () {
     echo ""
     echo "======== TRAIN $NAME [$MODE] ========"
     singularity exec --nv $NVBIND $GPU python $SCRIPTS/train_real.py \
-        --data $H5 --out $OUT --epochs 1000 --batch-size $BATCH --max-iters $ITERS \
+        --data $H5 --out $OUT --epochs 1000 --batch-size $BATCH --max-iters $ITERS --lr $LR \
         --sample-every 4 --val-eval-patches 24 --min-epochs 4 --min-delta 0.02 --patience 4 \
         $EXTRA || { echo "train failed $NAME $MODE"; return; }
     echo "======== EVAL  $NAME [$MODE] ========"

@@ -70,6 +70,7 @@ def val_eval(diff, ema_model, val_dl, cfg, out, epoch):
 def main(args):
     cfg = phase2(data_glob=args.data, out_dir=args.out, epochs=args.epochs,
                  batch_size=args.batch_size, max_patches=args.max_patches, seed=args.seed)
+    if args.lr: cfg.lr = args.lr
     if args.sample_every: cfg.sample_every = args.sample_every
     if args.val_eval_patches: cfg.val_eval_patches = args.val_eval_patches
     if args.min_epochs is not None: cfg.min_epochs = args.min_epochs
@@ -203,6 +204,7 @@ if __name__ == '__main__':
     ap.add_argument('--batch-size', type=int, default=8)
     ap.add_argument('--max-patches', type=int, default=None)
     ap.add_argument('--max-iters', type=int, default=None)
+    ap.add_argument('--lr', type=float, default=None)
     ap.add_argument('--sample-every', type=int, default=None)
     ap.add_argument('--val-eval-patches', type=int, default=None)
     ap.add_argument('--min-epochs', type=int, default=None)
