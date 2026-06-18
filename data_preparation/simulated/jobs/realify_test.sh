@@ -1,7 +1,8 @@
 #!/bin/bash
 #SBATCH --job-name='rfi-realify-test'
 #SBATCH --partition=GPU
-#SBATCH --gpus=1
+#SBATCH --gres=gpu:1
+#SBATCH --constraint=A100|A40|V100
 #SBATCH --cpus-per-task=8
 #SBATCH --mem=32GB
 #SBATCH --time=02:00:00
