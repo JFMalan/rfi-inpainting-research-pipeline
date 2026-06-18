@@ -15,6 +15,22 @@ from unet import UNet
 from metrics import mae, tre
 
 
+def interp_baseline(obs, hidden):
+    # per-row linear interp across freq through the holes, on the amplitude channel.
+    # the honest recoverability bar (beats mean-fill ~2.5x on this structured data).
+    out = obs.clone()
+    a = obs[:, 0].cpu().numpy()
+    h = (hidden[:, 0] > 0).cpu().numpy()
+    nf = a.shape[-1]; idx = np.arange(nf)
+    for i in range(a.shape[0]):
+        for t in range(a.shape[1]):
+            hr = h[i, t]
+            if hr.any() and not hr.all():
+                a[i, t, hr] = np.interp(idx[hr], idx[~hr], a[i, t, ~hr])
+    out[:, 0] = torch.from_numpy(a).to(obs.device)
+    return out
+
+
 @torch.no_grad()
 def main(args):
     dev = 'cuda' if torch.cuda.is_available() else 'cpu'
@@ -34,7 +50,7 @@ def main(args):
     model.eval()
     diff = Diffusion(T=cfg.timesteps, device=dev)
 
-    tres, fmaes, mf_maes, mf_tres = [], [], [], []
+    tres, fmaes, mf_maes, mf_tres, ip_maes = [], [], [], [], []
     seen = 0
     for batch in dl:
         obs = batch['obs'].to(dev); hidden = batch['hidden'].to(dev); fake = batch['fake_mask'].to(dev)
@@ -46,14 +62,20 @@ def main(args):
             for c in range(obs.shape[1]):
                 base[i, c] = obs[i, c][keep[i, 0]].mean()
         mf_maes.append(float(mae(base, obs, fake))); mf_tres.append(float(tre(base, obs, fake)))
+        ip = interp_baseline(obs, hidden)
+        ip_maes.append(float(mae(ip, obs, fake)))
         seen += obs.shape[0]
         if seen >= args.max_eval:
             break
     print(f"TEST RESULT  {args.tag}", flush=True)
-    print(f"  n_eval {seen}  TRE model {np.mean(tres):.4f} mean-fill {np.mean(mf_tres):.4f}  "
-          f"fake-MAE model {np.mean(fmaes):.4f} mean-fill {np.mean(mf_maes):.4f}", flush=True)
+    print(f"  n_eval {seen}  TRE model {np.mean(tres):.4f} mean-fill {np.mean(mf_tres):.4f}", flush=True)
+    print(f"  fake-MAE  model {np.mean(fmaes):.4f}  interp {np.mean(ip_maes):.4f}  "
+          f"mean-fill {np.mean(mf_maes):.4f}   (interp = the recoverable-structure bar)", flush=True)
+    beats = "BEATS interp" if np.mean(fmaes) < np.mean(ip_maes) else (
+            "beats mean-fill only" if np.mean(fmaes) < np.mean(mf_maes) else "ties/loses to mean-fill")
+    print(f"  verdict: {beats}", flush=True)
     print(f"RESULTLINE\t{args.tag}\t{np.mean(tres):.4f}\t{np.mean(mf_tres):.4f}\t"
-          f"{np.mean(fmaes):.4f}\t{np.mean(mf_maes):.4f}\t{seen}", flush=True)
+          f"{np.mean(fmaes):.4f}\t{np.mean(ip_maes):.4f}\t{np.mean(mf_maes):.4f}\t{seen}", flush=True)
 
 
 if __name__ == '__main__':

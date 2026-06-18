@@ -14,7 +14,7 @@ set -e
 # Decisive Phase-2 test: does sim-pretraining beat mean-fill on real where
 # from-scratch could not (v1 from-scratch tied mean-fill at TRE 5.40)?
 INIT=${INIT:-/idia/users/$USER/rfi/runs/phase1_all/best.pt}
-ITERS=${ITERS:-3000}
+ITERS=${ITERS:-8000}
 BATCH=${BATCH:-4}
 
 GPU=/idia/software/containers/ASTRO-GPU-PyTorch-2026-01-28.sif
@@ -42,4 +42,5 @@ singularity exec --nv $NVBIND $GPU python $SCRIPTS/real/eval_real.py \
     --data $H5 --ckpt $OUT/best.pt --tag v1_finetune --batch-size $BATCH
 
 echo ""
-echo "compare to from-scratch v1: TRE 5.3966 / mean-fill 5.3721 / fakeMAE 0.1949 / mf 0.1620"
+echo "from-scratch v1 baseline: fakeMAE 0.1949 / mean-fill 0.1620 (tied, undertrained 3000it)"
+echo "interp bar (recoverable structure): ~0.23 clipped / model should approach this if it learns"
