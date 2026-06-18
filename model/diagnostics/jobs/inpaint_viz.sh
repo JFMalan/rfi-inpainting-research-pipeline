@@ -2,7 +2,7 @@
 #SBATCH --job-name='rfi-inpaint-viz'
 #SBATCH --partition=GPU
 #SBATCH --gres=gpu:1
-#SBATCH --constraint=A100|A40|V100
+#SBATCH --constraint=V100|A100
 #SBATCH --cpus-per-task=4
 #SBATCH --mem=32GB
 #SBATCH --time=01:00:00
