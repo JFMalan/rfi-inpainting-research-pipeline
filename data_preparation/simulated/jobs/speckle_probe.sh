@@ -27,8 +27,9 @@ CLEAN=${CLEAN:-$SIM/run1/clean_baselines.h5}
 [ -f "$CLEAN" ] || CLEAN=$SIM/run1/dataset.h5
 echo "source clean: $CLEAN"
 
-ITERS=${ITERS:-6000}
+ITERS=${ITERS:-3000}
 N=${N:-64}
+REAL=/scratch3/users/$USER/rfi/real/variants/v1_upsample512.h5
 
 echo "=================================================================="
 echo "build speckle-sweep variants (each stores clean_smooth = recoverable target)"
@@ -43,6 +44,12 @@ for SP in 0.00 0.06 0.12 0.18; do
         --amp-std 0.10 --speckle-std $SP --corr-len 1.0 \
         --target-frac 0.48 --band-fill 0.9
 done
+
+echo "=================================================================="
+echo "visualise speckle vs real FIRST (so images survive even if probes time out)"
+echo "=================================================================="
+singularity exec $ASTROPY python $SCRIPTS/data_preparation/simulated/visualisation/vis_speckle.py \
+    --sim $WORK/sweep_sp0.18.h5 --real $REAL --output $WORK/vis --n 8
 
 echo "=================================================================="
 echo "probe: train to plateau, score vs NOISY and SMOOTH target"
@@ -61,12 +68,5 @@ for SP in 0.00 0.06 0.12 0.18; do
 done
 # at full real speckle, also check eps to confirm it only adds texture, not recovery
 probe $WORK/sweep_sp0.18.h5 noise 1.0
-
-echo "=================================================================="
-echo "visualise speckle vs real (sanity check the data looks realistic)"
-echo "=================================================================="
-REAL=/scratch3/users/$USER/rfi/real/variants/v1_upsample512.h5
-singularity exec $ASTROPY python $SCRIPTS/data_preparation/simulated/visualisation/vis_speckle.py \
-    --sim $WORK/sweep_sp0.18.h5 --real $REAL --output $WORK/vis --n 8
 
 echo "done. plots in $WORK/vis/"
