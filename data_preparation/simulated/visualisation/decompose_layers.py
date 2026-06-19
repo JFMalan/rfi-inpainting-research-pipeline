@@ -5,20 +5,24 @@ import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 from pathlib import Path
-from scipy.ndimage import uniform_filter1d
+from scipy.ndimage import uniform_filter1d, gaussian_filter
 
 
-def smooth_and_residual(amp, mask, bins=8):
-    out = amp.copy()
+def smooth_and_residual(amp, mask, bins=8, sigma=2.0):
+    # 2D low-pass: hole-fill along freq first, then a 2D Gaussian blur. A 2D kernel keeps
+    # DIAGONAL fringe structure in the smooth (recoverable) component, unlike a 1D freq
+    # box-filter which smears diagonals into the residual. sigma sets the cutoff scale.
+    filled = amp.copy()
     nf = amp.shape[1]
     idx = np.arange(nf)
     for t in range(amp.shape[0]):
-        row = amp[t]; keep = mask[t] < 0.5
+        row = filled[t]; keep = mask[t] < 0.5
         if keep.sum() < 4:
-            out[t] = row.mean() if keep.any() else 1.0
+            filled[t] = row.mean() if keep.any() else 1.0
             continue
-        out[t] = uniform_filter1d(np.interp(idx, idx[keep], row[keep]), size=bins, mode='nearest')
-    return out.astype(np.float32), (amp - out).astype(np.float32)
+        filled[t] = np.interp(idx, idx[keep], row[keep])
+    out = gaussian_filter(filled, sigma=sigma, mode='nearest')
+    return out.astype(np.float32), (filled - out).astype(np.float32)
 
 
 def lag1(x, axis):
@@ -47,7 +51,7 @@ def main(args):
             amp = f[akey][p].astype(np.float32)
             mask = f[mkey][p].astype(np.float32)
             phase = f['phase'][p].astype(np.float32)
-            smooth, grain = smooth_and_residual(amp, mask, args.bins)
+            smooth, grain = smooth_and_residual(amp, mask, args.bins, args.sigma)
             cos_p = np.cos(phase)
             valid = mask < 0.5
             s_ac, g_ac, p_ac = lag1(smooth, 1), lag1(grain, 1), lag1(cos_p, 1)
@@ -83,5 +87,6 @@ if __name__ == '__main__':
     ap.add_argument('--n', type=int, default=8)
     ap.add_argument('--patches', default=None, help='comma-separated indices; overrides --n')
     ap.add_argument('--bins', type=int, default=8)
+    ap.add_argument('--sigma', type=float, default=2.0, help='2D Gaussian low-pass cutoff')
     ap.add_argument('--output', default='vis-layers')
     main(ap.parse_args())

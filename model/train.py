@@ -86,10 +86,10 @@ def main(args):
 
     ds = PatchDataset(cfg.data_glob, pe_channels=cfg.pe_channels,
                       augment=cfg.augment, max_patches=cfg.max_patches, split='train',
-                      smooth_target=cfg.smooth_target, smooth_bins=cfg.smooth_bins)
+                      smooth_target=cfg.smooth_target, smooth_sigma=cfg.smooth_sigma)
     val_ds = PatchDataset(cfg.data_glob, pe_channels=cfg.pe_channels,
                           augment=False, split='val',
-                          smooth_target=cfg.smooth_target, smooth_bins=cfg.smooth_bins)
+                          smooth_target=cfg.smooth_target, smooth_sigma=cfg.smooth_sigma)
     print(f"dataset: train {len(ds)}  val {len(val_ds)}  {ds.n_time}x{ds.n_freq}  device={device}")
     dl = DataLoader(ds, batch_size=cfg.batch_size, shuffle=True,
                     num_workers=cfg.num_workers, drop_last=True, pin_memory=True)

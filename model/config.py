@@ -41,7 +41,7 @@ class Config:
     time_roll: bool = False        # random time-axis roll augmentation
     dropout: float = 0.0           # U-Net dropout
     smooth_target: bool = False    # decompose-then-inpaint: predict recoverable smooth bandpass, not noisy amp
-    smooth_bins: int = 8           # freq box-filter width for the smooth component
+    smooth_sigma: float = 2.0      # 2D Gaussian low-pass cutoff for the smooth component
 
     val_eval_patches: int = 64
     early_stop: bool = True
