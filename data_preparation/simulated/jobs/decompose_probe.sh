@@ -5,7 +5,7 @@
 #SBATCH --constraint=A40
 #SBATCH --cpus-per-task=8
 #SBATCH --mem=64GB
-#SBATCH --time=06:00:00
+#SBATCH --time=08:00:00
 #SBATCH --output=logs/decompose-probe-%j-stdout.log
 #SBATCH --error=logs/decompose-probe-%j-stderr.log
 
