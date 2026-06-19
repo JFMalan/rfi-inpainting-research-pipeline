@@ -4,7 +4,26 @@ import os
 import h5py
 import numpy as np
 import torch
+from scipy.ndimage import uniform_filter1d
 from torch.utils.data import Dataset
+
+
+def smooth_component(amp, mask, bins=8):
+    # recoverable bandpass structure: per-time freq box-average over the UNMASKED signal,
+    # holes interp-filled first so the average isn't biased by the hole. The white-noise
+    # residual (amp - smooth) is irreducible and is NOT a training target (decompose-then-
+    # inpaint: predict this, resample the residual). Matches characterise_speckle.py.
+    out = amp.copy()
+    nf = amp.shape[1]
+    idx = np.arange(nf)
+    for t in range(amp.shape[0]):
+        row = amp[t]; keep = mask[t] < 0.5
+        if keep.sum() < 4:
+            out[t] = row.mean() if keep.any() else 1.0
+            continue
+        filled = np.interp(idx, idx[keep], row[keep])
+        out[t] = uniform_filter1d(filled, size=bins, mode='nearest')
+    return out.astype(np.float32)
 
 
 def positional_encoding(patch_fmin, patch_fmax, band_min, band_max, n_freq, n_time, n_channels):
@@ -34,7 +53,8 @@ def random_mask(n_time, n_freq, frac_range=(0.05, 0.25)):
 class PatchDataset(Dataset):
     def __init__(self, paths, pe_channels=4, augment=False, max_patches=None,
                  split='train', val_frac=0.05, test_frac=0.05, split_seed=1234,
-                 amp_only=False, rand_mask=False, time_roll=False):
+                 amp_only=False, rand_mask=False, time_roll=False, smooth_target=False,
+                 smooth_bins=8):
         if isinstance(paths, str):
             paths = [paths]
         self.files = []
@@ -73,6 +93,8 @@ class PatchDataset(Dataset):
         self.amp_only = amp_only
         self.rand_mask = rand_mask and split == 'train'
         self.time_roll = time_roll and split == 'train'
+        self.smooth_target = smooth_target
+        self.smooth_bins = smooth_bins
         self.pe_channels = pe_channels
         self._handles = {}
         self._pe_cache = {}
@@ -131,14 +153,19 @@ class PatchDataset(Dataset):
             mask = random_mask(clean.shape[0], clean.shape[1])
             corrupted = clean.copy()
 
+        # decompose-then-inpaint: target amplitude = recoverable smooth bandpass; context
+        # (corrupted) stays the noisy observation. The white-noise residual is irreducible
+        # and excluded from the loss target. Phase channels are untouched (phase IS recoverable).
+        clean_amp = smooth_component(clean, mask, self.smooth_bins) if self.smooth_target else clean
+
         if self.amp_only:
-            clean_t = clean[None]
+            clean_t = clean_amp[None]
             corrupted_t = corrupted[None]
         else:
             cos_p = np.cos(phase)
             sin_p = np.sin(phase)
             # 3-channel: amplitude + cos(phase) + sin(phase).
-            clean_t = np.stack([clean, cos_p, sin_p], axis=0)
+            clean_t = np.stack([clean_amp, cos_p, sin_p], axis=0)
             corrupted_t = np.stack([corrupted, cos_p, sin_p], axis=0)
         pe = self._pe(fmin, fmax)
 

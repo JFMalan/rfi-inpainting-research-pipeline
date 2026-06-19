@@ -40,6 +40,8 @@ class Config:
     rand_mask: bool = False        # fresh random training masks (paper Method 2 / anti-memorisation)
     time_roll: bool = False        # random time-axis roll augmentation
     dropout: float = 0.0           # U-Net dropout
+    smooth_target: bool = False    # decompose-then-inpaint: predict recoverable smooth bandpass, not noisy amp
+    smooth_bins: int = 8           # freq box-filter width for the smooth component
 
     val_eval_patches: int = 64
     early_stop: bool = True

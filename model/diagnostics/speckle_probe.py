@@ -83,11 +83,17 @@ def main(args):
     opt = torch.optim.AdamW(model.parameters(), lr=args.lr)
     g = torch.Generator().manual_seed(0)
 
+    # decompose-then-inpaint: target = recoverable smooth structure, context = noisy obs.
+    # 'noisy' reproduces the old behaviour (target = noisy clean).
+    tgt_all = smooth if args.train_target == 'smooth' else clean
+    log(f"train target = {args.train_target} (std {tgt_all[:,0].std():.3f}); "
+        f"context = noisy clean (std {clean[:,0].std():.3f})")
+
     model.train()
     win = []
     for it in range(args.iters):
         idx = torch.randint(0, clean.shape[0], (args.bs,), generator=g)
-        mb = {'clean': clean[idx].to(dev), 'corrupted': clean[idx].to(dev),
+        mb = {'clean': tgt_all[idx].to(dev), 'corrupted': clean[idx].to(dev),
               'mask': mask[idx].to(dev), 'pe': pe[idx].to(dev)}
         opt.zero_grad()
         loss = diff.loss(model, mb, cfg)
@@ -152,4 +158,5 @@ if __name__ == '__main__':
     ap.add_argument('--eta', type=float, default=0.0)
     ap.add_argument('--steps', type=int, default=200)
     ap.add_argument('--log-every', type=int, default=100, dest='log_every')
+    ap.add_argument('--train-target', default='noisy', choices=['noisy', 'smooth'], dest='train_target')
     main(ap.parse_args())
