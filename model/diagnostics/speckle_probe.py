@@ -97,9 +97,14 @@ def main(args):
 
     model.eval()
     with torch.no_grad():
-        cond = build_cond(clean, mask, pe, hole_fill='mean')
-        pred = diff.sample(model, cond, clean, mask, predict=cfg.predict,
-                           eta=args.eta, steps=args.steps)
+        preds = []
+        for s in range(0, clean.shape[0], args.eval_bs):
+            e = min(s + args.eval_bs, clean.shape[0])
+            cond = build_cond(clean[s:e], mask[s:e], pe[s:e], hole_fill='mean')
+            preds.append(diff.sample(model, cond, clean[s:e], mask[s:e],
+                                     predict=cfg.predict, eta=args.eta, steps=args.steps))
+            log(f"  sampled {e}/{clean.shape[0]}")
+        pred = torch.cat(preds, 0)
         region = mask > 0
         amp_p = pred[:, 0:1]
         mae_noisy = (amp_p - clean[:, 0:1]).abs()[region].mean().item()
@@ -138,6 +143,7 @@ if __name__ == '__main__':
     ap.add_argument('--n', type=int, default=64)
     ap.add_argument('--iters', type=int, default=6000)
     ap.add_argument('--bs', type=int, default=8)
+    ap.add_argument('--eval-bs', type=int, default=8, dest='eval_bs')
     ap.add_argument('--lr', type=float, default=2e-4)
     ap.add_argument('--predict', default='x0', choices=['x0', 'noise'])
     ap.add_argument('--eta', type=float, default=0.0)
