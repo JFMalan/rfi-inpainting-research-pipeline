@@ -30,47 +30,58 @@ def lag1(x, axis):
 
 
 def main(args):
+    out = Path(args.output); out.mkdir(parents=True, exist_ok=True)
     with h5py.File(args.data, 'r') as f:
         akey = 'clean' if 'clean' in f else 'data'
         mkey = 'mask' if 'mask' in f else 'flags'
-        amp = f[akey][args.patch].astype(np.float32)
-        mask = f[mkey][args.patch].astype(np.float32)
-        phase = f['phase'][args.patch].astype(np.float32)
+        tot = f[akey].shape[0]
         fmin = float(f.attrs['freq_min_mhz']); fmax = float(f.attrs['freq_max_mhz'])
+        if args.patches:
+            idx = [int(p) for p in args.patches.split(',')]
+        else:
+            idx = np.linspace(0, tot - 1, args.n).astype(int).tolist()
+        print(f"{akey}: {tot} patches, using {idx}", flush=True)
+        ext = [0, f[akey].shape[1], fmin, fmax]
+        ac_s, ac_g, ac_p = [], [], []
+        for p in idx:
+            amp = f[akey][p].astype(np.float32)
+            mask = f[mkey][p].astype(np.float32)
+            phase = f['phase'][p].astype(np.float32)
+            smooth, grain = smooth_and_residual(amp, mask, args.bins)
+            cos_p = np.cos(phase)
+            valid = mask < 0.5
+            s_ac, g_ac, p_ac = lag1(smooth, 1), lag1(grain, 1), lag1(cos_p, 1)
+            ac_s.append(s_ac); ac_g.append(g_ac); ac_p.append(p_ac)
+            print(f"patch {p:5d}  flag {mask.mean():.2f}  std amp={amp[valid].std():.3f} "
+                  f"smooth={smooth[valid].std():.3f} grain={grain[valid].std():.3f}  "
+                  f"ac(freq) smooth={s_ac:.2f} grain={g_ac:.2f} phase={p_ac:.2f}", flush=True)
+            vlo, vhi = np.percentile(amp[valid], [2, 98])
+            gs = max(grain.std(), 1e-6)
+            panels = [
+                (amp.T, 'observed amplitude', vlo, vhi, 'plasma'),
+                (smooth.T, f'SMOOTH amp (recoverable, ac={s_ac:.2f})', vlo, vhi, 'plasma'),
+                (grain.T, f'amp GRAIN (noise, ac={g_ac:.2f})', -3*gs, 3*gs, 'coolwarm'),
+                (cos_p.T, f'cos(phase) FRINGES (recoverable, ac={p_ac:.2f})', -1, 1, 'twilight'),
+            ]
+            fig, ax = plt.subplots(1, 4, figsize=(20, 5))
+            for a, (im, title, lo, hi, cm) in zip(ax, panels):
+                a.imshow(im, aspect='auto', origin='lower', extent=ext, vmin=lo, vmax=hi, cmap=cm)
+                a.set_title(title, fontsize=10); a.set_xlabel('time')
+            ax[0].set_ylabel('freq MHz')
+            fig.suptitle(f'patch {p}  (flag {mask.mean():.2f})', fontsize=11)
+            plt.tight_layout(); plt.savefig(out / f'layers_patch{p}.png', dpi=110); plt.close()
 
-    smooth, grain = smooth_and_residual(amp, mask, args.bins)
-    cos_p, sin_p = np.cos(phase), np.sin(phase)
-    valid = mask < 0.5
-
-    print(f"patch {args.patch}  flag frac {mask.mean():.3f}", flush=True)
-    print(f"layer stds (unflagged):  amp={amp[valid].std():.3f}  smooth={smooth[valid].std():.3f}  "
-          f"grain={grain[valid].std():.3f}", flush=True)
-    print(f"lag-1 autocorr along-freq:  smooth={lag1(smooth,1):.3f}  grain={lag1(grain,1):.3f}  "
-          f"cos(phase)={lag1(cos_p,1):.3f}", flush=True)
-    print(f"  (high autocorr = recoverable structure; ~0 = white noise)", flush=True)
-
-    ext = [0, amp.shape[0], fmin, fmax]
-    vlo, vhi = np.percentile(amp[valid], [2, 98])
-    panels = [
-        (amp.T, 'observed amplitude', vlo, vhi, 'plasma'),
-        (smooth.T, f'SMOOTH amp (recoverable, ac={lag1(smooth,1):.2f})', vlo, vhi, 'plasma'),
-        (grain.T, f'amp GRAIN (noise, ac={lag1(grain,1):.2f})', -3*grain.std(), 3*grain.std(), 'coolwarm'),
-        (cos_p.T, f'cos(phase) FRINGES (recoverable, ac={lag1(cos_p,1):.2f})', -1, 1, 'twilight'),
-    ]
-    fig, ax = plt.subplots(1, 4, figsize=(20, 5))
-    for a, (img, title, lo, hi, cm) in zip(ax, panels):
-        a.imshow(img, aspect='auto', origin='lower', extent=ext, vmin=lo, vmax=hi, cmap=cm)
-        a.set_title(title, fontsize=10); a.set_xlabel('time')
-    ax[0].set_ylabel('freq MHz')
-    out = Path(args.output); out.mkdir(parents=True, exist_ok=True)
-    plt.tight_layout(); plt.savefig(out / f'layers_patch{args.patch}.png', dpi=120); plt.close()
-    print(f"saved -> {out}/layers_patch{args.patch}.png", flush=True)
+    print(f"\nMEAN over {len(idx)} patches  ac(freq):  smooth={np.nanmean(ac_s):.3f}  "
+          f"grain={np.nanmean(ac_g):.3f}  phase={np.nanmean(ac_p):.3f}", flush=True)
+    print("  -> grain ~0 = irreducible noise; smooth & phase high = recoverable structure", flush=True)
+    print(f"saved {len(idx)} figures -> {out}/", flush=True)
 
 
 if __name__ == '__main__':
     ap = argparse.ArgumentParser()
     ap.add_argument('--data', required=True)
-    ap.add_argument('--patch', type=int, default=0)
+    ap.add_argument('--n', type=int, default=8)
+    ap.add_argument('--patches', default=None, help='comma-separated indices; overrides --n')
     ap.add_argument('--bins', type=int, default=8)
     ap.add_argument('--output', default='vis-layers')
     main(ap.parse_args())
