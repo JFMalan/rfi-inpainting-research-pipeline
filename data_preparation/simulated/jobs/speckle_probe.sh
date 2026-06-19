@@ -59,7 +59,7 @@ probe () {
     echo ""
     echo ">>>>> PROBE  $(basename $data)  predict=$pred eta=$eta  iters=$ITERS n=$N"
     singularity exec --nv $NVBIND $GPU python $DIAG/speckle_probe.py \
-        --data $data --n $N --iters $ITERS --bs 8 --eval-bs 4 --predict $pred --eta $eta
+        --data $data --n $N --iters $ITERS --bs 4 --eval-bs 4 --predict $pred --eta $eta
 }
 
 # x0/eta0 is the recovery-optimal config (conditional mean). sweep speckle level.

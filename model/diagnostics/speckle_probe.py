@@ -6,6 +6,7 @@ from pathlib import Path
 import h5py
 import numpy as np
 import torch
+from scipy.ndimage import uniform_filter
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
@@ -74,7 +75,7 @@ def main(args):
     clean, smooth, mask, pe = load(args.data, args.n, rng)
     log(f"loaded {clean.shape[0]} patches  clean_std={clean[:,0].std():.3f}  "
         f"smooth_std={smooth[:,0].std():.3f}")
-    clean, smooth, mask, pe = clean.to(dev), smooth.to(dev), mask.to(dev), pe.to(dev)
+    # keep the full set on CPU; only the active mini-batch goes to GPU (matches train.py)
 
     model = UNet(cfg.in_channels, out_ch=3, base=cfg.base, ch_mult=cfg.ch_mult,
                  attn_res=cfg.attn_res, num_res=cfg.num_res, img_size=cfg.img_size).to(dev)
@@ -86,7 +87,8 @@ def main(args):
     win = []
     for it in range(args.iters):
         idx = torch.randint(0, clean.shape[0], (args.bs,), generator=g)
-        mb = {'clean': clean[idx], 'corrupted': clean[idx], 'mask': mask[idx], 'pe': pe[idx]}
+        mb = {'clean': clean[idx].to(dev), 'corrupted': clean[idx].to(dev),
+              'mask': mask[idx].to(dev), 'pe': pe[idx].to(dev)}
         opt.zero_grad()
         loss = diff.loss(model, mb, cfg)
         loss.backward()
@@ -100,11 +102,13 @@ def main(args):
         preds = []
         for s in range(0, clean.shape[0], args.eval_bs):
             e = min(s + args.eval_bs, clean.shape[0])
-            cond = build_cond(clean[s:e], mask[s:e], pe[s:e], hole_fill='mean')
-            preds.append(diff.sample(model, cond, clean[s:e], mask[s:e],
-                                     predict=cfg.predict, eta=args.eta, steps=args.steps))
+            cb, mb_, pb = clean[s:e].to(dev), mask[s:e].to(dev), pe[s:e].to(dev)
+            cond = build_cond(cb, mb_, pb, hole_fill='mean')
+            preds.append(diff.sample(model, cond, cb, mb_,
+                                     predict=cfg.predict, eta=args.eta, steps=args.steps).cpu())
             log(f"  sampled {e}/{clean.shape[0]}")
         pred = torch.cat(preds, 0)
+        clean, smooth, mask = clean.cpu(), smooth.cpu(), mask.cpu()
         region = mask > 0
         amp_p = pred[:, 0:1]
         mae_noisy = (amp_p - clean[:, 0:1]).abs()[region].mean().item()
@@ -113,7 +117,6 @@ def main(args):
 
         ap = pred[:, 0].cpu().numpy(); at = clean[:, 0].cpu().numpy()
         mk = mask[:, 0].cpu().numpy() > 0
-        from scipy.ndimage import uniform_filter
         trs = []
         for b in range(ap.shape[0]):
             if mk[b].sum() < 20 or (~mk[b]).sum() < 20:
