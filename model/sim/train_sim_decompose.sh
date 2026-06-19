@@ -2,7 +2,7 @@
 #SBATCH --job-name='rfi-train-decompose'
 #SBATCH --partition=GPU
 #SBATCH --gres=gpu:1
-#SBATCH --constraint=A100|A40|V100
+#SBATCH --constraint=A40
 #SBATCH --cpus-per-task=8
 #SBATCH --mem=64GB
 #SBATCH --time=72:00:00
