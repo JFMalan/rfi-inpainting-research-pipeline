@@ -62,4 +62,11 @@ done
 # at full real speckle, also check eps to confirm it only adds texture, not recovery
 probe $WORK/sweep_sp0.18.h5 noise 1.0
 
-echo "done."
+echo "=================================================================="
+echo "visualise speckle vs real (sanity check the data looks realistic)"
+echo "=================================================================="
+REAL=/scratch3/users/$USER/rfi/real/variants/v1_upsample512.h5
+singularity exec $ASTROPY python $SCRIPTS/data_preparation/simulated/visualisation/vis_speckle.py \
+    --sim $WORK/sweep_sp0.18.h5 --real $REAL --output $WORK/vis --n 8
+
+echo "done. plots in $WORK/vis/"
