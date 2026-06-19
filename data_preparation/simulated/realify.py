@@ -91,6 +91,7 @@ def main(args):
     with h5py.File(out, 'w') as f:
         shp = fin[src_key].shape
         clean_ds = f.create_dataset('clean', shape=shp, dtype=np.float32)
+        smooth_ds = f.create_dataset('clean_smooth', shape=shp, dtype=np.float32)
         corr_ds = f.create_dataset('corrupted', shape=shp, dtype=np.float32)
         mask_ds = f.create_dataset('mask', shape=shp, dtype=np.float32)
         for k in keep_keys:
@@ -111,12 +112,13 @@ def main(args):
             e = min(s + chunk, n)
             block = fin[src_key][s:e].astype(np.float32)
             for j, patch in enumerate(block):
-                scaled = rescale_amp(patch, args.amp_mean, args.amp_std)
+                smooth = rescale_amp(patch, args.amp_mean, args.amp_std)
+                scaled = smooth
                 if args.speckle_std > 0:
-                    scaled = scaled + correlated_speckle(scaled.shape, args.speckle_std,
-                                                          args.corr_len, rng)
-                    scaled = np.clip(scaled, 0.0, None)
+                    scaled = np.clip(smooth + correlated_speckle(smooth.shape, args.speckle_std,
+                                                                 args.corr_len, rng), 0.0, None)
                 clean_ds[s + j] = scaled
+                smooth_ds[s + j] = smooth
                 m = make_mask(nt, nf, bands, args.target_frac, args.band_fill,
                               args.wide_lo, args.wide_hi, rng)
                 # corrupted: clean + bright RFI in the mask (model never sees it; hidden)
