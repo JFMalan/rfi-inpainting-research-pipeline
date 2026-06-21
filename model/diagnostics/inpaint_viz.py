@@ -9,21 +9,21 @@ import h5py
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from config import phase1, phase2
-from data import positional_encoding, fake_mask, build_cond, smooth_component
+from data import positional_encoding, fake_mask, build_cond
 from diffusion import Diffusion
 from unet import UNet
 
 
 def load_sim(f, idx, pe_ch, band_min, band_max, n_t, n_f, smooth_tgt=False, smooth_sigma=1.0):
-    clean = f['clean'][idx].astype(np.float32)
+    clean = f['clean'][idx].astype(np.float32)       # RAW clean = the ground truth, untouched
     corrupted = f['corrupted'][idx].astype(np.float32)
     mask = f['mask'][idx].astype(np.float32)
     phase = f['phase'][idx].astype(np.float32)
-    # show the smooth component as GT if the model was trained on the smooth target, so
-    # the fill is compared against what it actually predicts (not the noisy raw clean).
-    clean_gt = smooth_component(clean, mask, smooth_sigma) if smooth_tgt else clean
     cos_p, sin_p = np.cos(phase), np.sin(phase)
-    x0 = np.stack([clean_gt, cos_p, sin_p], 0)
+    # GT shown is ALWAYS raw clean. The known region pinned during sampling is raw clean
+    # too (the model fills the hole from real context). smooth_tgt no longer alters what
+    # is displayed/conditioned — the model's smooth-vs-raw nature shows in the FILL itself.
+    x0 = np.stack([clean, cos_p, sin_p], 0)
     cond_src = np.stack([corrupted, cos_p, sin_p], 0)
     pe = positional_encoding(band_min, band_max, band_min, band_max, n_f, n_t, pe_ch)
     return x0, cond_src, mask, pe
