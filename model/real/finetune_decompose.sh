@@ -18,8 +18,9 @@ VARIANTS=${VARIANTS:-"v1_upsample512"}
 INIT=${INIT:-/idia/users/$USER/rfi/runs/phase1_all_decompose/best.pt}
 ITERS=${ITERS:-8000}
 BATCH=${BATCH:-4}
-LR=${LR:-2e-4}
-SIGMA=${SIGMA:-1.0}     # sigma sweep on real: cleanly splits structure (smooth ac~0.92) from white noise (grain ac~0.01)
+LR=${LR:-4e-5}         # fine-tune LR (5x below from-scratch 2e-4) so the sim prior isn't blown away
+EMA=${EMA:-0.999}      # fast EMA: 0.9999 froze the shadow at the init over a short run (audit)
+SIGMA=${SIGMA:-1.0}    # sigma sweep on real: cleanly splits structure (smooth ac~0.92) from white noise (grain ac~0.01)
 DO_SCRATCH=${DO_SCRATCH:-1}
 
 GPU=/idia/software/containers/ASTRO-GPU-PyTorch-2026-01-28.sif
@@ -37,12 +38,12 @@ if [ ! -f "$INIT" ]; then
 fi
 
 run_one () {
-    local NAME=$1 MODE=$2 H5=$3 OUT=$4 EXTRA=$5
+    local NAME=$1 MODE=$2 H5=$3 OUT=$4 RLR=$5 EXTRA=$6
     echo ""
-    echo "======== TRAIN $NAME [$MODE] (decompose) ========"
+    echo "======== TRAIN $NAME [$MODE] (decompose, lr=$RLR ema=$EMA) ========"
     singularity exec --nv $NVBIND $GPU python $SCRIPTS/train_real.py \
-        --data $H5 --out $OUT --epochs 1000 --batch-size $BATCH --max-iters $ITERS --lr $LR \
-        --sample-every 4 --val-eval-patches 24 --min-epochs 4 --min-delta 0.02 --patience 4 \
+        --data $H5 --out $OUT --epochs 1000 --batch-size $BATCH --max-iters $ITERS --lr $RLR \
+        --ema-decay $EMA --sample-every 4 --val-eval-patches 24 --min-epochs 8 --min-delta 0.005 --patience 6 \
         --smooth-target --smooth-sigma $SIGMA $EXTRA || { echo "train failed $NAME $MODE"; return; }
     echo "======== EVAL  $NAME [$MODE] (decompose, vs smooth target) ========"
     singularity exec --nv $NVBIND $GPU python $SCRIPTS/real/eval_real.py \
@@ -52,9 +53,9 @@ run_one () {
 
 for V in $VARIANTS; do
     H5=$VARDIR/${V}.h5
-    run_one $V finetune $H5 $RUNROOT/${V}_finetune "--init-from $INIT"
+    run_one $V finetune $H5 $RUNROOT/${V}_finetune $LR "--init-from $INIT"
     if [ "$DO_SCRATCH" = "1" ]; then
-        run_one $V scratch $H5 $RUNROOT/${V}_scratch ""
+        run_one $V scratch $H5 $RUNROOT/${V}_scratch 2e-4 ""
     fi
 done
 

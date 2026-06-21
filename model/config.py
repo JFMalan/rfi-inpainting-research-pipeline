@@ -23,6 +23,7 @@ class Config:
     # phase 2 mixed masking (inactive in phase 1)
     fake_mask: bool = False
     fake_mask_frac: tuple = (0.05, 0.25)
+    fake_mask_mode: str = '2d'      # '2d' blobs (force cross-time+freq recovery) | 'bands' (legacy stripes)
 
     batch_size: int = 32
     lr: float = 2e-4

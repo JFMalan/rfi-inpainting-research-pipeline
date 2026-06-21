@@ -40,8 +40,8 @@ def main(args):
 
     if args.smooth_sigma is not None: cfg.smooth_sigma = args.smooth_sigma
     ds = RealDataset(args.data, pe_channels=cfg.pe_channels, augment=False, split='test',
-                     fake_mask_frac=cfg.fake_mask_frac, smooth_target=args.smooth_target,
-                     smooth_sigma=cfg.smooth_sigma)
+                     fake_mask_frac=cfg.fake_mask_frac, fake_mask_mode=cfg.fake_mask_mode,
+                     smooth_target=args.smooth_target, smooth_sigma=cfg.smooth_sigma)
     if args.smooth_target:
         print("smooth-target eval: obs amplitude = smooth component; all metrics vs smooth", flush=True)
     print(f"test baselines: {len(ds)}", flush=True)
@@ -55,6 +55,7 @@ def main(args):
     diff = Diffusion(T=cfg.timesteps, device=dev)
 
     tres, fmaes, mf_maes, mf_tres, ip_maes = [], [], [], [], []
+    std_ratios = []   # std of model fill / std of true (1.0 = right spread; interp/mf -> ~0)
     seen = 0
     for batch in dl:
         obs = batch['obs'].to(dev); hidden = batch['hidden'].to(dev); fake = batch['fake_mask'].to(dev)
@@ -68,6 +69,11 @@ def main(args):
         mf_maes.append(float(mae(base, obs, fake))); mf_tres.append(float(tre(base, obs, fake)))
         ip = interp_baseline(obs, hidden)
         ip_maes.append(float(mae(ip, obs, fake)))
+        reg = fake[:, 0] > 0
+        if reg.any():
+            ts = obs[:, 0][reg].std().item()
+            if ts > 1e-6:
+                std_ratios.append(pred[:, 0][reg].std().item() / ts)
         seen += obs.shape[0]
         if seen >= args.max_eval:
             break
@@ -75,6 +81,8 @@ def main(args):
     print(f"  n_eval {seen}  TRE model {np.mean(tres):.4f} mean-fill {np.mean(mf_tres):.4f}", flush=True)
     print(f"  fake-MAE  model {np.mean(fmaes):.4f}  interp {np.mean(ip_maes):.4f}  "
           f"mean-fill {np.mean(mf_maes):.4f}   (interp = the recoverable-structure bar)", flush=True)
+    print(f"  fill std/true std: {np.mean(std_ratios):.3f}  (1.0 = matches real spread; "
+          f"interp/mean-fill collapse to ~0)", flush=True)
     beats = "BEATS interp" if np.mean(fmaes) < np.mean(ip_maes) else (
             "beats mean-fill only" if np.mean(fmaes) < np.mean(mf_maes) else "ties/loses to mean-fill")
     print(f"  verdict: {beats}", flush=True)

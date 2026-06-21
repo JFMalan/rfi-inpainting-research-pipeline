@@ -89,10 +89,11 @@ def main(args):
 
     ds = RealDataset(cfg.data_glob, pe_channels=cfg.pe_channels, augment=cfg.augment,
                      max_patches=cfg.max_patches, split='train',
-                     fake_mask_frac=cfg.fake_mask_frac,
+                     fake_mask_frac=cfg.fake_mask_frac, fake_mask_mode=cfg.fake_mask_mode,
                      smooth_target=cfg.smooth_target, smooth_sigma=cfg.smooth_sigma)
     val_ds = RealDataset(cfg.data_glob, pe_channels=cfg.pe_channels, augment=False,
                          split='val', fake_mask_frac=cfg.fake_mask_frac,
+                         fake_mask_mode=cfg.fake_mask_mode,
                          smooth_target=cfg.smooth_target, smooth_sigma=cfg.smooth_sigma)
     print(f"device={device} ({gpu})  train {len(ds)}  val {len(val_ds)}  "
           f"{ds.n_time}x{ds.n_freq}  init={'scratch' if not args.init_from else args.init_from}",
@@ -116,7 +117,16 @@ def main(args):
     diff = Diffusion(T=cfg.timesteps, device=device)
     opt = torch.optim.AdamW(model.parameters(), lr=cfg.lr)
     sched = torch.optim.lr_scheduler.CosineAnnealingLR(opt, T_max=cfg.epochs, eta_min=cfg.lr * 0.05)
-    ema = EMA(model, cfg.ema_decay)
+    # short fine-tunes (few hundred steps) need a fast EMA or the shadow stays frozen at
+    # the init weights and val/best.pt never reflect the fine-tune. scale to run length.
+    if args.ema_decay is not None:
+        ema_decay = args.ema_decay
+    else:
+        approx_steps = max(50, (len(ds) // cfg.batch_size) * cfg.epochs if not args.max_iters
+                           else args.max_iters)
+        ema_decay = min(cfg.ema_decay, 1.0 - 1.0 / max(approx_steps / 10.0, 10.0))
+    print(f"EMA decay {ema_decay:.5f}", flush=True)
+    ema = EMA(model, ema_decay)
 
     start_epoch = 0
     if args.resume and Path(args.resume).exists():
@@ -218,4 +228,5 @@ if __name__ == '__main__':
     ap.add_argument('--seed', type=int, default=0)
     ap.add_argument('--smooth-target', action='store_true', dest='smooth_target')
     ap.add_argument('--smooth-sigma', type=float, default=None, dest='smooth_sigma')
+    ap.add_argument('--ema-decay', type=float, default=None, dest='ema_decay')
     main(ap.parse_args())

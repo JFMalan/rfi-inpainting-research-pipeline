@@ -183,13 +183,15 @@ class PatchDataset(Dataset):
         self._handles = {}
 
 
-def fake_mask(real_flags, frac_range=(0.05, 0.25), width_range=(8, 32), max_tries=200):
-    # mixed-masking (Massoud): artificial holes placed over UNFLAGGED pixels, so
-    # the observed data at those pixels is a known self-supervised target. Pixels
-    # already real-flagged carry no ground truth and are excluded.
-    # holes are WIDE freq bands (width_range) like real persistent RFI; narrow 1-px
-    # stripes are trivially solved by linear freq-interp (which beat the model on the
-    # old 1-8px holes), hiding whether the model recovers genuine 2D structure.
+def fake_mask(real_flags, frac_range=(0.05, 0.25), width_range=(8, 32), max_tries=200,
+              mode='2d'):
+    # mixed-masking (Massoud): artificial holes over UNFLAGGED pixels, where the observed
+    # data is a known self-supervised target. real-flagged pixels carry no target.
+    # mode='2d': RECTANGULAR BLOBS bounded in both time and freq. A full-time freq stripe
+    # is filled by 1D freq-interp = the smooth/bandpass target, so the model can't beat
+    # interp on it (audit 2026-06-21). 2D blobs force the model to use cross-time AND
+    # cross-freq context, which is the only setting where it can beat interpolation.
+    # mode='bands': legacy full-width stripes (kept for comparison).
     n_time, n_freq = real_flags.shape
     fm = np.zeros((n_time, n_freq), dtype=np.float32)
     target = np.random.uniform(*frac_range)
@@ -200,7 +202,11 @@ def fake_mask(real_flags, frac_range=(0.05, 0.25), width_range=(8, 32), max_trie
     tries = 0
     while (fm * unflagged).mean() < target and tries < max_tries:
         tries += 1
-        if np.random.rand() < 0.6:
+        if mode == '2d':
+            wf = np.random.randint(wlo, whi + 1); wt = np.random.randint(wlo, whi + 1)
+            f0 = np.random.randint(0, max(1, n_freq - wf)); t0 = np.random.randint(0, max(1, n_time - wt))
+            fm[t0:t0 + wt, f0:f0 + wf] = 1.0
+        elif np.random.rand() < 0.6:
             w = np.random.randint(wlo, whi + 1); f0 = np.random.randint(0, max(1, n_freq - w))
             fm[:, f0:f0 + w] = 1.0
         else:
@@ -213,7 +219,8 @@ def fake_mask(real_flags, frac_range=(0.05, 0.25), width_range=(8, 32), max_trie
 class RealDataset(Dataset):
     def __init__(self, paths, pe_channels=4, augment=False, max_patches=None,
                  split='train', val_frac=0.05, test_frac=0.05, split_seed=1234,
-                 fake_mask_frac=(0.05, 0.25), smooth_target=False, smooth_sigma=2.0):
+                 fake_mask_frac=(0.05, 0.25), smooth_target=False, smooth_sigma=2.0,
+                 fake_mask_mode='2d'):
         if isinstance(paths, str):
             paths = [paths]
         self.files = []
@@ -267,6 +274,7 @@ class RealDataset(Dataset):
         self.split = split
         self.augment = augment and split == 'train'
         self.fake_mask_frac = fake_mask_frac
+        self.fake_mask_mode = fake_mask_mode
         self.smooth_target = smooth_target
         self.smooth_sigma = smooth_sigma
         self.pe_channels = pe_channels
@@ -309,7 +317,7 @@ class RealDataset(Dataset):
             phase = phase[::-1].copy()
             real_flags = real_flags[::-1].copy()
 
-        fm = fake_mask(real_flags, self.fake_mask_frac)
+        fm = fake_mask(real_flags, self.fake_mask_frac, mode=self.fake_mask_mode)
 
         # decompose-then-inpaint: the self-sup target becomes the recoverable smooth
         # amplitude (real_flags masked out so flagged junk doesn't pollute the smoothing).
