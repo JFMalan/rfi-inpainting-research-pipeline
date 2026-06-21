@@ -16,24 +16,30 @@ GPU=/idia/software/containers/ASTRO-GPU-PyTorch-2026-01-28.sif
 ASTROPY=/idia/software/containers/ASTRO-PY3.10.sif
 SCRIPTS=/users/$USER/rfi-inpainting-research-pipeline/model
 DATA=${DATA:-/scratch3/users/$USER/rfi/simulated/run1/dataset.h5}
-CKPT=${CKPT:-/idia/users/$USER/rfi/runs/phase1_all_decompose/best.pt}
-NPZ=/scratch3/users/$USER/rfi/vis-sim/sim_inpaint.npz
-PNG=/scratch3/users/$USER/rfi/vis-sim/sim_inpaint.png
+FULL=${FULL:-/idia/users/$USER/rfi/runs/phase1_all/best.pt}                # full-amplitude model
+DECOMP=${DECOMP:-/idia/users/$USER/rfi/runs/phase1_all_decompose/best.pt}  # smooth-target model
+OUTDIR=/scratch3/users/$USER/rfi/vis-sim
+N=${N:-6}; STEPS=${STEPS:-200}; WORST=${WORST:-1}
 
-mkdir -p $(dirname $NPZ) logs
+mkdir -p $OUTDIR logs
 LIBCUDA=$(ls /usr/lib/x86_64-linux-gnu/libcuda.so.*.* 2>/dev/null | head -1)
 LIBNVML=$(ls /usr/lib/x86_64-linux-gnu/libnvidia-ml.so.*.* 2>/dev/null | head -1)
 NVBIND="--bind $LIBCUDA:/usr/lib/x86_64-linux-gnu/libcuda.so.1 --bind $LIBNVML:/usr/lib/x86_64-linux-gnu/libnvidia-ml.so.1"
 
-[ -f "$CKPT" ] || { echo "checkpoint missing: $CKPT"; exit 1; }
+WARG=""; [ "$WORST" = "1" ] && WARG="--worst"
 
-echo "=== inpaint sim with smooth-target model (GT shown = smooth component) ==="
-singularity exec --nv $NVBIND $GPU python $SCRIPTS/diagnostics/inpaint_viz.py \
-    --data $DATA --ckpt $CKPT --out $NPZ --n ${N:-6} --steps ${STEPS:-200} \
-    --smooth-target --smooth-sigma ${SIGMA:-1.0}
+run_one () {
+    local tag=$1 ckpt=$2
+    [ -f "$ckpt" ] || { echo "checkpoint missing: $ckpt, skipping $tag"; return; }
+    echo "=== inpaint sim [$tag]  ckpt=$ckpt (GT shown = RAW clean) ==="
+    singularity exec --nv $NVBIND $GPU python $SCRIPTS/diagnostics/inpaint_viz.py \
+        --data $DATA --ckpt $ckpt --out $OUTDIR/sim_${tag}.npz --n $N --steps $STEPS $WARG
+    singularity exec $ASTROPY python $SCRIPTS/diagnostics/visualise_samples.py \
+        --input $OUTDIR/sim_${tag}.npz --output $OUTDIR/sim_${tag}.png --n-show $N
+    echo "  -> $OUTDIR/sim_${tag}.png"
+}
 
-echo "=== render ==="
-singularity exec $ASTROPY python $SCRIPTS/diagnostics/visualise_samples.py \
-    --input $NPZ --output $PNG --n-show ${N:-6}
+run_one full   $FULL      # the original 34x model: should fill fringes SHARP
+run_one decomp $DECOMP    # smooth-target model: fills smooth by design
 
-echo "done -> $PNG"
+echo "done. compare $OUTDIR/sim_full.png (sharp) vs sim_decomp.png (smooth)"

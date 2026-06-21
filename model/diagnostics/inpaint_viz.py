@@ -54,7 +54,18 @@ def main(args):
     band_min = float(f.attrs['freq_min_mhz']); band_max = float(f.attrs['freq_max_mhz'])
     ntot = f['data'].shape[0] if args.real else f['clean'].shape[0]
     rng = np.random.default_rng(args.seed)
-    idxs = sorted(rng.choice(ntot, size=min(args.n, ntot), replace=False).tolist())
+    if args.worst and not args.real:
+        # rank baselines by how much RAW clean structure survives smoothing inside random
+        # holes — pick the ones with the MOST recoverable structure (hardest test of the fill)
+        cand = sorted(rng.choice(ntot, size=min(64, ntot), replace=False).tolist())
+        scores = []
+        for i in cand:
+            c = f['clean'][i].astype(np.float32); m = f['mask'][i].astype(np.float32)
+            hi = m > 0.5
+            scores.append((float(c[hi].std()) if hi.any() else 0.0, i))
+        idxs = [i for _, i in sorted(scores, reverse=True)[:args.n]]
+    else:
+        idxs = sorted(rng.choice(ntot, size=min(args.n, ntot), replace=False).tolist())
 
     model = UNet(cfg.in_channels, out_ch=cfg.target_channels, base=cfg.base, ch_mult=cfg.ch_mult,
                  attn_res=cfg.attn_res, num_res=cfg.num_res, img_size=cfg.img_size).to(dev)
@@ -109,4 +120,5 @@ if __name__ == '__main__':
     ap.add_argument('--seed', type=int, default=0)
     ap.add_argument('--smooth-target', action='store_true', dest='smooth_target')
     ap.add_argument('--smooth-sigma', type=float, default=1.0, dest='smooth_sigma')
+    ap.add_argument('--worst', action='store_true', help='pick the most-structured holes (hardest test) instead of random')
     main(ap.parse_args())
