@@ -39,7 +39,9 @@ def main(args):
     print(f"device={dev} ({gpu})  ckpt={args.ckpt}  data={args.data}", flush=True)
 
     ds = RealDataset(args.data, pe_channels=cfg.pe_channels, augment=False, split='test',
-                     fake_mask_frac=cfg.fake_mask_frac)
+                     fake_mask_frac=cfg.fake_mask_frac, smooth_target=args.smooth_target)
+    if args.smooth_target:
+        print("smooth-target eval: obs amplitude = smooth component; all metrics vs smooth", flush=True)
     print(f"test baselines: {len(ds)}", flush=True)
     dl = DataLoader(ds, batch_size=args.batch_size, shuffle=False, num_workers=2)
 
@@ -86,4 +88,5 @@ if __name__ == '__main__':
     ap.add_argument('--predict', default='x0')
     ap.add_argument('--batch-size', type=int, default=4)
     ap.add_argument('--max-eval', type=int, default=64)
+    ap.add_argument('--smooth-target', action='store_true', dest='smooth_target')
     main(ap.parse_args())

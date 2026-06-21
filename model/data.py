@@ -213,7 +213,7 @@ def fake_mask(real_flags, frac_range=(0.05, 0.25), width_range=(8, 32), max_trie
 class RealDataset(Dataset):
     def __init__(self, paths, pe_channels=4, augment=False, max_patches=None,
                  split='train', val_frac=0.05, test_frac=0.05, split_seed=1234,
-                 fake_mask_frac=(0.05, 0.25)):
+                 fake_mask_frac=(0.05, 0.25), smooth_target=False, smooth_sigma=2.0):
         if isinstance(paths, str):
             paths = [paths]
         self.files = []
@@ -267,6 +267,8 @@ class RealDataset(Dataset):
         self.split = split
         self.augment = augment and split == 'train'
         self.fake_mask_frac = fake_mask_frac
+        self.smooth_target = smooth_target
+        self.smooth_sigma = smooth_sigma
         self.pe_channels = pe_channels
         self._handles = {}
         self._pe_cache = {}
@@ -309,9 +311,14 @@ class RealDataset(Dataset):
 
         fm = fake_mask(real_flags, self.fake_mask_frac)
 
+        # decompose-then-inpaint: the self-sup target becomes the recoverable smooth
+        # amplitude (real_flags masked out so flagged junk doesn't pollute the smoothing).
+        # context conditioning still hides flags+fake holes; only the target changes.
+        data_t = smooth_component(data, real_flags, self.smooth_sigma) if self.smooth_target else data
+
         cos_p = np.cos(phase)
         sin_p = np.sin(phase)
-        obs = np.stack([data, cos_p, sin_p], axis=0)
+        obs = np.stack([data_t, cos_p, sin_p], axis=0)
         hidden = np.clip(real_flags + fm, 0.0, 1.0)        # conditioning hides both
         pe = self._pe_band(fmin, fmax)
 

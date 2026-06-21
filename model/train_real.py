@@ -69,7 +69,8 @@ def val_eval(diff, ema_model, val_dl, cfg, out, epoch):
 
 def main(args):
     cfg = phase2(data_glob=args.data, out_dir=args.out, epochs=args.epochs,
-                 batch_size=args.batch_size, max_patches=args.max_patches, seed=args.seed)
+                 batch_size=args.batch_size, max_patches=args.max_patches, seed=args.seed,
+                 smooth_target=args.smooth_target)
     if args.lr: cfg.lr = args.lr
     if args.sample_every: cfg.sample_every = args.sample_every
     if args.val_eval_patches: cfg.val_eval_patches = args.val_eval_patches
@@ -87,9 +88,11 @@ def main(args):
 
     ds = RealDataset(cfg.data_glob, pe_channels=cfg.pe_channels, augment=cfg.augment,
                      max_patches=cfg.max_patches, split='train',
-                     fake_mask_frac=cfg.fake_mask_frac)
+                     fake_mask_frac=cfg.fake_mask_frac,
+                     smooth_target=cfg.smooth_target, smooth_sigma=cfg.smooth_sigma)
     val_ds = RealDataset(cfg.data_glob, pe_channels=cfg.pe_channels, augment=False,
-                         split='val', fake_mask_frac=cfg.fake_mask_frac)
+                         split='val', fake_mask_frac=cfg.fake_mask_frac,
+                         smooth_target=cfg.smooth_target, smooth_sigma=cfg.smooth_sigma)
     print(f"device={device} ({gpu})  train {len(ds)}  val {len(val_ds)}  "
           f"{ds.n_time}x{ds.n_freq}  init={'scratch' if not args.init_from else args.init_from}",
           flush=True)
@@ -212,4 +215,5 @@ if __name__ == '__main__':
     ap.add_argument('--patience', type=int, default=None)
     ap.add_argument('--resume', default=None)
     ap.add_argument('--seed', type=int, default=0)
+    ap.add_argument('--smooth-target', action='store_true', dest='smooth_target')
     main(ap.parse_args())
