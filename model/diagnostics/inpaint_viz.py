@@ -9,18 +9,21 @@ import h5py
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from config import phase1, phase2
-from data import positional_encoding, fake_mask, build_cond
+from data import positional_encoding, fake_mask, build_cond, smooth_component
 from diffusion import Diffusion
 from unet import UNet
 
 
-def load_sim(f, idx, pe_ch, band_min, band_max, n_t, n_f):
+def load_sim(f, idx, pe_ch, band_min, band_max, n_t, n_f, smooth_tgt=False, smooth_sigma=1.0):
     clean = f['clean'][idx].astype(np.float32)
     corrupted = f['corrupted'][idx].astype(np.float32)
     mask = f['mask'][idx].astype(np.float32)
     phase = f['phase'][idx].astype(np.float32)
+    # show the smooth component as GT if the model was trained on the smooth target, so
+    # the fill is compared against what it actually predicts (not the noisy raw clean).
+    clean_gt = smooth_component(clean, mask, smooth_sigma) if smooth_tgt else clean
     cos_p, sin_p = np.cos(phase), np.sin(phase)
-    x0 = np.stack([clean, cos_p, sin_p], 0)
+    x0 = np.stack([clean_gt, cos_p, sin_p], 0)
     cond_src = np.stack([corrupted, cos_p, sin_p], 0)
     pe = positional_encoding(band_min, band_max, band_min, band_max, n_f, n_t, pe_ch)
     return x0, cond_src, mask, pe
@@ -68,7 +71,8 @@ def main(args):
                 show_mask = fake_np
                 cond_mask = hidden_np
             else:
-                x0_np, cond_np, mask_np, pe_np = load_sim(f, i, cfg.pe_channels, band_min, band_max, n_t, n_f)
+                x0_np, cond_np, mask_np, pe_np = load_sim(f, i, cfg.pe_channels, band_min, band_max, n_t, n_f,
+                                                          smooth_tgt=args.smooth_target, smooth_sigma=args.smooth_sigma)
                 show_mask = mask_np
                 cond_mask = mask_np
             x0 = torch.from_numpy(x0_np)[None].to(dev)
@@ -103,4 +107,6 @@ if __name__ == '__main__':
     ap.add_argument('--steps', type=int, default=200)
     ap.add_argument('--predict', default='x0')
     ap.add_argument('--seed', type=int, default=0)
+    ap.add_argument('--smooth-target', action='store_true', dest='smooth_target')
+    ap.add_argument('--smooth-sigma', type=float, default=1.0, dest='smooth_sigma')
     main(ap.parse_args())
