@@ -2,9 +2,10 @@
 #SBATCH --job-name='rfi-compare-inpaint'
 #SBATCH --partition=GPU
 #SBATCH --gres=gpu:1
-#SBATCH --constraint=A40
+#SBATCH --constraint=A100|A40|V100
+#SBATCH --qos=qos-interactive
 #SBATCH --cpus-per-task=4
-#SBATCH --mem=32GB
+#SBATCH --mem=28GB
 #SBATCH --time=01:00:00
 #SBATCH --output=logs/compare-inpaint-%j-stdout.log
 #SBATCH --error=logs/compare-inpaint-%j-stderr.log
