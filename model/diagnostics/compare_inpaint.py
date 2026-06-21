@@ -44,8 +44,10 @@ def main(args):
     rng = np.random.default_rng(args.seed)
     idxs = sorted(rng.choice(ntot, size=min(args.n, ntot), replace=False).tolist())
 
-    sim_model = load_model(args.sim_ckpt, cfg, dev)
-    ft_model = load_model(args.ft_ckpt, cfg, dev)
+    models = [('SIM', load_model(args.sim_ckpt, cfg, dev)),
+              ('FINETUNE', load_model(args.ft_ckpt, cfg, dev))]
+    if args.scratch_ckpt:
+        models.append(('SCRATCH', load_model(args.scratch_ckpt, cfg, dev)))
     diff = Diffusion(T=cfg.timesteps, device=dev)
     pe = positional_encoding(band_min, band_max, band_min, band_max, n_f, n_t, cfg.pe_channels)
 
@@ -60,32 +62,34 @@ def main(args):
             m = torch.from_numpy(flags)[None, None].to(dev)
             pe_t = torch.from_numpy(pe.copy())[None].to(dev)
             cond = build_cond(x0, m, pe_t, hole_fill=getattr(cfg, 'hole_fill', 'mean'))
-            sim_pred = diff.sample(sim_model, cond, x0, m, predict=cfg.predict, eta=0.0, steps=args.steps)[0].cpu().numpy()
-            ft_pred = diff.sample(ft_model, cond, x0, m, predict=cfg.predict, eta=0.0, steps=args.steps)[0].cpu().numpy()
-            rows.append((data, phase, flags, sim_pred, ft_pred, i))
+            preds = [diff.sample(mdl, cond, x0, m, predict=cfg.predict, eta=0.0,
+                                 steps=args.steps)[0].cpu().numpy() for _, mdl in models]
+            rows.append((data, phase, flags, preds, i))
             print(f"  sampled {k+1}/{len(idxs)}", flush=True)
     f.close()
 
+    names = [nm for nm, _ in models]
+    # layout: observed amp | RFI mask | <amp fill per model> | observed phase | <phase fill per model>
+    titles = ["observed amp (RFI)", "RFI mask"] + [f"{nm} amp fill" for nm in names] \
+             + ["observed phase"] + [f"{nm} phase fill" for nm in names]
+    ncol = len(titles)
     n = len(rows)
-    titles = ["observed amp (RFI)", "RFI mask", "SIM-model fill", "FINETUNE fill",
-              "observed phase", "SIM phase fill", "FINETUNE phase fill"]
-    fig, ax = plt.subplots(n, 7, figsize=(4 * 7, 3.4 * n))
+    fig, ax = plt.subplots(n, ncol, figsize=(4 * ncol, 3.4 * n))
     if n == 1:
         ax = ax[None, :]
-    for r, (dt, ph, fl, sp, fp, idx) in enumerate(rows):
+    for r, (dt, ph, fl, preds, idx) in enumerate(rows):
         unflag = fl < 0.5
         vmin = np.percentile(dt[unflag], 1) if unflag.any() else float(dt.min())
         vmax = np.percentile(dt[unflag], 99) if unflag.any() else float(dt.max())
         ext = [0, n_t, band_min, band_max]
-        sim_amp = np.where(fl > 0.5, sp[0], dt)
-        ft_amp = np.where(fl > 0.5, fp[0], dt)
-        sim_ph = np.where(fl > 0.5, np.arctan2(sp[2], sp[1]), ph)
-        ft_ph = np.where(fl > 0.5, np.arctan2(fp[2], fp[1]), ph)
-        ims = [(dt, 'plasma', vmin, vmax), None, (sim_amp, 'plasma', vmin, vmax),
-               (ft_amp, 'plasma', vmin, vmax), (ph, 'twilight', -np.pi, np.pi),
-               (sim_ph, 'twilight', -np.pi, np.pi), (ft_ph, 'twilight', -np.pi, np.pi)]
-        for j, spec in enumerate(ims):
-            if j == 1:
+        panels = [(dt, 'plasma', vmin, vmax), 'MASK']
+        for p in preds:
+            panels.append((np.where(fl > 0.5, p[0], dt), 'plasma', vmin, vmax))
+        panels.append((ph, 'twilight', -np.pi, np.pi))
+        for p in preds:
+            panels.append((np.where(fl > 0.5, np.arctan2(p[2], p[1]), ph), 'twilight', -np.pi, np.pi))
+        for j, spec in enumerate(panels):
+            if spec == 'MASK':
                 ax[r, j].imshow(dt.T, aspect='auto', origin='lower', extent=ext, vmin=vmin, vmax=vmax, cmap='plasma')
                 ax[r, j].imshow(green(fl), aspect='auto', origin='lower', extent=ext)
             else:
@@ -109,6 +113,7 @@ if __name__ == '__main__':
     ap.add_argument('--data', required=True)
     ap.add_argument('--sim-ckpt', required=True, dest='sim_ckpt')
     ap.add_argument('--ft-ckpt', required=True, dest='ft_ckpt')
+    ap.add_argument('--scratch-ckpt', default=None, dest='scratch_ckpt')
     ap.add_argument('--output', required=True)
     ap.add_argument('--n', type=int, default=5)
     ap.add_argument('--steps', type=int, default=200)
