@@ -5,6 +5,7 @@ from pathlib import Path
 import numpy as np
 import torch
 import h5py
+from scipy.ndimage import gaussian_filter
 import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
@@ -77,14 +78,28 @@ def main(args):
     fig, ax = plt.subplots(n, ncol, figsize=(4 * ncol, 3.4 * n))
     if n == 1:
         ax = ax[None, :]
+    rng_v = np.random.default_rng(0)
     for r, (dt, ph, fl, preds, idx) in enumerate(rows):
         unflag = fl < 0.5
         vmin = np.percentile(dt[unflag], 1) if unflag.any() else float(dt.min())
         vmax = np.percentile(dt[unflag], 99) if unflag.any() else float(dt.max())
         ext = [0, n_t, band_min, band_max]
+        # local speckle std for this baseline: the residual of unflagged amp around its
+        # own smoothed bandpass (white noise level, matches the surrounding grain).
+        if args.resample_speckle and unflag.any():
+            sm = gaussian_filter(np.where(unflag, dt, dt[unflag].mean()), sigma=args.smooth_sigma, mode='nearest')
+            spk_std = float((dt - sm)[unflag].std())
+        else:
+            spk_std = 0.0
+        def fill_amp(p):
+            a = np.where(fl > 0.5, p[0], dt)
+            if spk_std > 0:
+                noise = rng_v.standard_normal(a.shape).astype(np.float32) * spk_std
+                a = np.where(fl > 0.5, a + noise, a)
+            return a
         panels = [(dt, 'plasma', vmin, vmax), 'MASK']
         for p in preds:
-            panels.append((np.where(fl > 0.5, p[0], dt), 'plasma', vmin, vmax))
+            panels.append((fill_amp(p), 'plasma', vmin, vmax))
         panels.append((ph, 'twilight', -np.pi, np.pi))
         for p in preds:
             panels.append((np.where(fl > 0.5, np.arctan2(p[2], p[1]), ph), 'twilight', -np.pi, np.pi))
@@ -119,4 +134,7 @@ if __name__ == '__main__':
     ap.add_argument('--steps', type=int, default=200)
     ap.add_argument('--predict', default='x0')
     ap.add_argument('--seed', type=int, default=0)
+    ap.add_argument('--resample-speckle', action='store_true', dest='resample_speckle',
+                    help='add white noise at the local unflagged residual std into the hole so the fill matches the surrounding grain')
+    ap.add_argument('--smooth-sigma', type=float, default=1.0, dest='smooth_sigma')
     main(ap.parse_args())

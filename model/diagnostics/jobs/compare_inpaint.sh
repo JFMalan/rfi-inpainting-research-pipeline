@@ -33,6 +33,7 @@ SCRATCH_ARG=""
 if [ -f "$SCRATCH" ]; then SCRATCH_ARG="--scratch-ckpt $SCRATCH"; else echo "no scratch ckpt at $SCRATCH, skipping that column"; fi
 
 singularity exec --nv $NVBIND $GPU python $SCRIPTS/diagnostics/compare_inpaint.py \
-    --data $DATA --sim-ckpt $SIM --ft-ckpt $FT $SCRATCH_ARG --output $OUT --n ${N:-5} --steps ${STEPS:-200}
+    --data $DATA --sim-ckpt $SIM --ft-ckpt $FT $SCRATCH_ARG --output $OUT --n ${N:-5} --steps ${STEPS:-200} \
+    --resample-speckle --smooth-sigma ${SIGMA:-1.0}
 
 echo "done -> $OUT"
