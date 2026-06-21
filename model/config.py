@@ -41,7 +41,9 @@ class Config:
     time_roll: bool = False        # random time-axis roll augmentation
     dropout: float = 0.0           # U-Net dropout
     smooth_target: bool = False    # decompose-then-inpaint: predict recoverable smooth bandpass, not noisy amp
-    smooth_sigma: float = 2.0      # 2D Gaussian low-pass cutoff for the smooth component
+    smooth_sigma: float = 1.0      # 2D Gaussian low-pass cutoff; sigma 1.0 cleanly splits
+                                   # recoverable structure (smooth ac~0.92) from white noise
+                                   # (grain ac~0.01) on real MeerKAT data (sigma sweep 2026-06-21)
 
     val_eval_patches: int = 64
     early_stop: bool = True

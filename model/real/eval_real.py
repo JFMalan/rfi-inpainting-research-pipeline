@@ -38,8 +38,10 @@ def main(args):
     cfg = phase2(predict=args.predict)
     print(f"device={dev} ({gpu})  ckpt={args.ckpt}  data={args.data}", flush=True)
 
+    if args.smooth_sigma is not None: cfg.smooth_sigma = args.smooth_sigma
     ds = RealDataset(args.data, pe_channels=cfg.pe_channels, augment=False, split='test',
-                     fake_mask_frac=cfg.fake_mask_frac, smooth_target=args.smooth_target)
+                     fake_mask_frac=cfg.fake_mask_frac, smooth_target=args.smooth_target,
+                     smooth_sigma=cfg.smooth_sigma)
     if args.smooth_target:
         print("smooth-target eval: obs amplitude = smooth component; all metrics vs smooth", flush=True)
     print(f"test baselines: {len(ds)}", flush=True)
@@ -89,4 +91,5 @@ if __name__ == '__main__':
     ap.add_argument('--batch-size', type=int, default=4)
     ap.add_argument('--max-eval', type=int, default=64)
     ap.add_argument('--smooth-target', action='store_true', dest='smooth_target')
+    ap.add_argument('--smooth-sigma', type=float, default=None, dest='smooth_sigma')
     main(ap.parse_args())

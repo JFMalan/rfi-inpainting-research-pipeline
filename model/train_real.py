@@ -71,6 +71,7 @@ def main(args):
     cfg = phase2(data_glob=args.data, out_dir=args.out, epochs=args.epochs,
                  batch_size=args.batch_size, max_patches=args.max_patches, seed=args.seed,
                  smooth_target=args.smooth_target)
+    if args.smooth_sigma is not None: cfg.smooth_sigma = args.smooth_sigma
     if args.lr: cfg.lr = args.lr
     if args.sample_every: cfg.sample_every = args.sample_every
     if args.val_eval_patches: cfg.val_eval_patches = args.val_eval_patches
@@ -216,4 +217,5 @@ if __name__ == '__main__':
     ap.add_argument('--resume', default=None)
     ap.add_argument('--seed', type=int, default=0)
     ap.add_argument('--smooth-target', action='store_true', dest='smooth_target')
+    ap.add_argument('--smooth-sigma', type=float, default=None, dest='smooth_sigma')
     main(ap.parse_args())

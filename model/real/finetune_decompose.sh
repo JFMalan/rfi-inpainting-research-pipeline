@@ -19,6 +19,7 @@ INIT=${INIT:-/idia/users/$USER/rfi/runs/phase1_all_decompose/best.pt}
 ITERS=${ITERS:-8000}
 BATCH=${BATCH:-4}
 LR=${LR:-2e-4}
+SIGMA=${SIGMA:-1.0}     # sigma sweep on real: cleanly splits structure (smooth ac~0.92) from white noise (grain ac~0.01)
 DO_SCRATCH=${DO_SCRATCH:-1}
 
 GPU=/idia/software/containers/ASTRO-GPU-PyTorch-2026-01-28.sif
@@ -42,11 +43,11 @@ run_one () {
     singularity exec --nv $NVBIND $GPU python $SCRIPTS/train_real.py \
         --data $H5 --out $OUT --epochs 1000 --batch-size $BATCH --max-iters $ITERS --lr $LR \
         --sample-every 4 --val-eval-patches 24 --min-epochs 4 --min-delta 0.02 --patience 4 \
-        --smooth-target $EXTRA || { echo "train failed $NAME $MODE"; return; }
+        --smooth-target --smooth-sigma $SIGMA $EXTRA || { echo "train failed $NAME $MODE"; return; }
     echo "======== EVAL  $NAME [$MODE] (decompose, vs smooth target) ========"
     singularity exec --nv $NVBIND $GPU python $SCRIPTS/real/eval_real.py \
         --data $H5 --ckpt $OUT/best.pt --tag ${NAME}_${MODE}_decompose --batch-size $BATCH \
-        --smooth-target || echo "eval failed $NAME $MODE"
+        --smooth-target --smooth-sigma $SIGMA || echo "eval failed $NAME $MODE"
 }
 
 for V in $VARIANTS; do
