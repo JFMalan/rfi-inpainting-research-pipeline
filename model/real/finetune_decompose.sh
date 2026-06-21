@@ -26,7 +26,7 @@ DO_SCRATCH=${DO_SCRATCH:-1}
 GPU=/idia/software/containers/ASTRO-GPU-PyTorch-2026-01-28.sif
 SCRIPTS=/users/$USER/rfi-inpainting-research-pipeline/model
 VARDIR=/scratch3/users/$USER/rfi/real/variants
-RUNROOT=/idia/users/$USER/rfi/runs/phase2_decompose
+RUNROOT=/idia/users/$USER/rfi/runs/phase2_decompose${TAG:+_$TAG}
 
 mkdir -p $RUNROOT logs
 LIBCUDA=$(ls /usr/lib/x86_64-linux-gnu/libcuda.so.*.* 2>/dev/null | head -1)
@@ -47,7 +47,7 @@ run_one () {
         --smooth-target --smooth-sigma $SIGMA $EXTRA || { echo "train failed $NAME $MODE"; return; }
     echo "======== EVAL  $NAME [$MODE] (decompose, vs smooth target) ========"
     singularity exec --nv $NVBIND $GPU python $SCRIPTS/real/eval_real.py \
-        --data $H5 --ckpt $OUT/best.pt --tag ${NAME}_${MODE}_decompose --batch-size $BATCH \
+        --data $H5 --ckpt $OUT/best.pt --tag ${NAME}_${MODE}_decompose${TAG:+_$TAG} --batch-size $BATCH \
         --smooth-target --smooth-sigma $SIGMA || echo "eval failed $NAME $MODE"
 }
 
