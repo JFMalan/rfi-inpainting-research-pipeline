@@ -5,7 +5,7 @@
 #SBATCH --constraint=A40
 #SBATCH --cpus-per-task=8
 #SBATCH --mem=64GB
-#SBATCH --time=72:00:00
+#SBATCH --time=96:00:00
 #SBATCH --output=logs/train-decompose-%j-stdout.log
 #SBATCH --error=logs/train-decompose-%j-stderr.log
 #SBATCH --mail-type=BEGIN,END,FAIL
@@ -14,10 +14,11 @@
 set -e
 
 RUN_ID=${RUN_ID:-all}
-EPOCHS=${EPOCHS:-40}
+EPOCHS=${EPOCHS:-80}
 BATCH=${BATCH:-4}
 MAX_PATCHES=${MAX_PATCHES:-}
 PHASE=${PHASE:-1}
+TAG=${TAG:-_80ep}
 
 GPU=/idia/software/containers/ASTRO-GPU-PyTorch-2026-01-28.sif
 SCRIPTS=/users/$USER/rfi-inpainting-research-pipeline/model
@@ -26,7 +27,7 @@ if [ "$RUN_ID" = "all" ]; then
 else
     DATASET="/scratch3/users/$USER/rfi/simulated/run${RUN_ID}/dataset.h5"
 fi
-OUT=/idia/users/$USER/rfi/runs/phase${PHASE}_${RUN_ID}_decompose
+OUT=/idia/users/$USER/rfi/runs/phase${PHASE}_${RUN_ID}_decompose${TAG}
 
 mkdir -p $OUT logs
 
