@@ -23,7 +23,9 @@ NVBIND="--bind $LIBCUDA:/usr/lib/x86_64-linux-gnu/libcuda.so.1 --bind $LIBNVML:/
 echo "node $(hostname)  data $DATA"
 
 # tag | ckpt | smooth-flag  (decompose ckpts MUST eval with --smooth-target for obs/target parity)
+# phase1_all = best sim-trained model (full-amp) applied to real -> raw context, no smooth flag
 CONFIGS=(
+  "sim_phase1_all|$RUNS/phase1_all/best.pt|"
   "decompose_finetune|$RUNS/phase2_decompose/v1_upsample512_finetune/best.pt|--smooth-target"
   "decompose_scratch|$RUNS/phase2_decompose/v1_upsample512_scratch/best.pt|--smooth-target"
   "fullamp_finetune|$RUNS/phase2_decompose_fullamp/v1_upsample512_finetune/best.pt|"
