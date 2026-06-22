@@ -30,16 +30,18 @@ def meanfill(obs, hidden):
 AREA_EDGES = [0, 64, 256, 1024, np.inf]   # px; ~<8, 8-16, 16-32, >32 effective diameter
 
 
-def stratify_amp(pred, obs, fake, acc):
+def stratify_amp(pred, obs, fake, hidden, acc):
     # per connected hole component: |amp err| for model vs mean-fill, bucketed by area.
+    # mean-fill value = mean over genuinely observed pixels (hidden==0): exclude BOTH the
+    # fake holes and the real RFI flags, else the flagged RFI tail contaminates the mean.
     p = pred[:, 0].cpu().numpy(); o = obs[:, 0].cpu().numpy()
     fk = (fake[:, 0] > 0).cpu().numpy()
-    keep = ~fk
+    keepobs = (hidden[:, 0] == 0).cpu().numpy()
     for i in range(p.shape[0]):
         lab, n = label(fk[i])
         if n == 0:
             continue
-        mf_val = o[i][keep[i]].mean()
+        mf_val = o[i][keepobs[i]].mean()
         for c in range(1, n + 1):
             cm = lab == c
             area = int(cm.sum())
@@ -89,7 +91,7 @@ def main(args):
         cvis_f.append(float(complex_mae(base, obs, fake)))
         ph_m.append(float(phase_error(pred, obs, fake)))
         ph_f.append(float(phase_error(base, obs, fake)))
-        stratify_amp(pred, obs, fake, acc)
+        stratify_amp(pred, obs, fake, hidden, acc)
 
         seen += obs.shape[0]
         rate = seen / (time.time() - t0)
