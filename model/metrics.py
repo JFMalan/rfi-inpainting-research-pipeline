@@ -73,16 +73,20 @@ def _grad_mag(x):
     return torch.sqrt(gx ** 2 + gy ** 2 + 1e-12)
 
 
-def tre(pred, dirty, mask, lam=1.0):
+def tre(pred, dirty, mask, flags=None, lam=1.0):
     # Total Reconstruction Error (Luo et al.) for real data with no clean target.
     # Two terms, both on amplitude:
     #   fidelity  — prediction must agree with the observed (dirty) data OUTSIDE the
-    #               mask, where the observation is trusted.
+    #               mask, where the observation is trusted. RFI-flagged pixels (flags)
+    #               are NOT trusted, so they are excluded from fidelity even though
+    #               they sit outside the fake hole.
     #   roughness — gradient magnitude of the reconstruction INSIDE the mask; a
     #               seamless fill has low boundary/interior roughness.
     p, d = _amp(pred), _amp(dirty)
     region = mask > 0
     keep = ~region
+    if flags is not None:
+        keep = keep & ~(flags > 0)
     if keep.sum() == 0 or region.sum() == 0:
         return torch.tensor(0.0)
     fidelity = (p - d).abs()[keep].mean()

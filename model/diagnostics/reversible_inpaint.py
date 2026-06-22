@@ -13,7 +13,7 @@ import matplotlib.pyplot as plt
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from config import phase2
-from data import positional_encoding, build_cond
+from data import positional_encoding, build_cond, smooth_component
 from diffusion import Diffusion
 from unet import UNet
 
@@ -110,12 +110,14 @@ def main(args):
             recon_err = {}
             obs = flags < 0.5
             hole = flags > 0.5
-            # FORMAT PARITY: feed the model the REAL amplitude as known-region + conditioning,
-            # exactly like sim training feeds clean amp (~1.0 centered). The model fills the hole
-            # at the correct level+structure in its trained scale. (Earlier bug: feeding the
-            # NC-'low' as context — dark in wide bands — collapsed the fill to a solid dark slab,
-            # and level_match to that dark low made it worse. Inpaint on data, texture separately.)
-            obs_stack = np.stack([data, np.cos(phase), np.sin(phase)], 0)
+            # FORMAT PARITY: feed the model the same amplitude scale it trained on as
+            # known-region + conditioning. full-amp ckpt trains on raw data; decompose ckpt
+            # (loss_phase2 with smooth_target) trains on smooth_component as both context AND
+            # target, so feed that or it sees raw-vs-smoothed context it never saw at train.
+            # (Earlier bug: feeding the NC-'low' as context — dark in wide bands — collapsed the
+            # fill to a solid dark slab. Inpaint on the trained scale, add texture separately.)
+            amp_in = smooth_component(data, flags, args.smooth_sigma) if args.smooth_target else data
+            obs_stack = np.stack([amp_in, np.cos(phase), np.sin(phase)], 0)
             x0 = torch.from_numpy(obs_stack)[None].to(dev)
             m = torch.from_numpy(flags)[None, None].to(dev)
             pe_t = torch.from_numpy(pe.copy())[None].to(dev)
@@ -183,4 +185,7 @@ if __name__ == '__main__':
     ap.add_argument('--steps', type=int, default=200)
     ap.add_argument('--predict', default='x0')
     ap.add_argument('--seed', type=int, default=0)
+    ap.add_argument('--smooth-target', action='store_true', dest='smooth_target',
+                    help='decompose ckpt: feed smooth_component as model context (training parity)')
+    ap.add_argument('--smooth-sigma', type=float, default=1.0, dest='smooth_sigma')
     main(ap.parse_args())

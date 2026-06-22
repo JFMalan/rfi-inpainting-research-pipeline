@@ -9,7 +9,7 @@ import h5py
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from config import phase1, phase2
-from data import positional_encoding, fake_mask, build_cond
+from data import positional_encoding, fake_mask, build_cond, smooth_component
 from diffusion import Diffusion
 from unet import UNet
 
@@ -29,18 +29,22 @@ def load_sim(f, idx, pe_ch, band_min, band_max, n_t, n_f, smooth_tgt=False, smoo
     return x0, cond_src, mask, pe
 
 
-def load_real(f, idx, pe_ch, band_min, band_max, n_t, n_f):
+def load_real(f, idx, pe_ch, band_min, band_max, n_t, n_f, smooth_tgt=False, smooth_sigma=1.0):
     data = f['data'][idx].astype(np.float32)
     phase = f['phase'][idx].astype(np.float32)
     real_flags = f['flags'][idx].astype(np.float32)
     fm = fake_mask(real_flags)
+    # decompose checkpoint trains on the SMOOTH amplitude as both context and target
+    # (loss_phase2 builds cond + known region from obs = smooth_component). Match that
+    # here or the model sees raw-vs-smoothed context it never trained on.
+    amp = smooth_component(data, real_flags, smooth_sigma) if smooth_tgt else data
     cos_p, sin_p = np.cos(phase), np.sin(phase)
-    obs = np.stack([data, cos_p, sin_p], 0)
+    obs = np.stack([amp, cos_p, sin_p], 0)
     hidden = np.clip(real_flags + fm, 0, 1)
     pe = positional_encoding(band_min, band_max, band_min, band_max, n_f, n_t, pe_ch)
     # for real: "clean" shown = observed (no GT); mask shown = the fake holes we score;
     # conditioning hides real flags + fake holes
-    return obs, obs, hidden, fm, pe
+    return obs, obs, hidden, fm, pe, real_flags
 
 
 def main(args):
@@ -74,11 +78,13 @@ def main(args):
     model.eval()
     diff = Diffusion(T=cfg.timesteps, device=dev)
 
-    cleans, corrs, masks, preds = [], [], [], []
+    cleans, corrs, masks, preds, flags = [], [], [], [], []
     with torch.no_grad():
         for k, i in enumerate(idxs):
             if args.real:
-                x0_np, cond_np, hidden_np, fake_np, pe_np = load_real(f, i, cfg.pe_channels, band_min, band_max, n_t, n_f)
+                x0_np, cond_np, hidden_np, fake_np, pe_np, rf_np = load_real(
+                    f, i, cfg.pe_channels, band_min, band_max, n_t, n_f,
+                    smooth_tgt=args.smooth_target, smooth_sigma=args.smooth_sigma)
                 show_mask = fake_np
                 cond_mask = hidden_np
             else:
@@ -86,6 +92,7 @@ def main(args):
                                                           smooth_tgt=args.smooth_target, smooth_sigma=args.smooth_sigma)
                 show_mask = mask_np
                 cond_mask = mask_np
+                rf_np = np.zeros_like(mask_np)
             x0 = torch.from_numpy(x0_np)[None].to(dev)
             cond_src = torch.from_numpy(cond_np)[None].to(dev)
             cmask = torch.from_numpy(cond_mask)[None, None].to(dev)
@@ -96,6 +103,7 @@ def main(args):
             corrs.append(cond_src[0].cpu().numpy())
             masks.append(show_mask)
             preds.append(pred[0].cpu().numpy())
+            flags.append(rf_np)
             print(f"  sampled {k+1}/{len(idxs)}", flush=True)
     f.close()
 
@@ -103,6 +111,7 @@ def main(args):
     np.savez(out,
              clean=np.array(cleans), corrupted=np.array(corrs),
              mask=np.array(masks)[:, None], pred=np.array(preds),
+             flags=np.array(flags)[:, None],
              fmin=np.full(len(idxs), band_min, np.float32),
              fmax=np.full(len(idxs), band_max, np.float32))
     print(f"saved npz -> {out}  (render with visualise_samples.py)", flush=True)

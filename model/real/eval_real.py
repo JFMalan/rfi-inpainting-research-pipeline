@@ -59,14 +59,15 @@ def main(args):
     seen = 0
     for batch in dl:
         obs = batch['obs'].to(dev); hidden = batch['hidden'].to(dev); fake = batch['fake_mask'].to(dev)
+        real_flags = batch['real_flags'].to(dev)
         cond = build_cond(obs, hidden, batch['pe'].to(dev), hole_fill=getattr(cfg, 'hole_fill', 'mean'))
         pred = diff.sample(model, cond, obs, hidden, predict=cfg.predict, eta=0.0, steps=200)
-        tres.append(float(tre(pred, obs, fake))); fmaes.append(float(mae(pred, obs, fake)))
+        tres.append(float(tre(pred, obs, fake, flags=real_flags))); fmaes.append(float(mae(pred, obs, fake)))
         base = obs.clone(); keep = hidden == 0
         for i in range(obs.shape[0]):
             for c in range(obs.shape[1]):
                 base[i, c] = obs[i, c][keep[i, 0]].mean()
-        mf_maes.append(float(mae(base, obs, fake))); mf_tres.append(float(tre(base, obs, fake)))
+        mf_maes.append(float(mae(base, obs, fake))); mf_tres.append(float(tre(base, obs, fake, flags=real_flags)))
         ip = interp_baseline(obs, hidden)
         ip_maes.append(float(mae(ip, obs, fake)))
         reg = fake[:, 0] > 0

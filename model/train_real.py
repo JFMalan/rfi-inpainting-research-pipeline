@@ -40,12 +40,13 @@ def val_eval(diff, ema_model, val_dl, cfg, out, epoch):
         obs = batch['obs'].to(diff.device)
         hidden = batch['hidden'].to(diff.device)
         fake = batch['fake_mask'].to(diff.device)
+        real_flags = batch['real_flags'].to(diff.device)
         cond = build_cond(obs, hidden, batch['pe'].to(diff.device),
                           hole_fill=getattr(cfg, 'hole_fill', 'mean'))
         # sample with both holes hidden; recover the fill, score only on fake holes
         pred = diff.sample(ema_model, cond, obs, hidden, predict=cfg.predict,
                            eta=0.0, steps=200)
-        tres.append(float(tre(pred, obs, fake)))
+        tres.append(float(tre(pred, obs, fake, flags=real_flags)))
         fid_maes.append(float(mae(pred, obs, fake)))
         base = obs.clone()
         keep = hidden == 0

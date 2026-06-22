@@ -31,6 +31,9 @@ def plot_npz(path, out_dir, n_show):
     pred_a, pred_p = _amp_phase(d['pred'])
     mask = d['mask']
     mask = mask.squeeze(1) if mask.ndim == 4 else mask
+    flags = d['flags'] if 'flags' in d else None
+    if flags is not None:
+        flags = flags.squeeze(1) if flags.ndim == 4 else flags
     fmin = d['fmin'] if 'fmin' in d else None
     fmax = d['fmax'] if 'fmax' in d else None
     has_phase = clean_p is not None
@@ -46,9 +49,17 @@ def plot_npz(path, out_dir, n_show):
     if has_phase:
         titles += ["clean phase", "predicted phase"]
     for i in range(n):
-        vmin = np.percentile(clean_a[i], 1)
-        vmax = np.percentile(clean_a[i], 99)
         m = mask[i]
+        # colour scale from TRUSTED pixels only: exclude RFI-flagged pixels (real data
+        # carries a heavy bright tail there) and the hole, else the ~1.0 fill compresses
+        # into the dark bottom of the map and looks wrong-level when it is not.
+        trust = np.ones_like(clean_a[i], dtype=bool)
+        if flags is not None:
+            trust &= flags[i] == 0
+        trust &= m == 0
+        scale_src = clean_a[i][trust] if trust.any() else clean_a[i]
+        vmin = np.percentile(scale_src, 1)
+        vmax = np.percentile(scale_src, 99)
         if fmin is not None:
             ext = [0, n_time, float(fmin[i]), float(fmax[i])]
             ylab = "Freq (MHz)"
