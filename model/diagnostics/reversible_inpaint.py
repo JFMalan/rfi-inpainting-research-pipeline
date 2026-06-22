@@ -105,9 +105,12 @@ def main(args):
                 cond = build_cond(x0, m, pe_t, hole_fill=getattr(cfg, 'hole_fill', 'mean'))
                 low_filled = diff.sample(model, cond, x0, m, predict=cfg.predict,
                                          eta=0.0, steps=args.steps)[0, 0].cpu().numpy()
-                # reverse: add high back. outside hole = true high (exact); inside = resampled
+                # reverse: inside the RFI band the data is fully corrupt -> there is NO
+                # reliable high to invert, so synthesise it (low_filled + resampled noise).
+                # outside the band we keep the UNTOUCHED observation exactly (true reverse).
                 high_r = resample_high(high, flags, flags, rng_h)
-                result = low_filled + high_r
+                hole = flags > 0.5
+                result = np.where(hole, low_filled + high_r, data).astype(np.float32)
                 per_method[mth] = (low, low_filled, result)
             rows.append((data, flags, per_method, recon_err, i))
             errstr = "  ".join(f"{m}:{recon_err[m]:.1e}" for m in methods)
