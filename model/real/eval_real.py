@@ -65,8 +65,9 @@ def main(args):
         tres.append(float(tre(pred, obs, fake, flags=real_flags))); fmaes.append(float(mae(pred, obs, fake)))
         base = obs.clone(); keep = hidden == 0
         for i in range(obs.shape[0]):
+            km = keep[i, 0]
             for c in range(obs.shape[1]):
-                base[i, c] = obs[i, c][keep[i, 0]].mean()
+                base[i, c][~km] = obs[i, c][km].mean()
         mf_maes.append(float(mae(base, obs, fake))); mf_tres.append(float(tre(base, obs, fake, flags=real_flags)))
         ip = interp_baseline(obs, hidden)
         ip_maes.append(float(mae(ip, obs, fake)))

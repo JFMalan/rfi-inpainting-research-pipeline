@@ -51,8 +51,9 @@ def val_eval(diff, ema_model, val_dl, cfg, out, epoch):
         base = obs.clone()
         keep = hidden == 0
         for i in range(obs.shape[0]):
+            km = keep[i, 0]
             for c in range(obs.shape[1]):
-                base[i, c] = obs[i, c][keep[i, 0]].mean()
+                base[i, c][~km] = obs[i, c][km].mean()
         mf_maes.append(float(mae(base, obs, fake)))
         if first is None:
             first = (obs.cpu().numpy(), batch['real_flags'].numpy(),
