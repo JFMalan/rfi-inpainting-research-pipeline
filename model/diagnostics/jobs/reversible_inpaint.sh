@@ -18,6 +18,8 @@ DATA=${DATA:-/scratch3/users/$USER/rfi/real/variants/v1_upsample512.h5}
 # the smooth-target finetune (the model that learned recoverable structure)
 CKPT=${CKPT:-/idia/users/$USER/rfi/runs/phase2_decompose/v1_upsample512_finetune/best.pt}
 OUT=${OUT:-/scratch3/users/$USER/rfi/vis-reversible/reversible_inpaint.png}
+# decompose ckpt trains on smooth_component as context -> feed the same here. Set SMOOTH="" for full-amp.
+SMOOTH=${SMOOTH:---smooth-target}
 
 mkdir -p $(dirname $OUT) logs
 LIBCUDA=$(ls /usr/lib/x86_64-linux-gnu/libcuda.so.*.* 2>/dev/null | head -1)
@@ -29,6 +31,6 @@ NVBIND="--bind $LIBCUDA:/usr/lib/x86_64-linux-gnu/libcuda.so.1 --bind $LIBNVML:/
 singularity exec --nv $NVBIND $GPU python $SCRIPTS/diagnostics/reversible_inpaint.py \
     --data $DATA --ckpt $CKPT --output $OUT \
     --methods ${METHODS:-gaussian,median,wavelet} --sigma ${SIGMA:-1.0} \
-    --n ${N:-4} --steps ${STEPS:-200}
+    --n ${N:-4} --steps ${STEPS:-200} $SMOOTH
 
 echo "done -> $OUT"
