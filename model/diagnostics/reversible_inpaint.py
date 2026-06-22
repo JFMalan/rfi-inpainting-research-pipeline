@@ -18,35 +18,51 @@ from diffusion import Diffusion
 from unet import UNet
 
 
-def lowpass(amp, method, sigma):
-    # smooth (low-frequency) component. high = amp - low is exact, so low+high==amp
-    # everywhere -> the decomposition is mathematically reversible by construction.
+def _nc_gauss(data, valid, sigma):
+    # normalized convolution: Gaussian-smooth using ONLY unflagged pixels, so flagged
+    # bands are filled by distance-weighted REAL neighbours (no spurious interp values
+    # smeared in). num/den both blurred -> low in a band reflects nearby real data only.
+    num = gaussian_filter(data * valid, sigma=sigma, mode='nearest')
+    den = gaussian_filter(valid.astype(np.float32), sigma=sigma, mode='nearest')
+    return num / np.clip(den, 1e-3, None)
+
+
+def lowpass(data, valid, method, sigma):
+    # hole-AWARE low-pass: built only from unflagged pixels (kills the interp-across-band
+    # vertical-streak artifact). high = data - low is still exact on observed pixels.
     if method == 'gaussian':
-        return gaussian_filter(amp, sigma=sigma, mode='nearest')
+        return _nc_gauss(data, valid, sigma)
     if method == 'median':
+        # median over a hole-filled-by-NC base, then one NC pass to suppress streaks
+        base = _nc_gauss(data, valid, sigma)
         k = max(3, int(round(sigma * 2)) | 1)
-        return median_filter(amp, size=k, mode='nearest')
+        return median_filter(base, size=k, mode='nearest')
     if method == 'wavelet':
-        # 2-level Laplacian-pyramid low band via repeated Gaussian (still low+high=amp exact)
-        return gaussian_filter(gaussian_filter(amp, sigma=sigma, mode='nearest'),
-                               sigma=sigma, mode='nearest')
+        return _nc_gauss(_nc_gauss(data, valid, sigma), valid, sigma)
     raise ValueError(method)
 
 
 def decompose(data, flags, method, sigma):
-    # hole-fill (interp over freq) ONLY to compute a sane low-pass; high is taken as the
-    # true residual on observed pixels so reconstruction outside the hole is exact.
-    filled = data.copy()
-    nf = data.shape[1]; idx = np.arange(nf)
-    for t in range(data.shape[0]):
-        keep = flags[t] < 0.5
-        if keep.sum() >= 4:
-            filled[t] = np.interp(idx, idx[keep], data[t][keep])
-        else:
-            filled[t] = data[t].mean() if keep.any() else 1.0
-    low = lowpass(filled, method, sigma).astype(np.float32)
+    valid = (flags < 0.5).astype(np.float32)
+    low = lowpass(data, valid, method, sigma).astype(np.float32)
     high = (data - low).astype(np.float32)          # exact residual on observed pixels
     return low, high
+
+
+def level_match(low_filled, low_ref, flags):
+    # the model's in-band fill can sit at the wrong baseline level (the documented wide-band
+    # bias) -> visible colour step at the edge. low_ref is the hole-aware NC low-pass, whose
+    # in-band value IS the distance-weighted real-neighbour level. Offset each filled
+    # frequency-channel (per time) so its in-hole mean matches low_ref's -> continuous edge.
+    out = low_filled.copy()
+    hole = flags > 0.5
+    nt = low_filled.shape[0]
+    for t in range(nt):
+        h = hole[t]
+        if h.any():
+            off = low_ref[t][h].mean() - low_filled[t][h].mean()
+            out[t][h] = low_filled[t][h] + off
+    return out.astype(np.float32)
 
 
 def resample_high(high, flags, fake_or_real_hole, rng):
@@ -105,13 +121,18 @@ def main(args):
                 cond = build_cond(x0, m, pe_t, hole_fill=getattr(cfg, 'hole_fill', 'mean'))
                 low_filled = diff.sample(model, cond, x0, m, predict=cfg.predict,
                                          eta=0.0, steps=args.steps)[0, 0].cpu().numpy()
+                # edge polish: remove the band-level bias. per freq-channel, match the
+                # filled level to the nearest unflagged context so the fill is continuous
+                # across the band edge (kills the visible colour step). only an OFFSET, so
+                # recovered structure is preserved.
+                low_lvl = level_match(low_filled, low, flags)
                 # reverse: inside the RFI band the data is fully corrupt -> there is NO
                 # reliable high to invert, so synthesise it (low_filled + resampled noise).
                 # outside the band we keep the UNTOUCHED observation exactly (true reverse).
                 high_r = resample_high(high, flags, flags, rng_h)
                 hole = flags > 0.5
-                result = np.where(hole, low_filled + high_r, data).astype(np.float32)
-                per_method[mth] = (low, low_filled, result)
+                result = np.where(hole, low_lvl + high_r, data).astype(np.float32)
+                per_method[mth] = (low, low_lvl, result)
             rows.append((data, flags, per_method, recon_err, i))
             errstr = "  ".join(f"{m}:{recon_err[m]:.1e}" for m in methods)
             print(f"  sampled {k+1}/{len(idxs)}  recon_err {errstr}", flush=True)
