@@ -108,31 +108,29 @@ def main(args):
             flags = f['flags'][i].astype(np.float32)
             per_method = {}
             recon_err = {}
+            obs = flags < 0.5
+            hole = flags > 0.5
+            # FORMAT PARITY: feed the model the REAL amplitude as known-region + conditioning,
+            # exactly like sim training feeds clean amp (~1.0 centered). The model fills the hole
+            # at the correct level+structure in its trained scale. (Earlier bug: feeding the
+            # NC-'low' as context — dark in wide bands — collapsed the fill to a solid dark slab,
+            # and level_match to that dark low made it worse. Inpaint on data, texture separately.)
+            obs_stack = np.stack([data, np.cos(phase), np.sin(phase)], 0)
+            x0 = torch.from_numpy(obs_stack)[None].to(dev)
+            m = torch.from_numpy(flags)[None, None].to(dev)
+            pe_t = torch.from_numpy(pe.copy())[None].to(dev)
+            cond = build_cond(x0, m, pe_t, hole_fill=getattr(cfg, 'hole_fill', 'mean'))
+            model_fill = diff.sample(model, cond, x0, m, predict=cfg.predict,
+                                     eta=0.0, steps=args.steps)[0, 0].cpu().numpy()
             for mth in methods:
+                # decomposition is used ONLY to get the high-freq TEXTURE to add back;
+                # the model fill already provides the correct level+structure.
                 low, high = decompose(data, flags, mth, args.sigma)
-                # reversibility check on observed pixels: low+high must equal data exactly
-                obs = flags < 0.5
                 recon_err[mth] = float(np.abs((low + high - data)[obs]).max())
-                # inpaint the LOW component with the model (predicts smooth structure)
-                obs_stack = np.stack([low, np.cos(phase), np.sin(phase)], 0)
-                x0 = torch.from_numpy(obs_stack)[None].to(dev)
-                m = torch.from_numpy(flags)[None, None].to(dev)
-                pe_t = torch.from_numpy(pe.copy())[None].to(dev)
-                cond = build_cond(x0, m, pe_t, hole_fill=getattr(cfg, 'hole_fill', 'mean'))
-                low_filled = diff.sample(model, cond, x0, m, predict=cfg.predict,
-                                         eta=0.0, steps=args.steps)[0, 0].cpu().numpy()
-                # edge polish: remove the band-level bias. per freq-channel, match the
-                # filled level to the nearest unflagged context so the fill is continuous
-                # across the band edge (kills the visible colour step). only an OFFSET, so
-                # recovered structure is preserved.
-                low_lvl = level_match(low_filled, low, flags)
-                # reverse: inside the RFI band the data is fully corrupt -> there is NO
-                # reliable high to invert, so synthesise it (low_filled + resampled noise).
-                # outside the band we keep the UNTOUCHED observation exactly (true reverse).
+                # inside band: model fill (correct level) + resampled texture; outside: data.
                 high_r = resample_high(high, flags, flags, rng_h)
-                hole = flags > 0.5
-                result = np.where(hole, low_lvl + high_r, data).astype(np.float32)
-                per_method[mth] = (low, low_lvl, result)
+                result = np.where(hole, model_fill + high_r, data).astype(np.float32)
+                per_method[mth] = (low, model_fill, result)
             rows.append((data, flags, per_method, recon_err, i))
             errstr = "  ".join(f"{m}:{recon_err[m]:.1e}" for m in methods)
             print(f"  sampled {k+1}/{len(idxs)}  recon_err {errstr}", flush=True)
