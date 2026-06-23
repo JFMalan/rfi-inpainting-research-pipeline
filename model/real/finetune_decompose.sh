@@ -63,5 +63,5 @@ done
 
 echo ""
 echo "============ PHASE-2 DECOMPOSE RANKING (fakeMAE vs smooth target; lower better) ============"
-echo -e "run\tTRE\tTRE_mf\tfakeMAE\tinterp\tmean-fill\tn"
+echo -e "run\tTRE\tTRE_mf\tfakeMAE\tinterp\tmean-fill\tnfr\tn"
 grep -h "^RESULTLINE" logs/finetune-decompose-${SLURM_JOB_ID}-stdout.log | cut -f2-

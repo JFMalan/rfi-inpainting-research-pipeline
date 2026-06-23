@@ -59,5 +59,5 @@ done
 
 echo ""
 echo "============ PHASE-2 RANKING (fakeMAE: lower better; vs interp + mean-fill) ============"
-echo -e "run\tTRE\tTRE_mf\tfakeMAE\tinterp\tmean-fill\tn"
+echo -e "run\tTRE\tTRE_mf\tfakeMAE\tinterp\tmean-fill\tnfr\tn"
 grep -h "^RESULTLINE" logs/finetune-${SLURM_JOB_ID}-stdout.log | cut -f2-
