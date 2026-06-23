@@ -31,9 +31,10 @@ diagnostics are in subfolders.
 
 **`diagnostics/`** — one-off investigation/test scripts built during Phase 1 (not part of the training
 pipeline). Each adds `sys.path` to import the core. Notable: `pipeline_doctor.py` (stage isolation),
-`info_ceiling.py` / `recoverability.py` (is structure recoverable), `sampler_sweep.py` / `bias_diag.py`
-(texture/bias investigation), `overfit_test.py`, `visualise_samples.py` / `viz_eta.py` (rendering).
-Their SLURM wrappers are in `diagnostics/jobs/`.
+`info_ceiling.py` / `recoverability.py` (is structure recoverable), `stochastic_inpaint.py`
+(eta/noise-floor + texture ratio), `speckle_probe.py`, `overfit_test.py`, `visualise_samples.py`
+(rendering). Their SLURM wrappers are in `diagnostics/jobs/`. Superseded scripts (`bias_diag.py`,
+`infer_compare.py`, `gen_sweep.py`, `sampler_sweep.py`, `viz_eta.py`) live in `archive/`.
 
 ## Input contract
 `dataset.h5` is produced by `data_preparation/simulated` — `extract_patches_sim.py` writes the clean

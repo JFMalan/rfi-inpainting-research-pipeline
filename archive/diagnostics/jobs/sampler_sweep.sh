@@ -36,11 +36,11 @@ fi
 NVBIND="--bind $LIBCUDA:$LIBDIR/libcuda.so.1 --bind $LIBNVML:$LIBDIR/libnvidia-ml.so.1"
 echo "node $(hostname)  sweep ckpt $CKPT"
 
-singularity exec --nv $NVBIND $GPU python $ROOT/model/diagnostics/sampler_sweep.py \
+singularity exec --nv $NVBIND $GPU python $ROOT/archive/diagnostics/sampler_sweep.py \
     --data $DATASET --ckpt $CKPT --out $OUT \
     --n $N --predict $PREDICT --steps $STEPS \
     --etas 0.0 0.5 1.0 --repaint-u 1 5
 
 echo "rendering"
-singularity exec $GPU python $ROOT/model/diagnostics/viz_eta.py --input $OUT --output $RUNDIR/sweep.png --n $N
+singularity exec $GPU python $ROOT/archive/diagnostics/viz_eta.py --input $OUT --output $RUNDIR/sweep.png --n $N
 echo "done -> $RUNDIR/sweep.png"
