@@ -1,0 +1,84 @@
+import argparse
+import sys
+import time
+from pathlib import Path
+
+import h5py
+import numpy as np
+import torch
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / 'model'))
+
+from config import phase1, phase2
+from data import positional_encoding, build_cond, smooth_component
+from diffusion import Diffusion
+from unet import UNet
+
+t0 = time.time()
+
+
+def log(m):
+    print(f"[{time.time() - t0:7.1f}s] {m}", flush=True)
+
+
+def main(args):
+    dev = 'cuda' if torch.cuda.is_available() else 'cpu'
+    gpu = torch.cuda.get_device_name(0) if dev == 'cuda' else 'cpu'
+    amp_key = 'corrupted' if args.sim else 'data'
+    hole_key = 'mask' if args.sim else 'flags'
+    nf = None if args.noise_floor in (None, 'none') else (
+        'auto' if args.noise_floor == 'auto' else float(args.noise_floor))
+    log(f"device={dev} ({gpu})  h5={args.h5}  ckpt={args.ckpt}  noise_floor={nf}")
+
+    hf = h5py.File(args.h5, 'r')
+    sz = int(hf.attrs['img_size'])
+    band_min = float(hf.attrs['freq_min_mhz'])
+    band_max = float(hf.attrs['freq_max_mhz'])
+    n_units = hf[amp_key].shape[0]
+    cap = n_units if args.max_units is None else min(args.max_units, n_units)
+
+    cfg = (phase1 if args.sim else phase2)(predict=args.predict)
+    model = UNet(cfg.in_channels, out_ch=cfg.target_channels, base=cfg.base, ch_mult=cfg.ch_mult,
+                 attn_res=cfg.attn_res, num_res=cfg.num_res, img_size=cfg.img_size).to(dev)
+    ck = torch.load(args.ckpt, map_location=dev)
+    model.load_state_dict(ck['ema'] if 'ema' in ck else ck['model'])
+    model.eval()
+    diff = Diffusion(T=cfg.timesteps, device=dev)
+    pe = positional_encoding(band_min, band_max, band_min, band_max, sz, sz, cfg.pe_channels)
+    pe_t = torch.from_numpy(pe[None].copy()).to(dev)
+    log(f"model loaded; inferring {cap}/{n_units} units")
+
+    preds = np.empty((cap, 3, sz, sz), dtype=np.float32)
+    with torch.no_grad():
+        for u in range(cap):
+            data = hf[amp_key][u].astype(np.float32)
+            phase = hf['phase'][u].astype(np.float32)
+            hole = hf[hole_key][u].astype(np.float32)
+            amp = smooth_component(data, hole, args.smooth_sigma) if args.smooth_target else data
+            obs = np.stack([amp, np.cos(phase), np.sin(phase)], 0)[None]
+            x0 = torch.from_numpy(obs).to(dev)
+            m = torch.from_numpy(hole[None, None]).to(dev)
+            cond = build_cond(x0, m, pe_t, hole_fill=getattr(cfg, 'hole_fill', 'mean'))
+            pred = diff.sample(model, cond, x0, m, predict=cfg.predict, eta=0.0,
+                               steps=args.steps, noise_floor=nf)
+            preds[u] = pred[0].cpu().numpy()
+            if u == 0 or (u + 1) % 25 == 0:
+                log(f"  inferred {u + 1}/{cap}  ({(u + 1) / max(time.time() - t0, 1e-6):.2f}/s)")
+    hf.close()
+    np.savez(args.out_preds, preds=preds)
+    log(f"saved {cap} preds {preds.shape} -> {args.out_preds}")
+
+
+if __name__ == '__main__':
+    ap = argparse.ArgumentParser()
+    ap.add_argument('--h5', required=True)
+    ap.add_argument('--ckpt', required=True)
+    ap.add_argument('--out-preds', required=True, dest='out_preds')
+    ap.add_argument('--sim', action='store_true')
+    ap.add_argument('--predict', default='x0')
+    ap.add_argument('--steps', type=int, default=200)
+    ap.add_argument('--noise-floor', default='auto', dest='noise_floor')
+    ap.add_argument('--smooth-target', action='store_true', dest='smooth_target')
+    ap.add_argument('--smooth-sigma', type=float, default=1.0, dest='smooth_sigma')
+    ap.add_argument('--max-units', type=int, default=None, dest='max_units')
+    main(ap.parse_args())

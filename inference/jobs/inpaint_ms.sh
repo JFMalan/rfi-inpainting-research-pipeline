@@ -11,8 +11,10 @@
 
 set -e
 
-# UNVALIDATED: run the sim round-trip (docs/ms-writeback-plan.md) before pointing at real data.
-# SIM=1 -> sim dataset.h5 (keys corrupted/mask); SIM=0 -> real (data/flags).
+# Two-stage: GPU container has torch but NOT casacore/skimage; ASTRO-PY3.10 has casacore+
+# skimage but no torch. So infer on GPU (save preds), then write the MS on CPU.
+# UNVALIDATED on real data — run the sim round-trip (docs/ms-writeback-plan.md) first.
+# SIM=1 -> sim dataset.h5 (corrupted/mask); SIM=0 -> real (data/flags).
 SIM=${SIM:-0}
 TAG=${TAG:-phase1_all_decompose_80ep}
 SMOOTH=${SMOOTH:-1}
@@ -23,10 +25,12 @@ UNFLAG=${UNFLAG:-0}
 MAX_UNITS=${MAX_UNITS:-}
 
 GPU=/idia/software/containers/ASTRO-GPU-PyTorch-2026-01-28.sif
+ASTROPY=/idia/software/containers/ASTRO-PY3.10.sif
 ROOT=/users/$USER/rfi-inpainting-research-pipeline
 CKPT=${CKPT:-/idia/users/$USER/rfi/runs/${TAG}/best.pt}
 MS=${MS:?set MS=/path/to/flagged.ms}
 H5=${H5:?set H5=/path/to/extracted_dataset.h5}
+PREDS=${PREDS:-/scratch3/users/$USER/rfi/inpaint_preds_${SLURM_JOB_ID}.npz}
 
 if [ ! -f "$CKPT" ]; then echo "checkpoint not found: $CKPT"; exit 1; fi
 
@@ -39,20 +43,19 @@ if [ -z "$LIBCUDA" ] || [ -z "$LIBNVML" ]; then
 fi
 NVBIND="--bind $LIBCUDA:$LIBDIR/libcuda.so.1 --bind $LIBNVML:$LIBDIR/libnvidia-ml.so.1"
 
-# fail fast if the container lacks any of torch(GPU)/casacore/skimage rather than guessing.
-echo "verifying container has torch+cuda, casacore, skimage"
-singularity exec --nv $NVBIND $GPU python -c "import torch; assert torch.cuda.is_available(); import casacore.tables; import skimage; print('deps OK', torch.cuda.get_device_name(0))" || {
-    echo "MISSING DEPS in $GPU. Use the two-stage path (GPU infer -> save preds; ASTRO-PY3.10 write-back). See docs/ms-writeback-plan.md."; exit 2; }
+INFER_EXTRA=""; WRITE_EXTRA=""
+[ "$SIM" = "1" ] && { INFER_EXTRA="$INFER_EXTRA --sim"; WRITE_EXTRA="$WRITE_EXTRA --sim"; }
+[ "$SMOOTH" = "1" ] && INFER_EXTRA="$INFER_EXTRA --smooth-target"
+[ "$UNFLAG" = "1" ] && WRITE_EXTRA="$WRITE_EXTRA --unflag"
+[ -n "$MAX_UNITS" ] && INFER_EXTRA="$INFER_EXTRA --max-units $MAX_UNITS"
 
-EXTRA=""
-[ "$SIM" = "1" ] && EXTRA="$EXTRA --sim"
-[ "$SMOOTH" = "1" ] && EXTRA="$EXTRA --smooth-target"
-[ "$UNFLAG" = "1" ] && EXTRA="$EXTRA --unflag"
-[ -n "$MAX_UNITS" ] && EXTRA="$EXTRA --max-units $MAX_UNITS"
+echo "STAGE 1 (GPU infer) node $(hostname)  ckpt=$CKPT  h5=$H5 -> $PREDS"
+singularity exec --nv $NVBIND $GPU python $ROOT/inference/inpaint_infer.py \
+    --h5 "$H5" --ckpt "$CKPT" --out-preds "$PREDS" \
+    --steps $STEPS --noise-floor $NOISE_FLOOR $INFER_EXTRA
 
-echo "node $(hostname)  ms=$MS  h5=$H5  ckpt=$CKPT  out=$OUTCOL  sim=$SIM"
-singularity exec --nv $NVBIND $GPU python $ROOT/inference/inpaint_ms.py \
-    --ms "$MS" --h5 "$H5" --ckpt "$CKPT" --out-col "$OUTCOL" \
-    --steps $STEPS --noise-floor $NOISE_FLOOR $EXTRA
+echo "STAGE 2 (CPU write-back, ASTRO-PY3.10)  $PREDS -> $OUTCOL in $MS"
+singularity exec $ASTROPY python $ROOT/inference/inpaint_write.py \
+    --ms "$MS" --h5 "$H5" --preds "$PREDS" --out-col "$OUTCOL" $WRITE_EXTRA
 
 echo "done -> $OUTCOL in $MS"
