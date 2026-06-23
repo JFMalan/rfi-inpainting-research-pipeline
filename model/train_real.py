@@ -12,7 +12,7 @@ from config import phase2
 from data import RealDataset, build_cond
 from diffusion import Diffusion
 from unet import UNet
-from metrics import mae, tre
+from metrics import mae, tre, complex_mae, noise_floor_ratio
 
 
 class EMA:
@@ -34,7 +34,7 @@ class EMA:
 def val_eval(diff, ema_model, val_dl, cfg, out, epoch):
     ema_model.eval()
     seen = 0
-    tres, fid_maes, mf_maes = [], [], []
+    tres, fid_maes, mf_maes, cplxs, nfrs = [], [], [], [], []
     first = None
     for batch in val_dl:
         obs = batch['obs'].to(diff.device)
@@ -48,6 +48,8 @@ def val_eval(diff, ema_model, val_dl, cfg, out, epoch):
                            eta=0.0, steps=200)
         tres.append(float(tre(pred, obs, fake, flags=real_flags)))
         fid_maes.append(float(mae(pred, obs, fake)))
+        cplxs.append(float(complex_mae(pred, obs, fake)))
+        nfrs.append(float(noise_floor_ratio(pred, obs, fake, flags=real_flags)))
         base = obs.clone()
         keep = hidden == 0
         for i in range(obs.shape[0]):
@@ -66,7 +68,8 @@ def val_eval(diff, ema_model, val_dl, cfg, out, epoch):
              obs=first[0], real_flags=first[1], fake_mask=first[2], pred=first[3],
              fmin=first[4], fmax=first[5])
     return {'tre': float(np.mean(tres)), 'fake_mae': float(np.mean(fid_maes)),
-            'mf_fake_mae': float(np.mean(mf_maes))}
+            'mf_fake_mae': float(np.mean(mf_maes)), 'complex_mae': float(np.mean(cplxs)),
+            'noise_floor_ratio': float(np.mean(nfrs))}
 
 
 def main(args):
@@ -139,7 +142,7 @@ def main(args):
         start_epoch = ck['epoch'] + 1
         print(f"resumed from epoch {start_epoch}", flush=True)
 
-    best_tre = 1e9
+    best_cplx = 1e9
     stale = 0
     log = []
     total_iters = 0
@@ -175,9 +178,11 @@ def main(args):
         evaluated = (epoch + 1) % cfg.sample_every == 0 or epoch == cfg.epochs - 1 or hit_cap
         if evaluated:
             v = val_eval(diff, ema.shadow, val_dl, cfg, out / 'samples', epoch)
+            line['complex_mae'] = round(v['complex_mae'], 5)
             line['tre'] = round(v['tre'], 5)
             line['fake_mae'] = round(v['fake_mae'], 5)
             line['mf_fake_mae'] = round(v['mf_fake_mae'], 5)
+            line['nfr'] = round(v['noise_floor_ratio'], 3)
             line['beats_mf'] = bool(v['fake_mae'] < v['mf_fake_mae'])
 
         print(json.dumps(line), flush=True)
@@ -185,23 +190,23 @@ def main(args):
         (out / 'log.json').write_text(json.dumps(log, indent=2))
 
         state = {'model': model.state_dict(), 'ema': ema.shadow.state_dict(),
-                 'opt': opt.state_dict(), 'epoch': epoch, 'best_tre': best_tre,
+                 'opt': opt.state_dict(), 'epoch': epoch, 'best_cplx': best_cplx,
                  'cfg': vars(cfg)}
         if (epoch + 1) % cfg.ckpt_every == 0 or epoch == cfg.epochs - 1:
             torch.save(state, out / 'ckpt.pt')
 
         if evaluated:
-            c = v['tre']
-            improved = c < best_tre - cfg.min_delta
-            if c < best_tre:
-                best_tre = c
-                state['best_tre'] = best_tre
+            c = v['complex_mae']
+            improved = c < best_cplx - cfg.min_delta
+            if c < best_cplx:
+                best_cplx = c
+                state['best_cplx'] = best_cplx
                 torch.save(state, out / 'best.pt')
-                print(f"  new best tre {c:.5f} -> best.pt", flush=True)
+                print(f"  new best complex_mae {c:.5f} -> best.pt", flush=True)
             stale = 0 if improved else stale + 1
             if cfg.early_stop and epoch + 1 >= cfg.min_epochs and stale >= cfg.patience:
-                print(f"early stop: no >{cfg.min_delta} TRE gain for {stale} evals "
-                      f"(best {best_tre:.5f})", flush=True)
+                print(f"early stop: no >{cfg.min_delta} complex-MAE gain for {stale} evals "
+                      f"(best {best_cplx:.5f})", flush=True)
                 break
         if hit_cap:
             print(f"reached max_iters={args.max_iters}; stopping", flush=True)

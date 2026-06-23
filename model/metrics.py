@@ -1,4 +1,5 @@
 import torch
+import torch.nn.functional as F
 
 
 def _amp(x):
@@ -63,6 +64,35 @@ def complex_mae(pred, target, mask=None, divisor=None):
     if region.sum() == 0:
         return torch.tensor(0.0)
     return err[region].mean()
+
+
+def _highpass(x):
+    pad = F.pad(x, (2, 2, 2, 2), mode='reflect')
+    return x - F.avg_pool2d(pad, 5, stride=1)
+
+
+def noise_floor_ratio(pred, target, mask, flags=None):
+    # texture consistency: std of the 5x5 high-pass residual inside the hole (pred)
+    # vs the surrounding known region (target). 1.0 = inpaint carries the same noise
+    # floor as the data around it; ~0 = over-smooth fill. amplitude channel only.
+    # flags (real RFI) are excluded from the known region so junk doesn't inflate it.
+    p, t = _amp(pred), _amp(target)
+    hp_p, hp_t = _highpass(p), _highpass(t)
+    hole = mask > 0
+    known = ~hole
+    if flags is not None:
+        known = known & ~(flags > 0)
+    ratios = []
+    for b in range(p.shape[0]):
+        hb, kb = hole[b, 0], known[b, 0]
+        if hb.sum() < 20 or kb.sum() < 20:
+            continue
+        t_std = hp_t[b, 0][kb].std()
+        if t_std > 1e-6:
+            ratios.append(hp_p[b, 0][hb].std() / t_std)
+    if not ratios:
+        return torch.tensor(0.0)
+    return torch.stack(ratios).mean()
 
 
 def _grad_mag(x):

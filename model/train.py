@@ -12,7 +12,7 @@ from config import phase1, phase2
 from data import PatchDataset, build_cond
 from diffusion import Diffusion
 from unet import UNet
-from metrics import mae, psnr, phase_error, complex_mae
+from metrics import mae, psnr, phase_error, complex_mae, noise_floor_ratio
 
 
 class EMA:
@@ -34,7 +34,7 @@ class EMA:
 def val_eval(diff, ema_model, val_dl, cfg, out, epoch):
     ema_model.eval()
     seen = 0
-    maes, psnrs, pherrs, cplxs = [], [], [], []
+    maes, psnrs, pherrs, cplxs, nfrs = [], [], [], [], []
     mf_maes, mf_cplxs = [], []
     first = None
     for batch in val_dl:
@@ -47,6 +47,7 @@ def val_eval(diff, ema_model, val_dl, cfg, out, epoch):
         psnrs.append(float(psnr(pred, x0, mask)))
         pherrs.append(float(phase_error(pred, x0, mask)))
         cplxs.append(float(complex_mae(pred, x0, mask)))
+        nfrs.append(float(noise_floor_ratio(pred, x0, mask)))
         # mean-fill baseline: per-patch mean of known pixels, all channels
         base = x0.clone()
         keep = mask == 0
@@ -67,6 +68,7 @@ def val_eval(diff, ema_model, val_dl, cfg, out, epoch):
              fmin=first[4], fmax=first[5])
     return {'amp_mae': float(np.mean(maes)), 'psnr': float(np.mean(psnrs)),
             'phase_err': float(np.mean(pherrs)), 'complex_mae': float(np.mean(cplxs)),
+            'noise_floor_ratio': float(np.mean(nfrs)),
             'mf_amp_mae': float(np.mean(mf_maes)), 'mf_complex_mae': float(np.mean(mf_cplxs))}
 
 
@@ -146,6 +148,7 @@ def main(args):
             line['amp_mf'] = round(v['mf_amp_mae'], 5)
             line['psnr'] = round(v['psnr'], 3)
             line['phase_err'] = round(v['phase_err'], 4)
+            line['nfr'] = round(v['noise_floor_ratio'], 3)
             line['beats_mf'] = bool(v['complex_mae'] < v['mf_complex_mae'])
 
         print(json.dumps(line), flush=True)
