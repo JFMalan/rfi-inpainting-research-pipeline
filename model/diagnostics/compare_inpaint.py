@@ -5,7 +5,6 @@ from pathlib import Path
 import numpy as np
 import torch
 import h5py
-from scipy.ndimage import gaussian_filter
 import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
@@ -52,6 +51,9 @@ def main(args):
     diff = Diffusion(T=cfg.timesteps, device=dev)
     pe = positional_encoding(band_min, band_max, band_min, band_max, n_f, n_t, cfg.pe_channels)
 
+    # --resample-speckle now means: let the sampler add the local noise floor (5x5 HP std
+    # of the known pixels) into the hole, instead of the old manual post-hoc add.
+    nf = 'auto' if args.resample_speckle else None
     rows = []
     with torch.no_grad():
         for k, i in enumerate(idxs):
@@ -64,7 +66,8 @@ def main(args):
             pe_t = torch.from_numpy(pe.copy())[None].to(dev)
             cond = build_cond(x0, m, pe_t, hole_fill=getattr(cfg, 'hole_fill', 'mean'))
             preds = [diff.sample(mdl, cond, x0, m, predict=cfg.predict, eta=0.0,
-                                 steps=args.steps)[0].cpu().numpy() for _, mdl in models]
+                                 steps=args.steps, noise_floor=nf)[0].cpu().numpy()
+                     for _, mdl in models]
             rows.append((data, phase, flags, preds, i))
             print(f"  sampled {k+1}/{len(idxs)}", flush=True)
     f.close()
@@ -78,25 +81,15 @@ def main(args):
     fig, ax = plt.subplots(n, ncol, figsize=(4 * ncol, 3.4 * n))
     if n == 1:
         ax = ax[None, :]
-    rng_v = np.random.default_rng(0)
     for r, (dt, ph, fl, preds, idx) in enumerate(rows):
         unflag = fl < 0.5
         vmin = np.percentile(dt[unflag], 1) if unflag.any() else float(dt.min())
         vmax = np.percentile(dt[unflag], 99) if unflag.any() else float(dt.max())
         ext = [0, n_t, band_min, band_max]
-        # local speckle std for this baseline: the residual of unflagged amp around its
-        # own smoothed bandpass (white noise level, matches the surrounding grain).
-        if args.resample_speckle and unflag.any():
-            sm = gaussian_filter(np.where(unflag, dt, dt[unflag].mean()), sigma=args.smooth_sigma, mode='nearest')
-            spk_std = float((dt - sm)[unflag].std())
-        else:
-            spk_std = 0.0
         def fill_amp(p):
-            a = np.where(fl > 0.5, p[0], dt)
-            if spk_std > 0:
-                noise = rng_v.standard_normal(a.shape).astype(np.float32) * spk_std
-                a = np.where(fl > 0.5, a + noise, a)
-            return a
+            # p already carries the resampled noise floor in the hole when --resample-speckle
+            # is on (noise_floor='auto' in the sample call above).
+            return np.where(fl > 0.5, p[0], dt)
         panels = [(dt, 'plasma', vmin, vmax), 'MASK']
         for p in preds:
             panels.append((fill_amp(p), 'plasma', vmin, vmax))

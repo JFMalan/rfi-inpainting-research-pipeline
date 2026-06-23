@@ -77,6 +77,8 @@ def main(args):
     model.load_state_dict(ck['ema'] if 'ema' in ck else ck['model'])
     model.eval()
     diff = Diffusion(T=cfg.timesteps, device=dev)
+    nf = None if args.noise_floor in (None, 'none') else (
+        'auto' if args.noise_floor == 'auto' else float(args.noise_floor))
 
     cleans, corrs, masks, preds, flags = [], [], [], [], []
     with torch.no_grad():
@@ -98,7 +100,8 @@ def main(args):
             cmask = torch.from_numpy(cond_mask)[None, None].to(dev)
             pe = torch.from_numpy(pe_np.copy())[None].to(dev)
             cond = build_cond(cond_src, cmask, pe, hole_fill=getattr(cfg, 'hole_fill', 'mean'))
-            pred = diff.sample(model, cond, x0, cmask, predict=cfg.predict, eta=0.0, steps=args.steps)
+            pred = diff.sample(model, cond, x0, cmask, predict=cfg.predict, eta=0.0,
+                               steps=args.steps, noise_floor=nf)
             cleans.append(x0[0].cpu().numpy())
             corrs.append(cond_src[0].cpu().numpy())
             masks.append(show_mask)
@@ -130,4 +133,6 @@ if __name__ == '__main__':
     ap.add_argument('--smooth-target', action='store_true', dest='smooth_target')
     ap.add_argument('--smooth-sigma', type=float, default=1.0, dest='smooth_sigma')
     ap.add_argument('--worst', action='store_true', help='pick the most-structured holes (hardest test) instead of random')
+    ap.add_argument('--noise-floor', default=None, dest='noise_floor',
+                    help="none (default) | auto (recommended for real-data viz) | float")
     main(ap.parse_args())

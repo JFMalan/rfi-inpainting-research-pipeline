@@ -40,4 +40,4 @@ for entry in "${CONFIGS[@]}"; do
       --data $DATA --ckpt $CKPT --tag $TAG --max-eval $MAX_EVAL $SMOOTH
 done
 
-echo "done  (grep RESULTLINE in this log: tag, TRE, mean-fill TRE, fake-MAE, interp, mean-fill MAE, n)"
+echo "done  (grep RESULTLINE in this log: tag, TRE, mean-fill TRE, fake-MAE, interp, mean-fill MAE, noise-floor-ratio, n)"

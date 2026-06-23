@@ -12,7 +12,7 @@ from config import phase2
 from data import RealDataset, build_cond
 from diffusion import Diffusion
 from unet import UNet
-from metrics import mae, tre
+from metrics import mae, tre, noise_floor_ratio
 
 
 def interp_baseline(obs, hidden):
@@ -54,15 +54,23 @@ def main(args):
     model.eval()
     diff = Diffusion(T=cfg.timesteps, device=dev)
 
+    # metric path: noise_floor=None gives the low-distortion smooth estimate (honest MAE).
+    # --noise-floor auto adds the resampled noise texture for the statistically-consistent
+    # operating point (texture ratio -> 1, MAE rises by the Blau-Michaeli tradeoff).
+    nf = None if args.noise_floor in (None, 'none') else (
+        'auto' if args.noise_floor == 'auto' else float(args.noise_floor))
+
     tres, fmaes, mf_maes, mf_tres, ip_maes = [], [], [], [], []
-    std_ratios = []   # std of model fill / std of true (1.0 = right spread; interp/mf -> ~0)
+    std_ratios, nfrs = [], []   # std of model fill / std of true (1.0 = right spread; interp/mf -> ~0)
     seen = 0
     for batch in dl:
         obs = batch['obs'].to(dev); hidden = batch['hidden'].to(dev); fake = batch['fake_mask'].to(dev)
         real_flags = batch['real_flags'].to(dev)
         cond = build_cond(obs, hidden, batch['pe'].to(dev), hole_fill=getattr(cfg, 'hole_fill', 'mean'))
-        pred = diff.sample(model, cond, obs, hidden, predict=cfg.predict, eta=0.0, steps=200)
+        pred = diff.sample(model, cond, obs, hidden, predict=cfg.predict, eta=0.0, steps=200,
+                           noise_floor=nf)
         tres.append(float(tre(pred, obs, fake, flags=real_flags))); fmaes.append(float(mae(pred, obs, fake)))
+        nfrs.append(float(noise_floor_ratio(pred, obs, fake, flags=real_flags)))
         base = obs.clone(); keep = hidden == 0
         for i in range(obs.shape[0]):
             km = keep[i, 0]
@@ -85,11 +93,13 @@ def main(args):
           f"mean-fill {np.mean(mf_maes):.4f}   (interp = the recoverable-structure bar)", flush=True)
     print(f"  fill std/true std: {np.mean(std_ratios):.3f}  (1.0 = matches real spread; "
           f"interp/mean-fill collapse to ~0)", flush=True)
+    print(f"  noise floor ratio: {np.mean(nfrs):.3f}  (1.0 = matched HP texture; noise_floor={nf})", flush=True)
     beats = "BEATS interp" if np.mean(fmaes) < np.mean(ip_maes) else (
             "beats mean-fill only" if np.mean(fmaes) < np.mean(mf_maes) else "ties/loses to mean-fill")
     print(f"  verdict: {beats}", flush=True)
     print(f"RESULTLINE\t{args.tag}\t{np.mean(tres):.4f}\t{np.mean(mf_tres):.4f}\t"
-          f"{np.mean(fmaes):.4f}\t{np.mean(ip_maes):.4f}\t{np.mean(mf_maes):.4f}\t{seen}", flush=True)
+          f"{np.mean(fmaes):.4f}\t{np.mean(ip_maes):.4f}\t{np.mean(mf_maes):.4f}\t"
+          f"{np.mean(nfrs):.3f}\t{seen}", flush=True)
 
 
 if __name__ == '__main__':
@@ -102,4 +112,6 @@ if __name__ == '__main__':
     ap.add_argument('--max-eval', type=int, default=64)
     ap.add_argument('--smooth-target', action='store_true', dest='smooth_target')
     ap.add_argument('--smooth-sigma', type=float, default=None, dest='smooth_sigma')
+    ap.add_argument('--noise-floor', default=None, dest='noise_floor',
+                    help="none (default, low-distortion) | auto | float")
     main(ap.parse_args())
