@@ -18,7 +18,10 @@ set -e
 SIM=${SIM:-0}
 TAG=${TAG:-phase1_all_decompose_80ep}
 SMOOTH=${SMOOTH:-1}
-NOISE_FLOOR=${NOISE_FLOOR:-auto}
+# none = low-distortion conditional-mean fill, the right mode for IMAGING (default).
+# auto = adds resampled noise for a statistically-consistent single-baseline waterfall,
+# but that injected noise only HURTS image fidelity — use it for the waterfall viz, not imaging.
+NOISE_FLOOR=${NOISE_FLOOR:-none}
 STEPS=${STEPS:-200}
 BATCH=${BATCH:-8}
 OUTCOL=${OUTCOL:-INPAINTED_DATA}
