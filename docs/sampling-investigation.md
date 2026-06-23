@@ -60,3 +60,26 @@ tunable knob (η=1 recovers stochastic DDPM) for any future diversity/uncertaint
 - Report `x0_pred` MAE, DDIM-sampled MAE, classical-interp target, and mean-fill baseline
   together — the gap between mean-fill and interp defines the recoverable structure; the model
   should (and does) land near interp.
+
+---
+
+## Reconciliation with Blau & Michaeli (added 2026-06-23)
+
+The finding that stochastic DDPM gives MAE worse than mean-fill is not a model deficiency —
+it is the perception-distortion theorem (Blau & Michaeli, CVPR 2018, arXiv:1711.06077) acting
+as predicted. That theorem proves there is a hard Pareto frontier: any estimator that samples
+correctly from the posterior distribution *must* score worse on MAE than the conditional mean
+(mean-fill). The stochastic DDPM result (MAE ~0.29 > mean-fill ~0.26) is exactly this —
+it is evidence the sampler is drawing a genuine posterior sample, not evidence the model is
+wrong.
+
+DDIM (η=0) was the right choice for the numerical-fidelity operating point required by the
+proposal (faithful reconstruction). The stochastic operating point (η=1) remains available
+and is now the recommended mode for *visual/statistical* output where the goal is a
+statistically consistent fill rather than minimum distortion.
+
+**The two-stage approach (implemented 2026-06-23):** Use DDIM η=0 to get the low-distortion
+smooth prediction, then add `noise_floor='auto'` noise post-hoc from the estimated local σ.
+This decouples signal recovery (evaluated by MAE vs smooth target) from noise consistency
+(evaluated by texture ratio). Both can be correct simultaneously; neither forces the MAE/
+perception tradeoff. This is the `+auto_noise` condition in `model/diagnostics/stochastic_inpaint.py`.

@@ -151,3 +151,49 @@ says this is exactly right and unifies denoising with inpainting:
 3. Implement decompose-then-inpaint: train on `clean_smooth`, resample speckle at inference.
 4. Reframe the writeup around phase + complex visibility + image domain as the contribution,
    with the amplitude noise-floor as a quantified, literature-corroborated finding.
+
+---
+
+## Implementation status (updated 2026-06-23)
+
+Steps 3 and part of 2 are now implemented. `phase1_all_decompose` checkpoint exists on ilifu
+(smooth-target training, sigma=1.0). The noise-resampling at inference is live in `diffusion.py`:
+
+- `Diffusion._estimate_noise_floor(x, keep)` — estimates per-sample, per-channel σ from the
+  5×5 HP residual of the known pixels.
+- `Diffusion.sample(..., noise_floor=None|'auto'|float)` — when set, adds N(0,σ²) to hole
+  pixels of the final output after the denoising chain.
+- `model/diagnostics/stochastic_inpaint.py` — 6-condition diagnostic (4 model conditions +
+  mean-fill + interp) that reports texture ratio, MAE vs noisy target, MAE vs smooth target.
+- `model/diagnostics/jobs/stochastic_inpaint.sh` — runs on `phase1_all_decompose` / `runtest`
+  by default.
+
+**Key empirical anchor (to verify on cluster):** `eta=0 +auto_noise` should give texture
+ratio ≈ 1.0 with MAE vs smooth target beating mean-fill. `eta=0 no_noise` (current default
+in all eval scripts) gives texture ratio ≈ 0.
+
+---
+
+## Additional references (deep-research sweep, 2026-06-23)
+
+**Drozdova et al. (A&A 2024)** — conditional DDPM applied to ALMA interferometric inpainting.
+Evaluated by source-detection completeness and flux accuracy, not per-pixel MAE. Closest
+in-domain precedent for our evaluation framing.
+
+**PMRF (arXiv:2410.00418)** — "Posterior Mean Rectified Flow." Two-stage blueprint matching
+our decompose-then-inpaint approach exactly: (1) predict the posterior mean (recoverable
+signal), (2) transport to the data distribution (resample noise). Reports both distortion and
+distributional metrics, including an IndRMSE variant usable without ground truth on real data.
+
+**Fréchet Wavelet Distance / FWD (arXiv:2312.15289, ICLR 2025)** — distributional fidelity
+metric that works without a pretrained network (unlike FID) and is valid at 64px patch size.
+Measures whether the inpainted region's multi-scale statistics match the surrounding data.
+Directly applicable to our patches; does not require ground truth.
+
+**L2 vs L1 diversity (Palette, Saharia et al. 2022)** — the Palette paper itself found that
+L2 on the noise residual ε produces more diverse samples than L1. Our current config uses L1.
+If `+auto_noise` texture ratio is still low after eval, switching to L2 is the next experiment.
+
+**Reconciliation with `sampling-investigation.md`** — the stochastic DDPM MAE being worse than
+mean-fill is the Blau & Michaeli theorem in action, not a model failure. See that doc for the
+updated framing.
