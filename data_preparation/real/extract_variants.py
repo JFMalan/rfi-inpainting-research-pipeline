@@ -71,6 +71,7 @@ def variant_specs(sz):
         'v2_time256':       dict(sz=256, freq_tiles=1, time_win=256, max_flag=0.5),
         'v3_freqtiled512':  dict(sz=sz, freq_tiles=2, time_win=None, max_flag=0.5),
         'v4_relaxed512':    dict(sz=sz, freq_tiles=1, time_win=None, max_flag=0.7),
+        'v5_all512':        dict(sz=sz, freq_tiles=1, time_win=None, max_flag=0.85),
     }
 
 
@@ -171,6 +172,11 @@ def main(args):
 
     out = Path(args.out_dir); out.mkdir(parents=True, exist_ok=True)
     specs = variant_specs(args.img_size)
+    if args.only:
+        keep = set(args.only.split(','))
+        specs = {n: s for n, s in specs.items() if n in keep}
+        if not specs:
+            raise RuntimeError(f"--only {args.only} matched no variant of {list(variant_specs(args.img_size))}")
     for name, spec in specs.items():
         emit_dataset(out / f'{name}.h5', spec, amp, phase, flagged, runs, cross_bls,
                      ant1_bl, ant2_bl, freqs, chan_lo, n_chan, is_test, args.smooth_bins)
@@ -190,4 +196,5 @@ if __name__ == '__main__':
     p.add_argument('--test-frac', type=float, default=0.15)
     p.add_argument('--split-seed', type=int, default=1234)
     p.add_argument('--smooth-bins', type=int, default=64)
+    p.add_argument('--only', default=None, help='comma-separated variant names to build (default all)')
     main(p.parse_args())
