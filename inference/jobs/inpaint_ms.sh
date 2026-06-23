@@ -20,6 +20,7 @@ TAG=${TAG:-phase1_all_decompose_80ep}
 SMOOTH=${SMOOTH:-1}
 NOISE_FLOOR=${NOISE_FLOOR:-auto}
 STEPS=${STEPS:-200}
+BATCH=${BATCH:-8}
 OUTCOL=${OUTCOL:-INPAINTED_DATA}
 UNFLAG=${UNFLAG:-0}
 MAX_UNITS=${MAX_UNITS:-}
@@ -52,7 +53,7 @@ INFER_EXTRA=""; WRITE_EXTRA=""
 echo "STAGE 1 (GPU infer) node $(hostname)  ckpt=$CKPT  h5=$H5 -> $PREDS"
 singularity exec --nv $NVBIND $GPU python $ROOT/inference/inpaint_infer.py \
     --h5 "$H5" --ckpt "$CKPT" --out-preds "$PREDS" \
-    --steps $STEPS --noise-floor $NOISE_FLOOR $INFER_EXTRA
+    --steps $STEPS --batch $BATCH --noise-floor $NOISE_FLOOR $INFER_EXTRA
 
 echo "STAGE 2 (CPU write-back, ASTRO-PY3.10)  $PREDS -> $OUTCOL in $MS"
 singularity exec $ASTROPY python $ROOT/inference/inpaint_write.py \

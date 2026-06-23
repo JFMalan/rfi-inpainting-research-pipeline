@@ -48,22 +48,27 @@ def main(args):
     pe_t = torch.from_numpy(pe[None].copy()).to(dev)
     log(f"model loaded; inferring {cap}/{n_units} units")
 
+    bs = args.batch
+    pe_b = pe_t.repeat(bs, 1, 1, 1)
     preds = np.empty((cap, 3, sz, sz), dtype=np.float32)
     with torch.no_grad():
-        for u in range(cap):
-            data = hf[amp_key][u].astype(np.float32)
-            phase = hf['phase'][u].astype(np.float32)
-            hole = hf[hole_key][u].astype(np.float32)
-            amp = smooth_component(data, hole, args.smooth_sigma) if args.smooth_target else data
-            obs = np.stack([amp, np.cos(phase), np.sin(phase)], 0)[None]
-            x0 = torch.from_numpy(obs).to(dev)
-            m = torch.from_numpy(hole[None, None]).to(dev)
-            cond = build_cond(x0, m, pe_t, hole_fill=getattr(cfg, 'hole_fill', 'mean'))
+        for s in range(0, cap, bs):
+            e = min(s + bs, cap)
+            obs_l, hole_l = [], []
+            for u in range(s, e):
+                data = hf[amp_key][u].astype(np.float32)
+                phase = hf['phase'][u].astype(np.float32)
+                hole = hf[hole_key][u].astype(np.float32)
+                amp = smooth_component(data, hole, args.smooth_sigma) if args.smooth_target else data
+                obs_l.append(np.stack([amp, np.cos(phase), np.sin(phase)], 0))
+                hole_l.append(hole[None])
+            x0 = torch.from_numpy(np.stack(obs_l, 0)).to(dev)
+            m = torch.from_numpy(np.stack(hole_l, 0)).to(dev)
+            cond = build_cond(x0, m, pe_b[:e - s], hole_fill=getattr(cfg, 'hole_fill', 'mean'))
             pred = diff.sample(model, cond, x0, m, predict=cfg.predict, eta=0.0,
                                steps=args.steps, noise_floor=nf)
-            preds[u] = pred[0].cpu().numpy()
-            if u == 0 or (u + 1) % 25 == 0:
-                log(f"  inferred {u + 1}/{cap}  ({(u + 1) / max(time.time() - t0, 1e-6):.2f}/s)")
+            preds[s:e] = pred.cpu().numpy()
+            log(f"  inferred {e}/{cap}  ({e / max(time.time() - t0, 1e-6):.2f} units/s)")
     hf.close()
     np.savez(args.out_preds, preds=preds)
     log(f"saved {cap} preds {preds.shape} -> {args.out_preds}")
@@ -77,6 +82,7 @@ if __name__ == '__main__':
     ap.add_argument('--sim', action='store_true')
     ap.add_argument('--predict', default='x0')
     ap.add_argument('--steps', type=int, default=200)
+    ap.add_argument('--batch', type=int, default=8)
     ap.add_argument('--noise-floor', default='auto', dest='noise_floor')
     ap.add_argument('--smooth-target', action='store_true', dest='smooth_target')
     ap.add_argument('--smooth-sigma', type=float, default=1.0, dest='smooth_sigma')
