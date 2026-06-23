@@ -3,7 +3,7 @@ import time
 
 import h5py
 import numpy as np
-from casacore.tables import table, maketabledesc, makecoldesc
+from casacore.tables import table, maketabdesc, makecoldesc
 from skimage.transform import resize
 
 t0 = time.time()
@@ -23,7 +23,10 @@ def ensure_column(root, out_col, src_col, chunk=50000):
         log(f"column {out_col} exists, reusing")
         return
     log(f"adding {out_col} (copy of {src_col})")
-    root.addcols(maketabledesc(makecoldesc(out_col, root.getcoldesc(src_col))))
+    cd = makecoldesc(out_col, root.getcoldesc(src_col))
+    dminfo = root.getdminfo(src_col)
+    dminfo['NAME'] = out_col          # unique data-manager name, else clashes with src_col's
+    root.addcols(maketabdesc(cd), dminfo)
     n = root.nrows()
     for s in range(0, n, chunk):
         nr = min(chunk, n - s)
