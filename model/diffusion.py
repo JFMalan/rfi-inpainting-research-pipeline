@@ -117,14 +117,33 @@ class Diffusion:
         noise = sigma * torch.randn_like(x) if eta > 0 else 0.0
         return torch.sqrt(acp_prev) * x0_pred + dir_xt + noise
 
+    def _estimate_noise_floor(self, x, keep):
+        # Per-sample, per-channel sigma estimated from a 5x5 uniform high-pass filter
+        # applied to the known (unmasked) pixels. Returns shape (B, C, 1, 1).
+        B, C, H, W = x.shape
+        pad = F.pad(x, (2, 2, 2, 2), mode='reflect')
+        smooth = F.avg_pool2d(pad, kernel_size=5, stride=1)
+        hp = x - smooth
+        known = keep.expand(B, C, H, W) > 0
+        sigma = torch.zeros(B, C, 1, 1, device=x.device, dtype=x.dtype)
+        for b in range(B):
+            for c in range(C):
+                vals = hp[b, c][known[b, c]]
+                if vals.numel() > 20:
+                    sigma[b, c, 0, 0] = vals.std()
+        return sigma
+
     @torch.no_grad()
     def sample(self, model, cond, x0_known, mask, predict='noise', clip=(-2.0, 4.0),
-               eta=0.0, steps=None, repaint_u=1, progress=None):
+               eta=0.0, steps=None, repaint_u=1, noise_floor=None, progress=None):
         # DDIM sampling matching the training contract: KNOWN region = clean x0_known,
         # HOLE = the running iterate. eta=0 -> deterministic.
         # repaint_u>1 enables RePaint resampling: at each step, jump back up and
         # re-denoise U times so the hole re-harmonises with the surroundings (helps
         # large holes). repaint_u=1 is plain DDIM.
+        # noise_floor: None | 'auto' | float. When set, adds N(0, sigma^2) to the hole
+        # pixels of the final output so the inpaint has the correct noise texture.
+        # 'auto' estimates sigma per-sample from the known pixels (high-pass std).
         device = self.device
         shape = x0_known.shape
         keep = (mask == 0).float()
@@ -149,4 +168,9 @@ class Diffusion:
                     x = torch.sqrt(a) * x + torch.sqrt(1 - a) * torch.randn_like(x)
             if progress is not None:
                 progress(k + 1, len(ts))
-        return keep * x0_known + hole * x
+        out = keep * x0_known + hole * x
+        if noise_floor is not None:
+            sigma = (self._estimate_noise_floor(x0_known, keep)
+                     if noise_floor == 'auto' else float(noise_floor))
+            out = keep * x0_known + hole * (x + sigma * torch.randn_like(x))
+        return out
