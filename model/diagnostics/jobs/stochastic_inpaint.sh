@@ -5,7 +5,7 @@
 #SBATCH --constraint=A100|A40|V100
 #SBATCH --cpus-per-task=8
 #SBATCH --mem=32GB
-#SBATCH --time=02:00:00
+#SBATCH --time=04:00:00
 #SBATCH --output=logs/stochastic-inpaint-%j-stdout.log
 #SBATCH --error=logs/stochastic-inpaint-%j-stderr.log
 
@@ -15,7 +15,7 @@ set -e
 #   phase1_all              = original (noisy target)
 #   phase1_all_decompose    = smooth-target training (predict recoverable signal)
 TAG=${TAG:-phase1_all_decompose}
-N=${N:-128}
+N=${N:-64}
 STEPS=${STEPS:-200}
 
 GPU=/idia/software/containers/ASTRO-GPU-PyTorch-2026-01-28.sif

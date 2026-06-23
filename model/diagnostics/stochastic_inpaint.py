@@ -171,17 +171,6 @@ def main(args):
     mf = meanfill(clean, mask)
     ip = interp_fill(clean, mask)
 
-    results = {}
-    results['mean_fill'] = mf
-    results['interp_freq'] = ip
-
-    with torch.no_grad():
-        for label, eta, nf in conditions:
-            results[label] = run_condition(diff, model, clean, mask, pe, cfg,
-                                           eta, nf, args.steps, dev, label)
-
-    log("all conditions done, computing metrics")
-
     header = f"{'CONDITION':<25}  {'TEXTURE':>7}  {'MAE_noisy':>9}  {'MAE_smooth':>10}"
     sep = '-' * len(header)
     print(f"\n{sep}", flush=True)
@@ -190,19 +179,31 @@ def main(args):
     print(header, flush=True)
     print(sep, flush=True)
 
-    for name, pred in results.items():
+    # report each condition as it finishes (row + partial grid) so a wall-clock timeout
+    # still leaves usable output instead of nothing.
+    results = {}
+
+    def report(name, pred):
+        results[name] = pred
         tr = texture_ratio(pred, clean, mask)
         mn = mae_in_hole(pred[:, 0:1], clean[:, 0:1], mask)
         ms = mae_in_hole(pred[:, 0:1], smooth[:, 0:1], mask)
         print(f"{name:<25}  {tr:>7.3f}  {mn:>9.4f}  {ms:>10.4f}", flush=True)
+        if args.out_png:
+            save_grid(clean, smooth, results, mask, args.out_png)
+
+    report('mean_fill', mf)
+    report('interp_freq', ip)
+
+    with torch.no_grad():
+        for label, eta, nf in conditions:
+            report(label, run_condition(diff, model, clean, mask, pe, cfg,
+                                        eta, nf, args.steps, dev, label))
 
     print(sep, flush=True)
     print("texture_ratio: 1.0 = matched noise floor, 0.0 = smooth fill", flush=True)
     print("MAE_smooth: fair comparison (recoverable signal only)", flush=True)
     print(sep, flush=True)
-
-    if args.out_png:
-        save_grid(clean, smooth, results, mask, args.out_png)
 
 
 if __name__ == '__main__':
