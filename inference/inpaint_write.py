@@ -34,6 +34,24 @@ def ensure_column(root, out_col, src_col, chunk=50000):
     log(f"initialised {out_col} ({n} rows)")
 
 
+def ensure_weight_spectrum(root, chunk=50000):
+    if 'WEIGHT_SPECTRUM' in root.colnames():
+        log('WEIGHT_SPECTRUM exists, reusing')
+        return
+    log('adding WEIGHT_SPECTRUM (init = WEIGHT broadcast across channels)')
+    desc = root.getcoldesc('DATA'); desc['valueType'] = 'float'
+    dminfo = root.getdminfo('DATA'); dminfo['NAME'] = 'WEIGHT_SPECTRUM'
+    root.addcols(maketabdesc(makecoldesc('WEIGHT_SPECTRUM', desc)), dminfo)
+    nchan = root.getcell('DATA', 0).shape[0]
+    n = root.nrows()
+    for s in range(0, n, chunk):
+        nr = min(chunk, n - s)
+        w = root.getcol('WEIGHT', startrow=s, nrow=nr)
+        root.putcol('WEIGHT_SPECTRUM', np.repeat(w[:, None, :], nchan, axis=1).astype(np.float32),
+                    startrow=s, nrow=nr)
+    log(f'initialised WEIGHT_SPECTRUM ({n} rows)')
+
+
 def main(args):
     hole_key = 'mask' if args.sim else 'flags'
     preds = np.load(args.preds)['preds']    # (cap, 3, sz, sz)
@@ -60,6 +78,8 @@ def main(args):
     log(f"MS {n_row} rows  n_time={n_time}  n_baseline={n_baseline}  src_col={src_col}")
 
     ensure_column(root, args.out_col, src_col)
+    if args.weight_frac is not None:
+        ensure_weight_spectrum(root)
     if args.field is not None:
         ms = root.query(f"FIELD_ID == {args.field}")
         st = ms.getcol('TIME'); n_row = ms.nrows(); n_time = len(np.unique(st))
@@ -91,7 +111,18 @@ def main(args):
             band[:, :, p] = np.where(hole_n, V, band[:, :, p])
         ms.putcol(args.out_col, d, startrow=sr, nrow=nt, rowincr=n_baseline)
 
-        if args.unflag:
+        if args.weight_frac is not None:
+            # down-weight inpainted pixels to weight_frac x the row's real WEIGHT (idempotent:
+            # scaled off WEIGHT, not the possibly-already-modified WEIGHT_SPECTRUM, so re-runs
+            # with a different fraction overwrite cleanly). weight_frac 0 ~= flagged, 1 = full weight.
+            w_row = ms.getcol('WEIGHT', startrow=sr, nrow=nt, rowincr=n_baseline)   # (nt, npol)
+            ws = ms.getcol('WEIGHT_SPECTRUM', startrow=sr, nrow=nt, rowincr=n_baseline)
+            wsb = ws[:, chan_lo:chan_hi, :]
+            for p in range(npol):
+                wsb[:, :, p] = np.where(hole_n, args.weight_frac * w_row[:, p][:, None], wsb[:, :, p])
+            ms.putcol('WEIGHT_SPECTRUM', ws, startrow=sr, nrow=nt, rowincr=n_baseline)
+
+        if args.unflag or args.weight_frac is not None:
             fl = ms.getcol('FLAG', startrow=sr, nrow=nt, rowincr=n_baseline)
             fb = fl[:, chan_lo:chan_hi, :]
             for p in range(npol):
@@ -116,4 +147,5 @@ if __name__ == '__main__':
     ap.add_argument('--field', type=int, default=None)
     ap.add_argument('--sim', action='store_true')
     ap.add_argument('--unflag', action='store_true')
+    ap.add_argument('--weight-frac', type=float, default=None, dest='weight_frac')
     main(ap.parse_args())
