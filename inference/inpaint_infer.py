@@ -37,6 +37,18 @@ def main(args):
     n_units = hf[amp_key].shape[0]
     cap = n_units if args.max_units is None else min(args.max_units, n_units)
 
+    if args.oracle:
+        true_key = 'clean' if args.sim else amp_key
+        log(f"ORACLE mode: writing TRUE {true_key} (no model) to isolate the write-back path")
+        preds = np.empty((cap, 3, sz, sz), dtype=np.float32)
+        for u in range(cap):
+            ph = hf['phase'][u].astype(np.float32)
+            preds[u] = np.stack([hf[true_key][u].astype(np.float32), np.cos(ph), np.sin(ph)], 0)
+        hf.close()
+        np.savez(args.out_preds, preds=preds)
+        log(f"saved {cap} oracle preds {preds.shape} -> {args.out_preds}")
+        return
+
     cfg = (phase1 if args.sim else phase2)(predict=args.predict)
     model = UNet(cfg.in_channels, out_ch=cfg.target_channels, base=cfg.base, ch_mult=cfg.ch_mult,
                  attn_res=cfg.attn_res, num_res=cfg.num_res, img_size=cfg.img_size).to(dev)
@@ -87,4 +99,5 @@ if __name__ == '__main__':
     ap.add_argument('--smooth-target', action='store_true', dest='smooth_target')
     ap.add_argument('--smooth-sigma', type=float, default=1.0, dest='smooth_sigma')
     ap.add_argument('--max-units', type=int, default=None, dest='max_units')
+    ap.add_argument('--oracle', action='store_true')
     main(ap.parse_args())

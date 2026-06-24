@@ -53,6 +53,7 @@ NVBIND="--bind $LIBCUDA:$LIBDIR/libcuda.so.1 --bind $LIBNVML:$LIBDIR/libnvidia-m
 INFER_EXTRA=""; WRITE_EXTRA=""
 [ "$SIM" = "1" ] && { INFER_EXTRA="$INFER_EXTRA --sim"; WRITE_EXTRA="$WRITE_EXTRA --sim"; }
 [ "$SMOOTH" = "1" ] && INFER_EXTRA="$INFER_EXTRA --smooth-target"
+[ "$ORACLE" = "1" ] && INFER_EXTRA="$INFER_EXTRA --oracle"
 [ "$UNFLAG" = "1" ] && WRITE_EXTRA="$WRITE_EXTRA --unflag"
 [ -n "$WEIGHT_FRAC" ] && WRITE_EXTRA="$WRITE_EXTRA --weight-frac $WEIGHT_FRAC"
 [ -n "$MAX_UNITS" ] && INFER_EXTRA="$INFER_EXTRA --max-units $MAX_UNITS"
