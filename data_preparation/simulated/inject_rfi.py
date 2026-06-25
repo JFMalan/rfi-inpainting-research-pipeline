@@ -4,7 +4,6 @@ import time
 import numpy as np
 import h5py
 from pathlib import Path
-from skimage.transform import resize
 
 from rfi_toolbox.data_generation.synthetic_generator import SyntheticDataGenerator
 
@@ -122,6 +121,9 @@ def inject(clean_patch, gen, synth_cfg, bands, target_frac, scale_min, scale_max
 
 
 def resize_hw(arr, h, w, order=1):
+    if arr.shape == (h, w):
+        return arr.astype(np.float32)
+    from skimage.transform import resize
     return resize(arr, (h, w), order=order, mode='edge',
                   anti_aliasing=(order > 0), preserve_range=True).astype(np.float32)
 
