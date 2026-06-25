@@ -58,6 +58,7 @@ class PatchDataset(Dataset):
             paths = [paths]
         self.files = []
         full = []
+        bls = []
         for p in paths:
             for fp in sorted(glob.glob(p)):
                 with h5py.File(fp, 'r') as f:
@@ -66,23 +67,29 @@ class PatchDataset(Dataset):
                     self.n_freq = int(f.attrs['n_freq'])
                     self.band_min = float(f.attrs['freq_min_mhz'])
                     self.band_max = float(f.attrs['freq_max_mhz'])
+                    bl_id = f['baseline_id'][:] if 'baseline_id' in f else np.arange(n)
                 self.files.append(fp)
                 fidx = len(self.files) - 1
                 for i in range(n):
                     full.append((fidx, i))
+                    bls.append((fidx, int(bl_id[i])))
         if not full:
             raise RuntimeError(f"no patches found in {paths}")
 
+        # split by (file, baseline) so a baseline's freq tiles never straddle train/val/test
+        groups = {}
+        for k, key in enumerate(bls):
+            groups.setdefault(key, []).append(k)
+        gkeys = list(groups.keys())
         rng = np.random.default_rng(split_seed)
-        perm = rng.permutation(len(full))
-        n_val = int(len(full) * val_frac)
-        n_test = int(len(full) * test_frac)
-        test_ids = perm[:n_test]
-        val_ids = perm[n_test:n_test + n_val]
-        train_ids = perm[n_test + n_val:]
-        chosen = {'train': train_ids, 'val': val_ids, 'test': test_ids}[split]
+        perm = rng.permutation(len(gkeys))
+        n_val = int(len(gkeys) * val_frac)
+        n_test = int(len(gkeys) * test_frac)
+        sel = {'train': perm[n_test + n_val:], 'val': perm[n_test:n_test + n_val],
+               'test': perm[:n_test]}[split]
+        chosen = sorted(int(k) for gi in sel for k in groups[gkeys[gi]])
 
-        self.index = [full[k] for k in sorted(chosen)]
+        self.index = [full[k] for k in chosen]
         if split == 'train' and max_patches is not None and max_patches < len(self.index):
             sub = rng.choice(len(self.index), size=max_patches, replace=False)
             self.index = [self.index[k] for k in sorted(sub)]
