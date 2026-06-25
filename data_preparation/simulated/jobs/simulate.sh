@@ -76,19 +76,18 @@ echo "[3/6] $(date '+%H:%M:%S') adding thermal noise (CASA sm.corrupt)"
 singularity exec $CASA casa --nologger --log2term \
     -c $SCRIPTS/data_preparation/simulated/add_noise.py $SIM_MS $SEED
 
-echo "[4/6] $(date '+%H:%M:%S') extracting per-baseline ${IMG_SIZE}x${IMG_SIZE} waterfalls"
+echo "[4/6] $(date '+%H:%M:%S') extracting native per-baseline waterfalls"
 singularity exec $ASTROPY python $SCRIPTS/data_preparation/simulated/extract_patches_sim.py \
     --ms $SIM_MS \
     --output $CLEAN_H5 \
     --waterfall-out $WATERFALL \
-    --freq-min 900 --freq-max 1650 \
-    --img-size $IMG_SIZE
+    --freq-min 900 --freq-max 1650
 
-echo "[5/6] $(date '+%H:%M:%S') injecting synthetic RFI"
+echo "[5/6] $(date '+%H:%M:%S') injecting synthetic RFI on the native band and tiling to ${IMG_SIZE}x${IMG_SIZE}"
 singularity exec $ASTROPY /bin/bash -c "
     source $VENV/bin/activate &&
     python $SCRIPTS/data_preparation/simulated/inject_rfi.py \
-        --input $CLEAN_H5 --output $DATASET --seed $SEED --target-frac $TARGET_FRAC
+        --input $CLEAN_H5 --output $DATASET --img-size $IMG_SIZE --seed $SEED --target-frac $TARGET_FRAC
 "
 
 echo "[6/6] $(date '+%H:%M:%S') validating dataset and generating visualisations"

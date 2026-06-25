@@ -1,17 +1,21 @@
 import argparse
 import sys
+import time
 import numpy as np
 import h5py
 from pathlib import Path
+from skimage.transform import resize
 
 from rfi_toolbox.data_generation.synthetic_generator import SyntheticDataGenerator
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'real'))
 from rfi_bands import LBAND_PERSISTENT_MHZ
+from tiling import freq_tile_starts, freq_tile_width, time_extent
 
 
-RFI_SCALE_MIN = 5.0    # RFI peaks at least 5x clean std
-RFI_SCALE_MAX = 50.0   # RFI peaks at most 50x clean std
+RFI_SCALE_MIN = 5.0
+RFI_SCALE_MAX = 50.0
 
 
 def _synth_config(n_freq, n_time):
@@ -67,7 +71,6 @@ def band_overlay(mask, rfi, clean_std, bands, target_frac, scale_min, scale_max,
     for f0, f1 in bands:
         if np.random.rand() > persist_frac:
             continue
-        # real persistent bands are not solid: leave time gaps and partial freq coverage
         if np.random.rand() < 0.5:
             fill(0, n_time, f0, f1)
         else:
@@ -103,7 +106,7 @@ def inject(clean_patch, gen, synth_cfg, bands, target_frac, scale_min, scale_max
         pol_corr=0.8,
         synth_config=synth_cfg,
     )
-    rfi_amp = np.abs(waterfall[0, 0]).astype(np.float32).T   # (n_time, n_freq)
+    rfi_amp = np.abs(waterfall[0, 0]).astype(np.float32).T
     rfi_mask = mask[0, 0].astype(np.float32).T
 
     clean_std = clean_patch.std()
@@ -118,66 +121,120 @@ def inject(clean_patch, gen, synth_cfg, bands, target_frac, scale_min, scale_max
     return corrupted.astype(np.float32), rfi_mask
 
 
+def resize_hw(arr, h, w, order=1):
+    return resize(arr, (h, w), order=order, mode='edge',
+                  anti_aliasing=(order > 0), preserve_range=True).astype(np.float32)
+
+
+def resize_phase_hw(ph, h, w):
+    return np.arctan2(resize_hw(np.sin(ph), h, w), resize_hw(np.cos(ph), h, w))
+
+
 def main(args):
     np.random.seed(args.seed)
+    sz = args.img_size
 
     fin = h5py.File(args.input, 'r')
-    n_time = int(fin.attrs['n_time'])
-    n_freq = int(fin.attrs['n_freq'])
+    n_cross = fin['clean'].shape[0]
+    full_n_time = int(fin.attrs['full_n_time'])
+    full_n_chan = int(fin.attrs['full_n_chan'])
     freq_min = float(fin.attrs['freq_min_mhz'])
     freq_max = float(fin.attrs['freq_max_mhz'])
-    attrs = dict(fin.attrs)
-    clean_ds_in = fin['clean']
-    n_patches = clean_ds_in.shape[0]
-    other_keys = [k for k in fin if k != 'clean']
+    chan_lo = int(fin.attrs['chan_lo'])
+    freqs = np.linspace(freq_min, freq_max, full_n_chan)
 
-    synth_cfg = _synth_config(n_freq, n_time)
+    starts = freq_tile_starts(full_n_chan, sz)
+    nc = freq_tile_width(full_n_chan, sz)
+    tlo, th = time_extent(full_n_time, sz)
+    n_tiles = len(starts)
+    cap = n_cross * n_tiles
+
+    synth_cfg = _synth_config(full_n_chan, full_n_time)
     gen = SyntheticDataGenerator({"synthetic": synth_cfg})
-    bands = persistent_bands(n_freq, freq_min, freq_max)
-    print(f"injecting RFI into {n_patches} baselines ({n_time}x{n_freq}), "
-          f"{len(bands)} persistent bands, target frac {args.target_frac}", flush=True)
+    bands = persistent_bands(full_n_chan, freq_min, freq_max)
+    print(f"native {full_n_time}x{full_n_chan}, {len(bands)} persistent bands, "
+          f"target frac {args.target_frac}", flush=True)
+    print(f"freq tiles {n_tiles} starts={starts} width={nc}; time_lo={tlo} height={th} "
+          f"({'crop' if th == sz else 'resize'}); {n_cross} baselines -> {cap} units", flush=True)
 
     out_path = Path(args.output)
     out_path.parent.mkdir(parents=True, exist_ok=True)
 
-    chunk = 256
+    t0 = time.time()
     fracs = []
     with h5py.File(out_path, 'w') as f:
-        clean_out    = f.create_dataset('clean',     shape=clean_ds_in.shape, dtype=np.float32)
-        corrupted_ds = f.create_dataset('corrupted', shape=clean_ds_in.shape, dtype=np.float32)
-        mask_ds      = f.create_dataset('mask',      shape=clean_ds_in.shape, dtype=np.float32)
-        for k in other_keys:
-            src = fin[k]
-            dst = f.create_dataset(k, shape=src.shape, dtype=src.dtype)
-            for s in range(0, src.shape[0], chunk):
-                e = min(s + chunk, src.shape[0])
-                dst[s:e] = src[s:e]
-        for k, v in attrs.items():
-            f.attrs[k] = v
-        f.attrs['seed'] = args.seed
+        def mk(name, dt, last=None):
+            sh = (cap,) if last is None else (cap, last, last)
+            return f.create_dataset(name, shape=sh, dtype=dt,
+                                    chunks=(1, last, last) if last else None)
 
-        for s in range(0, n_patches, chunk):
-            e = min(s + chunk, n_patches)
-            block = clean_ds_in[s:e]
-            clean_out[s:e] = block
-            for j, patch in enumerate(block):
-                corrupted, mask = inject(patch, gen, synth_cfg, bands,
-                                         args.target_frac, args.scale_min,
-                                         args.scale_max, args.persist_frac)
-                corrupted_ds[s + j] = corrupted
-                mask_ds[s + j] = mask
-                fracs.append(float(mask.mean()))
-            print(f"  {e}/{n_patches}  mean flag frac {np.mean(fracs):.3f}", flush=True)
+        clean_ds = mk('clean', np.float32, sz)
+        corr_ds  = mk('corrupted', np.float32, sz)
+        mask_ds  = mk('mask', np.float32, sz)
+        div_ds   = mk('dn_divisor', np.float32, sz)
+        phase_ds = mk('phase', np.float32, sz)
+        bl_ds    = mk('baseline_id', np.int32)
+        a1_ds    = mk('ant1', np.int32)
+        a2_ds    = mk('ant2', np.int32)
+        tlo_ds   = mk('time_lo', np.int32)
+        flo_ds   = mk('freq_lo', np.int32)
+        ntd_ds   = mk('native_n_time', np.int32)
+        ncd_ds   = mk('native_n_chan', np.int32)
+        fmn_ds   = mk('freq_min_patch', np.float32)
+        fmx_ds   = mk('freq_max_patch', np.float32)
+
+        w = 0
+        for u in range(n_cross):
+            clean_n = fin['clean'][u]
+            div_n   = fin['dn_divisor'][u]
+            phase_n = fin['phase'][u]
+            bl = int(fin['baseline_id'][u])
+            a1 = int(fin['ant1'][u]); a2 = int(fin['ant2'][u])
+
+            corrupted_n, mask_n = inject(clean_n, gen, synth_cfg, bands, args.target_frac,
+                                         args.scale_min, args.scale_max, args.persist_frac)
+            fracs.append(float(mask_n.mean()))
+
+            for f0 in starts:
+                f1 = f0 + nc
+                t1 = tlo + th
+                cl = resize_hw(clean_n[tlo:t1, f0:f1], sz, sz)
+                co = resize_hw(corrupted_n[tlo:t1, f0:f1], sz, sz)
+                dv = resize_hw(div_n[tlo:t1, f0:f1], sz, sz)
+                ph = resize_phase_hw(phase_n[tlo:t1, f0:f1], sz, sz)
+                mk_ = (resize_hw(mask_n[tlo:t1, f0:f1], sz, sz) > 0.5).astype(np.float32)
+
+                clean_ds[w] = cl; corr_ds[w] = co; div_ds[w] = dv; phase_ds[w] = ph
+                mask_ds[w] = mk_
+                bl_ds[w] = bl; a1_ds[w] = a1; a2_ds[w] = a2
+                tlo_ds[w] = tlo; flo_ds[w] = f0
+                ntd_ds[w] = th; ncd_ds[w] = nc
+                fmn_ds[w] = float(freqs[f0]); fmx_ds[w] = float(freqs[min(f1 - 1, full_n_chan - 1)])
+                w += 1
+
+            if (u + 1) % 200 == 0 or u == 0:
+                rate = (u + 1) / max(time.time() - t0, 1e-6)
+                print(f"  baseline {u + 1}/{n_cross}  units {w}/{cap}  "
+                      f"mean flag frac {np.mean(fracs):.3f}  ({rate:.1f} bl/s)", flush=True)
+
+        f.attrs['freq_min_mhz'] = freq_min
+        f.attrs['freq_max_mhz'] = freq_max
+        f.attrs['n_time'] = sz; f.attrs['n_freq'] = sz; f.attrs['img_size'] = sz
+        f.attrs['n_baselines'] = cap
+        f.attrs['full_n_time'] = full_n_time; f.attrs['full_n_chan'] = full_n_chan
+        f.attrs['chan_lo'] = chan_lo
+        f.attrs['seed'] = args.seed
 
     fin.close()
     print(f"mean flag frac : {np.mean(fracs):.3f}  (target {args.target_frac})", flush=True)
-    print(f"saved -> {out_path}", flush=True)
+    print(f"saved {cap} tiled units ({sz}x{sz}) -> {out_path}", flush=True)
 
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--input', required=True)
     parser.add_argument('--output', required=True)
+    parser.add_argument('--img-size',     type=int,   default=512)
     parser.add_argument('--seed',         type=int,   default=42)
     parser.add_argument('--target-frac',  type=float, default=0.37)
     parser.add_argument('--persist-frac', type=float, default=0.6)

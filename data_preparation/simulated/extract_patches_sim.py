@@ -5,7 +5,6 @@ import h5py
 from pathlib import Path
 from casacore.tables import table
 from scipy.ndimage import uniform_filter1d
-from skimage.transform import resize
 
 
 def divisive_norm(waterfall, flagged, smooth_bins=64):
@@ -26,15 +25,6 @@ def divisive_norm(waterfall, flagged, smooth_bins=64):
         norm[t] = waterfall[t] / smoothed
         divisor[t] = smoothed
     return norm, divisor
-
-
-def resize_to(arr, size, order=1):
-    return resize(arr, (size, size), order=order, mode='edge',
-                  anti_aliasing=(order > 0), preserve_range=True).astype(np.float32)
-
-
-def resize_phase(ph, size):
-    return np.arctan2(resize_to(np.sin(ph), size), resize_to(np.cos(ph), size))
 
 
 def main(args):
@@ -96,7 +86,6 @@ def main(args):
 
     freq_min = float(freqs[0])
     freq_max = float(freqs[-1])
-    sz = args.img_size
 
     wf_sum   = np.zeros((n_time, n_chan), dtype=np.float64)
     wf_count = np.zeros((n_time, n_chan), dtype=np.int32)
@@ -111,31 +100,27 @@ def main(args):
     n_written = 0
 
     with h5py.File(out, 'w') as hf:
-        def mk(name, dtype, last=None):
-            shape = (n_cross,) if last is None else (n_cross, last, last)
-            maxshape = (None,) if last is None else (None, last, last)
-            chunks = None if last is None else (1, last, last)
-            return hf.create_dataset(name, shape=shape, maxshape=maxshape,
-                                     dtype=dtype, chunks=chunks)
+        def mk(name, dtype, shape):
+            return hf.create_dataset(name, shape=(n_cross,) + shape,
+                                     maxshape=(None,) + shape, dtype=dtype,
+                                     chunks=(1,) + shape if shape else None)
 
-        clean_ds   = mk('clean',      np.float32, sz)
-        divisor_ds = mk('dn_divisor', np.float32, sz)
-        phase_ds   = mk('phase',      np.float32, sz)
-        bl_id_ds   = mk('baseline_id', np.int32)
-        ant1_ds    = mk('ant1', np.int32)
-        ant2_ds    = mk('ant2', np.int32)
-        nchan_ds   = mk('native_n_chan', np.int32)
-        ntime_ds   = mk('native_n_time', np.int32)
+        clean_ds   = mk('clean',      np.float32, (n_time, n_chan))
+        divisor_ds = mk('dn_divisor', np.float32, (n_time, n_chan))
+        phase_ds   = mk('phase',      np.float32, (n_time, n_chan))
+        bl_id_ds   = mk('baseline_id', np.int32, ())
+        ant1_ds    = mk('ant1', np.int32, ())
+        ant2_ds    = mk('ant2', np.int32, ())
+        nchan_ds   = mk('native_n_chan', np.int32, ())
+        ntime_ds   = mk('native_n_time', np.int32, ())
 
-        cross_idx = 0
         for bl in range(n_baseline):
             if autocorr[bl]:
                 continue
 
-            cross_idx += 1
-            if cross_idx % 200 == 0 or cross_idx == 1:
-                rate = cross_idx / max(time.time() - t_start, 1e-6)
-                print(f"  baseline {cross_idx}/{n_cross}  written: {n_written}  "
+            if (bl + 1) % 200 == 0 or bl == 0:
+                rate = (n_written + 1) / max(time.time() - t_start, 1e-6)
+                print(f"  baseline {bl + 1}/{n_baseline}  written: {n_written}  "
                       f"({rate:.1f} bl/s)", flush=True)
 
             wf = amp[:, bl, :]
@@ -152,9 +137,9 @@ def main(args):
 
             wf_norm, wf_div = divisive_norm(wf, fm, smooth_bins=args.smooth_bins)
 
-            clean_ds[n_written]   = resize_to(wf_norm, sz, order=1)
-            divisor_ds[n_written] = resize_to(wf_div, sz, order=1)
-            phase_ds[n_written]   = resize_phase(ph, sz)
+            clean_ds[n_written]   = wf_norm.astype(np.float32)
+            divisor_ds[n_written] = wf_div.astype(np.float32)
+            phase_ds[n_written]   = ph.astype(np.float32)
             bl_id_ds[n_written]   = bl
             ant1_ds[n_written]    = int(ant1_bl[bl])
             ant2_ds[n_written]    = int(ant2_bl[bl])
@@ -169,9 +154,6 @@ def main(args):
 
         hf.attrs['freq_min_mhz'] = freq_min
         hf.attrs['freq_max_mhz'] = freq_max
-        hf.attrs['n_time']       = sz
-        hf.attrs['n_freq']       = sz
-        hf.attrs['img_size']     = sz
         hf.attrs['n_baselines']  = n_written
         hf.attrs['full_n_time']  = n_time
         hf.attrs['full_n_chan']  = n_chan
@@ -181,10 +163,10 @@ def main(args):
         raise RuntimeError("no baselines extracted — check max_bl_flag_frac")
 
     print(f"column         : {col}", flush=True)
-    print(f"freq range     : {freq_min:.1f}-{freq_max:.1f} MHz  ({n_chan} channels -> {sz})", flush=True)
-    print(f"native n_time  : {n_time} -> {sz}", flush=True)
+    print(f"freq range     : {freq_min:.1f}-{freq_max:.1f} MHz  ({n_chan} native channels)", flush=True)
+    print(f"native n_time  : {n_time}", flush=True)
     print(f"baselines used : {baselines_used}  skipped: {baselines_skipped}  autocorr: {autocorr.sum()}", flush=True)
-    print(f"saved {n_written} per-baseline waterfalls ({sz}x{sz}) -> {out}", flush=True)
+    print(f"saved {n_written} native per-baseline waterfalls ({n_time}x{n_chan}) -> {out}", flush=True)
 
     if args.waterfall_out:
         wf_avg   = np.where(wf_count > 0, wf_sum / wf_count, 0.0).astype(np.float32)
@@ -202,7 +184,6 @@ if __name__ == '__main__':
     parser.add_argument('--waterfall-out',    default=None)
     parser.add_argument('--freq-min',         type=float, default=900.0)
     parser.add_argument('--freq-max',         type=float, default=1650.0)
-    parser.add_argument('--img-size',         type=int,   default=512)
     parser.add_argument('--max-bl-flag-frac', type=float, default=0.8)
     parser.add_argument('--smooth-bins',      type=int,   default=64)
     main(parser.parse_args())
