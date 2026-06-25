@@ -57,9 +57,13 @@ wsc flagged DATA
 set_flag clear
 
 CLEAN_ARG=""; [ "$SIM" = "1" ] && CLEAN_ARG="--clean $IMG/clean-image.fits"
-echo "==== compare ===="
+echo "==== compare (continuum image) ===="
 singularity exec $ASTROPY python $ROOT/evaluation/compare_images.py \
     $CLEAN_ARG --flagged $IMG/flagged-image.fits --inpainted $IMG/inpainted-image.fits \
     --out $OUT/image_comparison.png
 
-echo "done -> $OUT/image_comparison.png  (fits in $IMG/)"
+echo "==== compare (delay space) ===="
+singularity exec $ASTROPY python $ROOT/evaluation/delay_spectrum.py \
+    --ms "$MS" --h5 "$H5" --inp-col $INPCOL --out $OUT/delay_spectrum.png $SIMARG $MU
+
+echo "done -> $OUT/image_comparison.png  $OUT/delay_spectrum.png  (fits in $IMG/)"
