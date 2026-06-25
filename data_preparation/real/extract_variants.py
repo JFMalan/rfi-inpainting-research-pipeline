@@ -1,4 +1,5 @@
 import argparse
+import sys
 import time
 import numpy as np
 import h5py
@@ -6,7 +7,10 @@ from pathlib import Path
 from casacore.tables import table
 from scipy.ndimage import uniform_filter1d
 from skimage.transform import resize
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from rfi_bands import LBAND_PERSISTENT_MHZ
+from tiling import freq_tile_starts, freq_tile_width, time_extent
 
 
 def divisive_norm(waterfall, flagged, smooth_bins=64):
@@ -69,6 +73,8 @@ def windows_in(lo, hi, win, stride):
 # each variant: (name, img_size, freq_tiles, time_win, max_flag) — how to slice a baseline.
 #   freq_tiles: 1 = whole band; >1 = split band into N freq sub-bands
 #   time_win:   None = use whole run (resize to img_size); int = slide time windows of that width
+#   tiled=True: native-resolution overlapping freq tiles + crop-if->=512-else-resize time,
+#               divisor on the native band then sliced (matches the sim extractor's tiling)
 def variant_specs(sz):
     return {
         'v1_upsample512':   dict(sz=sz, freq_tiles=1, time_win=None, max_flag=0.5),
@@ -76,7 +82,63 @@ def variant_specs(sz):
         'v3_freqtiled512':  dict(sz=sz, freq_tiles=2, time_win=None, max_flag=0.5),
         'v4_relaxed512':    dict(sz=sz, freq_tiles=1, time_win=None, max_flag=0.7),
         'v5_all512':        dict(sz=sz, freq_tiles=1, time_win=None, max_flag=0.85),
+        'v6_native512':     dict(sz=sz, tiled=True, max_flag=0.85),
     }
+
+
+def emit_tiled(path, spec, amp, phase, flagged, runs, cross_bls, ant1_bl, ant2_bl,
+               freqs, chan_lo, n_chan, is_test, smooth_bins):
+    sz = spec['sz']; mf = spec['max_flag']
+    starts = freq_tile_starts(n_chan, sz)
+    nc = freq_tile_width(n_chan, sz)
+    windows = []
+    for lo, hi in runs:
+        t_off, th = time_extent(hi - lo, sz)
+        windows.append((lo + t_off, lo + t_off + th))
+    samples = []   # (bl, t0, t1, f0, f1)
+    for (t0, t1) in windows:
+        for bl in cross_bls:
+            for f0 in starts:
+                f1 = f0 + nc
+                if flagged[t0:t1, bl, f0:f1].mean() <= mf:
+                    samples.append((int(bl), t0, t1, f0, f1))
+    if not samples:
+        print(f"  {path.name}: 0 samples (max_flag={mf})", flush=True)
+        return 0
+    cap = len(samples)
+    with h5py.File(path, 'w') as hf:
+        def mk(name, dt, last=None):
+            sh = (cap,) if last is None else (cap, last, last)
+            return hf.create_dataset(name, shape=sh, dtype=dt,
+                                     chunks=(1, last, last) if last else None)
+        d_ds = mk('data', np.float32, sz); p_ds = mk('phase', np.float32, sz)
+        fl_ds = mk('flags', np.float32, sz); dv_ds = mk('dn_divisor', np.float32, sz)
+        bl_ds = mk('baseline_id', np.int32); a1 = mk('ant1', np.int32); a2 = mk('ant2', np.int32)
+        tlo = mk('time_lo', np.int32); flo = mk('freq_lo', np.int32)
+        ntd = mk('native_n_time', np.int32); ncd = mk('native_n_chan', np.int32)
+        spl = mk('split', np.int32)
+        fmn = mk('freq_min_patch', np.float32); fmx = mk('freq_max_patch', np.float32)
+        cache_key = None; wn_full = wd_full = None
+        for k, (bl, t0, t1, f0, f1) in enumerate(samples):
+            if cache_key != (bl, t0, t1):
+                wn_full, wd_full = divisive_norm(amp[t0:t1, bl, :], flagged[t0:t1, bl, :],
+                                                 smooth_bins=smooth_bins)
+                cache_key = (bl, t0, t1)
+            wn = wn_full[:, f0:f1]; wd = wd_full[:, f0:f1]
+            ph = phase[t0:t1, bl, f0:f1]; fm = flagged[t0:t1, bl, f0:f1]
+            d_ds[k] = resize_hw(wn, sz, sz); p_ds[k] = resize_phase_hw(ph, sz, sz)
+            fl_ds[k] = (resize_hw(fm.astype(np.float32), sz, sz) > 0.5).astype(np.float32)
+            dv_ds[k] = resize_hw(wd, sz, sz)
+            bl_ds[k] = bl; a1[k] = int(ant1_bl[bl]); a2[k] = int(ant2_bl[bl])
+            tlo[k] = t0; flo[k] = f0; ntd[k] = t1 - t0; ncd[k] = f1 - f0; spl[k] = int(is_test[bl])
+            fmn[k] = float(freqs[f0]); fmx[k] = float(freqs[min(f1 - 1, n_chan - 1)])
+        hf.attrs['freq_min_mhz'] = float(freqs[0]); hf.attrs['freq_max_mhz'] = float(freqs[-1])
+        hf.attrs['n_time'] = sz; hf.attrs['n_freq'] = sz; hf.attrs['img_size'] = sz
+        hf.attrs['n_baselines'] = cap; hf.attrs['full_n_chan'] = n_chan; hf.attrs['chan_lo'] = chan_lo
+    n_test = int(sum(is_test[bl] for bl, *_ in samples))
+    print(f"  {path.name}: {cap} samples ({cap - n_test} train, {n_test} test)  "
+          f"sz={sz} tiled starts={starts} width={nc} maxflag={mf}", flush=True)
+    return cap
 
 
 def emit_dataset(path, spec, amp, phase, flagged, runs, cross_bls, ant1_bl, ant2_bl,
@@ -183,8 +245,9 @@ def main(args):
         if not specs:
             raise RuntimeError(f"--only {args.only} matched no variant of {list(variant_specs(args.img_size))}")
     for name, spec in specs.items():
-        emit_dataset(out / f'{name}.h5', spec, amp, phase, flagged, runs, cross_bls,
-                     ant1_bl, ant2_bl, freqs, chan_lo, n_chan, is_test, args.smooth_bins)
+        emit = emit_tiled if spec.get('tiled') else emit_dataset
+        emit(out / f'{name}.h5', spec, amp, phase, flagged, runs, cross_bls,
+             ant1_bl, ant2_bl, freqs, chan_lo, n_chan, is_test, args.smooth_bins)
     print(f"all variants -> {out}  ({time.time() - t0:.0f}s total)", flush=True)
 
 

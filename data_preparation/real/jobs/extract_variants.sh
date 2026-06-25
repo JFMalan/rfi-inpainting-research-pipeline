@@ -11,7 +11,7 @@ set -e
 
 MS=${MS:-/idia/projects/astro-cirg/data_for_rfi/1570802018_sdp_l0-J2018_5539-corr.ms}
 COLUMN=${COLUMN:-DATA}
-ONLY=${ONLY:-}
+ONLY=${ONLY:-v6_native512}   # tiled variant matching the sim extractor; set ONLY= to build the legacy v1-v5
 
 ASTROPY=/idia/software/containers/ASTRO-PY3.10.sif
 SCRIPTS=/users/$USER/rfi-inpainting-research-pipeline

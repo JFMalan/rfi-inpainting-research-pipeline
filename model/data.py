@@ -232,6 +232,7 @@ class RealDataset(Dataset):
             paths = [paths]
         self.files = []
         full = []
+        bls = []
         stored_split = []   # per-sample 0/1 test flag if the file carries one
         have_split = True
         for p in paths:
@@ -243,10 +244,12 @@ class RealDataset(Dataset):
                     self.band_min = float(f.attrs['freq_min_mhz'])
                     self.band_max = float(f.attrs['freq_max_mhz'])
                     sp = f['split'][:] if 'split' in f else None
+                    bl_id = f['baseline_id'][:] if 'baseline_id' in f else np.arange(n)
                 self.files.append(fp)
                 fidx = len(self.files) - 1
                 for i in range(n):
                     full.append((fidx, i))
+                    bls.append((fidx, int(bl_id[i])))
                 if sp is None:
                     have_split = False
                 else:
@@ -254,23 +257,30 @@ class RealDataset(Dataset):
         if not full:
             raise RuntimeError(f"no baselines found in {paths}")
 
+        # group sample indices by (file, baseline) so a baseline's freq tiles stay together
+        def by_baseline(ids):
+            groups = {}
+            for k in ids:
+                groups.setdefault(bls[k], []).append(k)
+            return list(groups.values())
+
+        rng = np.random.default_rng(split_seed)
         if have_split:
-            # extractor reserved test baselines; val carved from train by seed
+            # extractor reserved test baselines; val carved from the train pool by baseline
             test_ids = [k for k, s in enumerate(stored_split) if s == 1]
-            train_pool = [k for k, s in enumerate(stored_split) if s == 0]
-            rng = np.random.default_rng(split_seed)
-            rng.shuffle(train_pool)
-            n_val = int(len(train_pool) * val_frac)
-            val_ids = train_pool[:n_val]
-            train_ids = train_pool[n_val:]
+            pool_groups = by_baseline([k for k, s in enumerate(stored_split) if s == 0])
+            perm = rng.permutation(len(pool_groups))
+            n_val = int(len(pool_groups) * val_frac)
+            val_ids = [k for gi in perm[:n_val] for k in pool_groups[gi]]
+            train_ids = [k for gi in perm[n_val:] for k in pool_groups[gi]]
         else:
-            rng = np.random.default_rng(split_seed)
-            perm = rng.permutation(len(full))
-            n_val = int(len(full) * val_frac)
-            n_test = int(len(full) * test_frac)
-            test_ids = perm[:n_test]
-            val_ids = perm[n_test:n_test + n_val]
-            train_ids = perm[n_test + n_val:]
+            groups = by_baseline(range(len(full)))
+            perm = rng.permutation(len(groups))
+            n_val = int(len(groups) * val_frac)
+            n_test = int(len(groups) * test_frac)
+            test_ids = [k for gi in perm[:n_test] for k in groups[gi]]
+            val_ids = [k for gi in perm[n_test:n_test + n_val] for k in groups[gi]]
+            train_ids = [k for gi in perm[n_test + n_val:] for k in groups[gi]]
         chosen = {'train': train_ids, 'val': val_ids, 'test': test_ids}[split]
 
         self.index = [full[k] for k in sorted(chosen)]

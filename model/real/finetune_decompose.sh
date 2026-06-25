@@ -14,8 +14,8 @@ set -e
 # Decompose-then-inpaint on REAL data: fine-tune the sim decompose model on real with
 # --smooth-target (self-sup target = recoverable smooth amplitude), eval vs interp +
 # mean-fill ON THE SMOOTH TARGET. Also runs from-scratch for the sim-prior comparison.
-VARIANTS=${VARIANTS:-"v1_upsample512"}
-INIT=${INIT:-/idia/users/$USER/rfi/runs/phase1_all_decompose/best.pt}
+VARIANTS=${VARIANTS:-"v6_native512"}
+INIT=${INIT:-/idia/users/$USER/rfi/runs/phase1_all_decompose_tiled80ep/best.pt}
 ITERS=${ITERS:-8000}
 BATCH=${BATCH:-4}
 LR=${LR:-4e-5}         # fine-tune LR (5x below from-scratch 2e-4) so the sim prior isn't blown away
