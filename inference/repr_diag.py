@@ -29,6 +29,7 @@ def wrap(a):
 
 def main(args):
     hole_key = 'mask' if args.sim else 'flags'
+    amp_key = 'clean' if args.sim else 'data'
     hf = h5py.File(args.h5, 'r')
     sz = int(hf.attrs['img_size'])
     chan_lo = int(hf.attrs['chan_lo'])
@@ -66,7 +67,7 @@ def main(args):
         amp_col = np.abs(D).mean(axis=2).astype(np.float32)
         Vref = amp_col * np.exp(1j * theta)
 
-        amp_recon = to_native(hf['clean'][u], nt, nc) * to_native(hf['dn_divisor'][u], nt, nc)
+        amp_recon = to_native(hf[amp_key][u], nt, nc) * to_native(hf['dn_divisor'][u], nt, nc)
 
         ph512 = hf['phase'][u]
         ph_h5 = np.arctan2(to_native(np.sin(ph512), nt, nc), to_native(np.cos(ph512), nt, nc))
