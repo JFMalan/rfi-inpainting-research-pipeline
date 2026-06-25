@@ -35,6 +35,7 @@ def main(args):
     chan_lo = int(hf.attrs['chan_lo'])
     chan_hi = chan_lo + int(hf.attrs['full_n_chan'])
     has_tlo = 'time_lo' in hf
+    has_flo = 'freq_lo' in hf
     f_lo_h5 = float(hf.attrs['freq_min_mhz'])
     f_hi_h5 = float(hf.attrs['freq_max_mhz'])
 
@@ -101,23 +102,25 @@ def main(args):
     max_diff = 0.0
     written = 0
     for u in range(cap):
-        bl = int(hf['baseline_id'][u]); nt = int(hf['native_n_time'][u])
+        bl = int(hf['baseline_id'][u]); nt = int(hf['native_n_time'][u]); nc = int(hf['native_n_chan'][u])
         tlo = int(hf['time_lo'][u]) if has_tlo else 0
-        hole = resize(hf[hole_key][u].astype(np.float32), (nt, chan_hi - chan_lo),
+        flo = int(hf['freq_lo'][u]) if has_flo else 0
+        clo = chan_lo + flo; chi = clo + nc
+        hole = resize(hf[hole_key][u].astype(np.float32), (nt, nc),
                       order=0, mode='edge', preserve_range=True) > 0.5
         sr = tlo * n_baseline + bl
 
         src = root.getcol('DATA', startrow=sr, nrow=nt, rowincr=n_baseline)
         d = root.getcol(args.out_col, startrow=sr, nrow=nt, rowincr=n_baseline)
-        sband = src[:, chan_lo:chan_hi, :]
-        band = d[:, chan_lo:chan_hi, :]
+        sband = src[:, clo:chi, :]
+        band = d[:, clo:chi, :]
         for p in range(d.shape[2]):
             band[:, :, p] = np.where(hole, sband[:, :, p], band[:, :, p])
         root.putcol(args.out_col, d, startrow=sr, nrow=nt, rowincr=n_baseline)
 
         if args.unflag:
             fl = root.getcol('FLAG', startrow=sr, nrow=nt, rowincr=n_baseline)
-            fb = fl[:, chan_lo:chan_hi, :]
+            fb = fl[:, clo:chi, :]
             for p in range(fl.shape[2]):
                 fb[:, :, p] = np.where(hole, False, fb[:, :, p])
             root.putcol('FLAG', fl, startrow=sr, nrow=nt, rowincr=n_baseline)

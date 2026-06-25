@@ -23,8 +23,8 @@ def main(args):
     hf = h5py.File(args.h5, 'r')
     sz = int(hf.attrs['img_size'])
     chan_lo = int(hf.attrs['chan_lo'])
-    chan_hi = chan_lo + int(hf.attrs['full_n_chan'])
     has_tlo = 'time_lo' in hf
+    has_flo = 'freq_lo' in hf
     amp_key = 'clean' if args.sim else 'data'
 
     root = table(args.ms, readonly=True, ack=False)
@@ -40,8 +40,10 @@ def main(args):
     for u in range(cap):
         bl = int(hf['baseline_id'][u]); nt = int(hf['native_n_time'][u]); nc = int(hf['native_n_chan'][u])
         tlo = int(hf['time_lo'][u]) if has_tlo else 0
+        flo = int(hf['freq_lo'][u]) if has_flo else 0
+        clo = chan_lo + flo; chi = clo + nc
         sr = tlo * n_baseline + bl
-        D = root.getcol('DATA', startrow=sr, nrow=nt, rowincr=n_baseline)[:, chan_lo:chan_hi, :]
+        D = root.getcol('DATA', startrow=sr, nrow=nt, rowincr=n_baseline)[:, clo:chi, :]
         theta = np.angle(D.mean(axis=2)).astype(np.float32)
         preds[u] = np.stack([hf[amp_key][u].astype(np.float32),
                              to512(np.cos(theta), sz), to512(np.sin(theta), sz)], 0)

@@ -17,8 +17,8 @@ def main(args):
     hole_key = 'mask' if args.sim else 'flags'
     hf = h5py.File(args.h5, 'r')
     chan_lo = int(hf.attrs['chan_lo'])
-    chan_hi = chan_lo + int(hf.attrs['full_n_chan'])
     has_tlo = 'time_lo' in hf
+    has_flo = 'freq_lo' in hf
     set_val = args.mode == 'set'
 
     ms = table(args.ms, readonly=False, ack=False)
@@ -29,13 +29,15 @@ def main(args):
     log(f"{args.mode} FLAG at holes for {cap} units  n_baseline={n_baseline}")
 
     for u in range(cap):
-        bl = int(hf['baseline_id'][u]); nt = int(hf['native_n_time'][u])
+        bl = int(hf['baseline_id'][u]); nt = int(hf['native_n_time'][u]); nc = int(hf['native_n_chan'][u])
         tlo = int(hf['time_lo'][u]) if has_tlo else 0
-        hole = resize(hf[hole_key][u].astype(np.float32), (nt, chan_hi - chan_lo),
+        flo = int(hf['freq_lo'][u]) if has_flo else 0
+        clo = chan_lo + flo; chi = clo + nc
+        hole = resize(hf[hole_key][u].astype(np.float32), (nt, nc),
                       order=0, mode='edge', preserve_range=True) > 0.5
         sr = tlo * n_baseline + bl
         fl = ms.getcol('FLAG', startrow=sr, nrow=nt, rowincr=n_baseline)
-        band = fl[:, chan_lo:chan_hi, :]
+        band = fl[:, clo:chi, :]
         for p in range(band.shape[2]):
             band[:, :, p] = np.where(hole, set_val, band[:, :, p])
         ms.putcol('FLAG', fl, startrow=sr, nrow=nt, rowincr=n_baseline)

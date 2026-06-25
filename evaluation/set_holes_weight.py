@@ -35,8 +35,8 @@ def main(args):
     hole_key = 'mask' if args.sim else 'flags'
     hf = h5py.File(args.h5, 'r')
     chan_lo = int(hf.attrs['chan_lo'])
-    chan_hi = chan_lo + int(hf.attrs['full_n_chan'])
     has_tlo = 'time_lo' in hf
+    has_flo = 'freq_lo' in hf
 
     ms = table(args.ms, readonly=False, ack=False)
     times = ms.getcol('TIME')
@@ -47,20 +47,22 @@ def main(args):
     log(f"set hole weight = {args.frac} x WEIGHT for {cap} units  n_baseline={n_baseline}")
 
     for u in range(cap):
-        bl = int(hf['baseline_id'][u]); nt = int(hf['native_n_time'][u])
+        bl = int(hf['baseline_id'][u]); nt = int(hf['native_n_time'][u]); nc = int(hf['native_n_chan'][u])
         tlo = int(hf['time_lo'][u]) if has_tlo else 0
-        hole = resize(hf[hole_key][u].astype(np.float32), (nt, chan_hi - chan_lo),
+        flo = int(hf['freq_lo'][u]) if has_flo else 0
+        clo = chan_lo + flo; chi = clo + nc
+        hole = resize(hf[hole_key][u].astype(np.float32), (nt, nc),
                       order=0, mode='edge', preserve_range=True) > 0.5
         sr = tlo * n_baseline + bl
         w_row = ms.getcol('WEIGHT', startrow=sr, nrow=nt, rowincr=n_baseline)
         ws = ms.getcol('WEIGHT_SPECTRUM', startrow=sr, nrow=nt, rowincr=n_baseline)
-        wsb = ws[:, chan_lo:chan_hi, :]
+        wsb = ws[:, clo:chi, :]
         for p in range(ws.shape[2]):
             wsb[:, :, p] = np.where(hole, args.frac * w_row[:, p][:, None], wsb[:, :, p])
         ms.putcol('WEIGHT_SPECTRUM', ws, startrow=sr, nrow=nt, rowincr=n_baseline)
 
         fl = ms.getcol('FLAG', startrow=sr, nrow=nt, rowincr=n_baseline)
-        fb = fl[:, chan_lo:chan_hi, :]
+        fb = fl[:, clo:chi, :]
         for p in range(fl.shape[2]):
             fb[:, :, p] = np.where(hole, False, fb[:, :, p])
         ms.putcol('FLAG', fl, startrow=sr, nrow=nt, rowincr=n_baseline)

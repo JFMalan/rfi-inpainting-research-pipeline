@@ -56,17 +56,29 @@ def main(args):
     model.load_state_dict(ck['ema'] if 'ema' in ck else ck['model'])
     model.eval()
     diff = Diffusion(T=cfg.timesteps, device=dev)
-    pe = positional_encoding(band_min, band_max, band_min, band_max, sz, sz, cfg.pe_channels)
-    pe_t = torch.from_numpy(pe[None].copy()).to(dev)
+    has_fpatch = 'freq_min_patch' in hf
+    pe_cache = {}
+
+    def get_pe(u):
+        if has_fpatch:
+            fmin = float(hf['freq_min_patch'][u]); fmax = float(hf['freq_max_patch'][u])
+        else:
+            fmin, fmax = band_min, band_max
+        key = (round(fmin, 3), round(fmax, 3))
+        pe = pe_cache.get(key)
+        if pe is None:
+            pe = positional_encoding(fmin, fmax, band_min, band_max, sz, sz, cfg.pe_channels)
+            pe_cache[key] = pe
+        return pe
+
     log(f"model loaded; inferring {cap}/{n_units} units")
 
     bs = args.batch
-    pe_b = pe_t.repeat(bs, 1, 1, 1)
     preds = np.empty((cap, 3, sz, sz), dtype=np.float32)
     with torch.no_grad():
         for s in range(0, cap, bs):
             e = min(s + bs, cap)
-            obs_l, hole_l = [], []
+            obs_l, hole_l, pe_l = [], [], []
             for u in range(s, e):
                 data = hf[amp_key][u].astype(np.float32)
                 phase = hf['phase'][u].astype(np.float32)
@@ -74,9 +86,11 @@ def main(args):
                 amp = smooth_component(data, hole, args.smooth_sigma) if args.smooth_target else data
                 obs_l.append(np.stack([amp, np.cos(phase), np.sin(phase)], 0))
                 hole_l.append(hole[None])
+                pe_l.append(get_pe(u))
             x0 = torch.from_numpy(np.stack(obs_l, 0)).to(dev)
             m = torch.from_numpy(np.stack(hole_l, 0)).to(dev)
-            cond = build_cond(x0, m, pe_b[:e - s], hole_fill=getattr(cfg, 'hole_fill', 'mean'))
+            pe_b = torch.from_numpy(np.stack(pe_l, 0).copy()).to(dev)
+            cond = build_cond(x0, m, pe_b, hole_fill=getattr(cfg, 'hole_fill', 'mean'))
             pred = diff.sample(model, cond, x0, m, predict=cfg.predict, eta=0.0,
                                steps=args.steps, noise_floor=nf)
             preds[s:e] = pred.cpu().numpy()
