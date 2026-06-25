@@ -244,6 +244,9 @@ def main(args):
         specs = {n: s for n, s in specs.items() if n in keep}
         if not specs:
             raise RuntimeError(f"--only {args.only} matched no variant of {list(variant_specs(args.img_size))}")
+    if args.max_flag is not None:
+        for s in specs.values():
+            s['max_flag'] = args.max_flag
     for name, spec in specs.items():
         emit = emit_tiled if spec.get('tiled') else emit_dataset
         emit(out / f'{name}.h5', spec, amp, phase, flagged, runs, cross_bls,
@@ -261,6 +264,7 @@ if __name__ == '__main__':
     p.add_argument('--img-size', type=int, default=512)
     p.add_argument('--max-ts-flag-frac', type=float, default=0.95)
     p.add_argument('--min-run', type=int, default=64)
+    p.add_argument('--max-flag', type=float, default=None, help='override per-tile keep threshold for all variants')
     p.add_argument('--test-frac', type=float, default=0.15)
     p.add_argument('--split-seed', type=int, default=1234)
     p.add_argument('--smooth-bins', type=int, default=64)
