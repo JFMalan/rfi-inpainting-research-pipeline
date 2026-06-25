@@ -34,6 +34,10 @@ def resize_hw(arr, h, w, order=1):
                   anti_aliasing=(order > 0), preserve_range=True).astype(np.float32)
 
 
+def resize_phase_hw(ph, h, w):
+    return np.arctan2(resize_hw(np.sin(ph), h, w), resize_hw(np.cos(ph), h, w))
+
+
 def good_runs(good_ts, min_run):
     runs = []
     n = len(good_ts)
@@ -109,7 +113,7 @@ def emit_dataset(path, spec, amp, phase, flagged, runs, cross_bls, ant1_bl, ant2
             wf = amp[t0:t1, bl, f0:f1]; ph = phase[t0:t1, bl, f0:f1]
             fm = flagged[t0:t1, bl, f0:f1]
             wn, wd = divisive_norm(wf, fm, smooth_bins=min(smooth_bins, (f1 - f0) // 2))
-            d_ds[k] = resize_hw(wn, sz, sz); p_ds[k] = resize_hw(ph, sz, sz)
+            d_ds[k] = resize_hw(wn, sz, sz); p_ds[k] = resize_phase_hw(ph, sz, sz)
             fl_ds[k] = (resize_hw(fm.astype(np.float32), sz, sz) > 0.5).astype(np.float32)
             dv_ds[k] = resize_hw(wd, sz, sz)
             bl_ds[k] = bl; a1[k] = int(ant1_bl[bl]); a2[k] = int(ant2_bl[bl])

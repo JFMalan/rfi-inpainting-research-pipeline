@@ -33,6 +33,10 @@ def resize_to(arr, size, order=1):
                   anti_aliasing=(order > 0), preserve_range=True).astype(np.float32)
 
 
+def resize_phase(ph, size):
+    return np.arctan2(resize_to(np.sin(ph), size), resize_to(np.cos(ph), size))
+
+
 def main(args):
     t_start = time.time()
     ms = table(args.ms, readonly=True)
@@ -150,7 +154,7 @@ def main(args):
 
             clean_ds[n_written]   = resize_to(wf_norm, sz, order=1)
             divisor_ds[n_written] = resize_to(wf_div, sz, order=1)
-            phase_ds[n_written]   = resize_to(ph, sz, order=1)
+            phase_ds[n_written]   = resize_phase(ph, sz)
             bl_id_ds[n_written]   = bl
             ant1_ds[n_written]    = int(ant1_bl[bl])
             ant2_ds[n_written]    = int(ant2_bl[bl])

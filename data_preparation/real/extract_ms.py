@@ -34,6 +34,10 @@ def resize_to(arr, size, order=1):
                   anti_aliasing=(order > 0), preserve_range=True).astype(np.float32)
 
 
+def resize_phase(ph, size):
+    return np.arctan2(resize_to(np.sin(ph), size), resize_to(np.cos(ph), size))
+
+
 def main(args):
     t_start = time.time()
     ms = table(args.ms, readonly=True)
@@ -186,7 +190,7 @@ def main(args):
                 wf_norm, wf_div = divisive_norm(wf, fm, smooth_bins=args.smooth_bins)
 
                 amp_ds[n_written]     = resize_to(wf_norm, sz, order=1)
-                phase_ds[n_written]   = resize_to(ph, sz, order=1)
+                phase_ds[n_written]   = resize_phase(ph, sz)
                 flags_ds[n_written]   = (resize_to(fm.astype(np.float32), sz, order=1) > 0.5).astype(np.float32)
                 divisor_ds[n_written] = resize_to(wf_div, sz, order=1)
                 bl_id_ds[n_written]   = int(bl)
