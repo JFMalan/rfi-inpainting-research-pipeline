@@ -22,6 +22,8 @@ IMSIZE=${IMSIZE:-2048}
 CELL=${CELL:-2asec}
 NITER=${NITER:-10000}
 MAX_UNITS=${MAX_UNITS:-}
+DO_INPAINT=${DO_INPAINT:-1}   # 0 = skip the inpainted column (e.g. flagged+mean-fill preview before a model exists)
+MEANFILL=${MEANFILL:-0}       # 1 = also write + image a per-channel time-mean fill (3-way benchmark)
 
 ROOT=/users/$USER/rfi-inpainting-research-pipeline
 ASTROPY=/idia/software/containers/ASTRO-PY3.10.sif
@@ -45,9 +47,14 @@ wsc () {  # name  column
 set_flag () { singularity exec $ASTROPY python $ROOT/evaluation/set_holes_flag.py \
     --ms "$MS" --h5 "$H5" --mode $1 $SIMARG $MU; }
 
-# ensure holes are unflagged, then image truth + inpainted
+# ensure holes are unflagged, then image truth + the filled columns (holes cleared -> wsclean uses the fill)
 set_flag clear
-echo "==== image Inpainted ($INPCOL) ===="; wsc inpainted $INPCOL
+if [ "$DO_INPAINT" = "1" ]; then echo "==== image Inpainted ($INPCOL) ===="; wsc inpainted $INPCOL; fi
+if [ "$MEANFILL" = "1" ]; then
+    echo "==== mean-fill write + image (per-channel time-mean) ===="
+    singularity exec $ASTROPY python $ROOT/evaluation/mean_fill_write.py --ms "$MS" --h5 "$H5" --out-col MEANFILL_DATA $SIMARG
+    wsc meanfill MEANFILL_DATA
+fi
 if [ "$SIM" = "1" ]; then echo "==== image Clean (DATA truth) ===="; wsc clean DATA; fi
 
 # flag the holes, image the flag-only (missing-data) case, then restore
@@ -57,13 +64,17 @@ wsc flagged DATA
 set_flag clear
 
 CLEAN_ARG=""; [ "$SIM" = "1" ] && CLEAN_ARG="--clean $IMG/clean-image.fits"
+INP_ARG=""; [ "$DO_INPAINT" = "1" ] && INP_ARG="--inpainted $IMG/inpainted-image.fits"
+MEANFILL_ARG=""; [ "$MEANFILL" = "1" ] && MEANFILL_ARG="--meanfill $IMG/meanfill-image.fits"
 echo "==== compare (continuum image) ===="
 singularity exec $ASTROPY python $ROOT/evaluation/compare_images.py \
-    $CLEAN_ARG --flagged $IMG/flagged-image.fits --inpainted $IMG/inpainted-image.fits \
+    $CLEAN_ARG --flagged $IMG/flagged-image.fits $MEANFILL_ARG $INP_ARG \
     --out $OUT/image_comparison.png
 
-echo "==== compare (delay space) ===="
-singularity exec $ASTROPY python $ROOT/evaluation/delay_spectrum.py \
-    --ms "$MS" --h5 "$H5" --inp-col $INPCOL --out $OUT/delay_spectrum.png $SIMARG $MU
+if [ "$DO_INPAINT" = "1" ]; then
+    echo "==== compare (delay space) ===="
+    singularity exec $ASTROPY python $ROOT/evaluation/delay_spectrum.py \
+        --ms "$MS" --h5 "$H5" --inp-col $INPCOL --out $OUT/delay_spectrum.png $SIMARG $MU
+fi
 
 echo "done -> $OUT/image_comparison.png  $OUT/delay_spectrum.png  (fits in $IMG/)"

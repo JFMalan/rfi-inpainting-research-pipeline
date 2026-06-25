@@ -20,7 +20,8 @@ def stats(img):
 
 
 def main(args):
-    imgs = {'clean': args.clean, 'flagged': args.flagged, 'inpainted': args.inpainted}
+    imgs = {'clean': args.clean, 'flagged': args.flagged,
+            'meanfill': args.meanfill, 'inpainted': args.inpainted}
     imgs = {k: v for k, v in imgs.items() if v}
     data = {k: load(v) for k, v in imgs.items()}
 
@@ -44,7 +45,7 @@ def main(args):
                 else "flagged closer to clean"
             print(f"  verdict: {better}", flush=True)
 
-    order = [k for k in ['flagged', 'inpainted', 'clean'] if k in data]
+    order = [k for k in ['flagged', 'meanfill', 'inpainted', 'clean'] if k in data]
     fig, ax = plt.subplots(1, len(order), figsize=(6 * len(order), 5.5))
     if len(order) == 1:
         ax = [ax]
@@ -63,6 +64,7 @@ if __name__ == '__main__':
     ap = argparse.ArgumentParser()
     ap.add_argument('--clean', default='')
     ap.add_argument('--flagged', default='')
+    ap.add_argument('--meanfill', default='')
     ap.add_argument('--inpainted', default='')
     ap.add_argument('--out', required=True)
     main(ap.parse_args())
