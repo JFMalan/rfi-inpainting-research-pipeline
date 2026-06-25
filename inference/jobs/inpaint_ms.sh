@@ -39,7 +39,7 @@ MS=${MS:?set MS=/path/to/flagged.ms}
 H5=${H5:?set H5=/path/to/extracted_dataset.h5}
 PREDS=${PREDS:-/scratch3/users/$USER/rfi/inpaint_preds_${SLURM_JOB_ID}.npz}
 
-if [ ! -f "$CKPT" ]; then echo "checkpoint not found: $CKPT"; exit 1; fi
+if [ "${ORACLE:-0}" != "1" ] && [ ! -f "$CKPT" ]; then echo "checkpoint not found: $CKPT"; exit 1; fi
 
 mkdir -p logs
 LIBDIR=/usr/lib/x86_64-linux-gnu

@@ -102,6 +102,7 @@ def emit_dataset(path, spec, amp, phase, flagged, runs, cross_bls, ant1_bl, ant2
         fl_ds = mk('flags', np.float32, sz); dv_ds = mk('dn_divisor', np.float32, sz)
         bl_ds = mk('baseline_id', np.int32); a1 = mk('ant1', np.int32); a2 = mk('ant2', np.int32)
         tlo = mk('time_lo', np.int32); flo = mk('freq_lo', np.int32)
+        ntd = mk('native_n_time', np.int32); ncd = mk('native_n_chan', np.int32)
         spl = mk('split', np.int32)   # 0 train, 1 test
         fmn = mk('freq_min_patch', np.float32); fmx = mk('freq_max_patch', np.float32)
         for k, (bl, t0, t1, f0, f1) in enumerate(samples):
@@ -112,7 +113,7 @@ def emit_dataset(path, spec, amp, phase, flagged, runs, cross_bls, ant1_bl, ant2
             fl_ds[k] = (resize_hw(fm.astype(np.float32), sz, sz) > 0.5).astype(np.float32)
             dv_ds[k] = resize_hw(wd, sz, sz)
             bl_ds[k] = bl; a1[k] = int(ant1_bl[bl]); a2[k] = int(ant2_bl[bl])
-            tlo[k] = t0; flo[k] = f0; spl[k] = int(is_test[bl])
+            tlo[k] = t0; flo[k] = f0; ntd[k] = t1 - t0; ncd[k] = f1 - f0; spl[k] = int(is_test[bl])
             fmn[k] = float(freqs[f0]); fmx[k] = float(freqs[min(f1 - 1, n_chan - 1)])
         hf.attrs['freq_min_mhz'] = float(freqs[0]); hf.attrs['freq_max_mhz'] = float(freqs[-1])
         hf.attrs['n_time'] = sz; hf.attrs['n_freq'] = sz; hf.attrs['img_size'] = sz
