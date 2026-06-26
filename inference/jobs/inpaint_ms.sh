@@ -41,6 +41,14 @@ PREDS=${PREDS:-/scratch3/users/$USER/rfi/inpaint_preds_${SLURM_JOB_ID}.npz}
 
 if [ "${ORACLE:-0}" != "1" ] && [ ! -f "$CKPT" ]; then echo "checkpoint not found: $CKPT"; exit 1; fi
 
+# footgun guard: real write-back (SIM=0) must use a REAL model, not the sim-model default TAG
+if [ "$SIM" = "0" ] && [ "${ORACLE:-0}" != "1" ]; then
+    case "$CKPT" in
+        *phase1_*) echo "ERROR: SIM=0 (real) but CKPT is a sim model ($CKPT)."
+                   echo "       set CKPT=/idia/users/\$USER/rfi/runs/phase2_decompose.../best.pt (or TAG=phase2_...)"; exit 1;;
+    esac
+fi
+
 mkdir -p logs
 LIBDIR=/usr/lib/x86_64-linux-gnu
 LIBCUDA=$(ls $LIBDIR/libcuda.so.*.* 2>/dev/null | head -1)

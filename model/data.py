@@ -199,6 +199,12 @@ def fake_mask(real_flags, frac_range=(0.05, 0.25), width_range=(8, 32), max_trie
     # interp on it (audit 2026-06-21). 2D blobs force the model to use cross-time AND
     # cross-freq context, which is the only setting where it can beat interpolation.
     # mode='bands': legacy full-width stripes (kept for comparison).
+    # mode='mixed': blobs + full-time freq stripes + broadband time bursts. The real flags
+    # are dominated by persistent full-time freq bands, so training only on 2D blobs leaves
+    # the model extrapolating on the exact geometry it deploys to; the mix keeps the blob
+    # case (where it beats interp) AND covers the band geometry (where it must at least match
+    # interp, which still helps the image vs flagging). Stripes are widened toward the
+    # persistent-band scale.
     n_time, n_freq = real_flags.shape
     fm = np.zeros((n_time, n_freq), dtype=np.float32)
     target = np.random.uniform(*frac_range)
@@ -206,15 +212,24 @@ def fake_mask(real_flags, frac_range=(0.05, 0.25), width_range=(8, 32), max_trie
     avail = unflagged.mean()
     target = min(target, max(avail * 0.8, 1e-3))
     wlo, whi = width_range
+    band_hi = max(whi, n_freq // 8)
     tries = 0
     while (fm * unflagged).mean() < target and tries < max_tries:
         tries += 1
-        if mode == '2d':
+        if mode == 'mixed':
+            r = np.random.rand()
+            shape = 'blob' if r < 0.35 else ('stripe' if r < 0.8 else 'burst')
+        elif mode == '2d':
+            shape = 'blob'
+        else:
+            shape = 'stripe' if np.random.rand() < 0.6 else 'burst'
+        if shape == 'blob':
             wf = np.random.randint(wlo, whi + 1); wt = np.random.randint(wlo, whi + 1)
             f0 = np.random.randint(0, max(1, n_freq - wf)); t0 = np.random.randint(0, max(1, n_time - wt))
             fm[t0:t0 + wt, f0:f0 + wf] = 1.0
-        elif np.random.rand() < 0.6:
-            w = np.random.randint(wlo, whi + 1); f0 = np.random.randint(0, max(1, n_freq - w))
+        elif shape == 'stripe':
+            hi = band_hi if mode == 'mixed' else whi
+            w = np.random.randint(wlo, hi + 1); f0 = np.random.randint(0, max(1, n_freq - w))
             fm[:, f0:f0 + w] = 1.0
         else:
             w = np.random.randint(max(2, wlo // 2), whi // 2 + 1); t0 = np.random.randint(0, max(1, n_time - w))

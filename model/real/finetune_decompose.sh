@@ -22,6 +22,7 @@ LR=${LR:-4e-5}         # fine-tune LR (5x below from-scratch 2e-4) so the sim pr
 EMA=${EMA:-0.999}      # fast EMA: 0.9999 froze the shadow at the init over a short run (audit)
 SIGMA=${SIGMA:-1.0}    # sigma sweep on real: cleanly splits structure (smooth ac~0.92) from white noise (grain ac~0.01)
 SMOOTH=${SMOOTH:-1}    # 1 = smooth-target objective (decompose); 0 = full-amplitude objective
+FAKE_MASK_MODE=${FAKE_MASK_MODE:-mixed}   # mixed = train on the real RFI geometry (freq bands + bursts + blobs); '2d' = blobs only (legacy)
 DO_SCRATCH=${DO_SCRATCH:-1}
 if [ "$SMOOTH" = "1" ]; then SMOOTH_ARG="--smooth-target --smooth-sigma $SIGMA"; else SMOOTH_ARG=""; echo "FULL-AMPLITUDE objective (no smooth-target)"; fi
 
@@ -46,7 +47,7 @@ run_one () {
     singularity exec --nv $NVBIND $GPU python $SCRIPTS/train_real.py \
         --data $H5 --out $OUT --epochs 1000 --batch-size $BATCH --max-iters $ITERS --lr $RLR \
         --ema-decay $EMA --sample-every 4 --val-eval-patches 24 --min-epochs 8 --min-delta 0.005 --patience 6 \
-        $SMOOTH_ARG $EXTRA || { echo "train failed $NAME $MODE"; return; }
+        --fake-mask-mode $FAKE_MASK_MODE $SMOOTH_ARG $EXTRA || { echo "train failed $NAME $MODE"; return; }
     echo "======== EVAL  $NAME [$MODE] ========"
     singularity exec --nv $NVBIND $GPU python $SCRIPTS/real/eval_real.py \
         --data $H5 --ckpt $OUT/best.pt --tag ${NAME}_${MODE}${TAG:+_$TAG} --batch-size $BATCH \

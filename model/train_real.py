@@ -83,6 +83,7 @@ def main(args):
     if args.min_epochs is not None: cfg.min_epochs = args.min_epochs
     if args.min_delta is not None: cfg.min_delta = args.min_delta
     if args.patience: cfg.patience = args.patience
+    if args.fake_mask_mode: cfg.fake_mask_mode = args.fake_mask_mode
     torch.manual_seed(cfg.seed)
     np.random.seed(cfg.seed)
 
@@ -235,5 +236,7 @@ if __name__ == '__main__':
     ap.add_argument('--seed', type=int, default=0)
     ap.add_argument('--smooth-target', action='store_true', dest='smooth_target')
     ap.add_argument('--smooth-sigma', type=float, default=None, dest='smooth_sigma')
+    ap.add_argument('--fake-mask-mode', default=None, dest='fake_mask_mode',
+                    help="'2d' | 'bands' | 'mixed' (match real RFI band geometry)")
     ap.add_argument('--ema-decay', type=float, default=None, dest='ema_decay')
     main(ap.parse_args())
