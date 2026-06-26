@@ -77,11 +77,12 @@ def main(args):
     flo_arr = hf['freq_lo'][:cap].astype(int) if has_flo else np.zeros(cap, int)
     starts = sorted(set(int(x) for x in flo_arr))
     tile_w = int(nc_arr[0])
-    log(f"tiles: starts={starts} width={tile_w} band={full_n_chan}")
 
-    groups = defaultdict(list)
+    # group by run (time_lo, native_n_time) -> contiguous MS row block, then by baseline within
+    runs = defaultdict(lambda: defaultdict(list))
     for u in range(cap):
-        groups[(bl_arr[u], tlo_arr[u])].append(u)
+        runs[(tlo_arr[u], nt_arr[u])][bl_arr[u]].append(u)
+    log(f"tiles: starts={starts} width={tile_w} band={full_n_chan}  runs={len(runs)}")
 
     root = table(args.ms, readonly=False, ack=False)
     src_col = args.src_col if args.src_col in root.colnames() else 'DATA'
@@ -94,7 +95,7 @@ def main(args):
     tb = times[:n_time * n_baseline].reshape(n_time, n_baseline)
     if not np.all(tb.max(axis=1) == tb.min(axis=1)):
         raise RuntimeError("MS rows not time-major — row map unsafe")
-    log(f"MS {n_row} rows  n_time={n_time}  n_baseline={n_baseline}  src_col={src_col}  groups={len(groups)}")
+    log(f"MS {n_row} rows  n_time={n_time}  n_baseline={n_baseline}  src_col={src_col}")
 
     ensure_column(root, args.out_col, src_col)
     if args.weight_frac is not None:
@@ -107,58 +108,58 @@ def main(args):
     else:
         ms = root
 
-    written = 0
-    for (bl, tlo), units in groups.items():
-        nt = nt_arr[units[0]]
-        sr = tlo * n_baseline + bl
-        d = ms.getcol(args.out_col, startrow=sr, nrow=nt, rowincr=n_baseline)  # (nt, nchan_tot, npol)
-        npol = d.shape[2]
+    npol = int(ms.getcell(args.out_col, 0).shape[1])
+    blc = [chan_lo, 0]; trc = [chan_lo + full_n_chan - 1, npol - 1]
 
-        vnum = np.zeros((nt, full_n_chan), dtype=np.complex64)
-        wsum = np.zeros((nt, full_n_chan), dtype=np.float32)
-        hany = np.zeros((nt, full_n_chan), dtype=bool)
-        for u in units:
-            nc = nc_arr[u]; flo = flo_arr[u]
-            amp_n = resize_native(preds[u, 0], nt, nc)
-            div_n = resize_native(hf['dn_divisor'][u], nt, nc)
-            cos_n = resize_native(preds[u, 1], nt, nc)
-            sin_n = resize_native(preds[u, 2], nt, nc)
-            V = (amp_n * div_n * np.exp(1j * np.arctan2(sin_n, cos_n))).astype(np.complex64)
-            hole_n = resize_native(hf[hole_key][u].astype(np.float32), nt, nc) > 0.5
-            w = feather_weight(flo, nc, starts, tile_w)[None, :].astype(np.float32) * hole_n
-            vnum[:, flo:flo + nc] += w * V
-            wsum[:, flo:flo + nc] += w
-            hany[:, flo:flo + nc] |= hole_n
-        vb = np.where(wsum > 0, vnum / np.maximum(wsum, 1e-12), 0).astype(np.complex64)
-
-        band = d[:, chan_lo:chan_lo + full_n_chan, :]
-        for p in range(npol):
-            band[:, :, p] = np.where(hany, vb, band[:, :, p])
-        ms.putcol(args.out_col, d, startrow=sr, nrow=nt, rowincr=n_baseline)
-
+    done = 0
+    for (tlo, nt), bls in runs.items():
+        r0 = tlo * n_baseline
+        nrows = nt * n_baseline
+        d = ms.getcolslice(args.out_col, blc, trc, [], r0, nrows).reshape(nt, n_baseline, full_n_chan, npol)
         if args.weight_frac is not None:
-            # down-weight inpainted pixels to weight_frac x the row's real WEIGHT (idempotent:
-            # scaled off WEIGHT, not the possibly-already-modified WEIGHT_SPECTRUM).
-            w_row = ms.getcol('WEIGHT', startrow=sr, nrow=nt, rowincr=n_baseline)   # (nt, npol)
-            ws = ms.getcol('WEIGHT_SPECTRUM', startrow=sr, nrow=nt, rowincr=n_baseline)
-            wsb = ws[:, chan_lo:chan_lo + full_n_chan, :]
-            for p in range(npol):
-                wsb[:, :, p] = np.where(hany, args.weight_frac * w_row[:, p][:, None], wsb[:, :, p])
-            ms.putcol('WEIGHT_SPECTRUM', ws, startrow=sr, nrow=nt, rowincr=n_baseline)
-
+            w_row = ms.getcol('WEIGHT', startrow=r0, nrow=nrows).reshape(nt, n_baseline, npol)
+            ws = ms.getcolslice('WEIGHT_SPECTRUM', blc, trc, [], r0, nrows).reshape(nt, n_baseline, full_n_chan, npol)
         if args.unflag or args.weight_frac is not None:
-            fl = ms.getcol('FLAG', startrow=sr, nrow=nt, rowincr=n_baseline)
-            fb = fl[:, chan_lo:chan_lo + full_n_chan, :]
-            for p in range(npol):
-                fb[:, :, p] = np.where(hany, False, fb[:, :, p])
-            ms.putcol('FLAG', fl, startrow=sr, nrow=nt, rowincr=n_baseline)
+            fl = ms.getcolslice('FLAG', blc, trc, [], r0, nrows).reshape(nt, n_baseline, full_n_chan, npol)
 
-        written += 1
-        if written == 1 or written % 100 == 0:
-            log(f"  wrote {written}/{len(groups)} baselines  bl={bl} tlo={tlo} holes={int(hany.sum())}")
+        for bl, units in bls.items():
+            vnum = np.zeros((nt, full_n_chan), dtype=np.complex64)
+            wsum = np.zeros((nt, full_n_chan), dtype=np.float32)
+            hany = np.zeros((nt, full_n_chan), dtype=bool)
+            for u in units:
+                nc = nc_arr[u]; flo = flo_arr[u]
+                amp_n = resize_native(preds[u, 0], nt, nc)
+                div_n = resize_native(hf['dn_divisor'][u], nt, nc)
+                cos_n = resize_native(preds[u, 1], nt, nc)
+                sin_n = resize_native(preds[u, 2], nt, nc)
+                V = (amp_n * div_n * np.exp(1j * np.arctan2(sin_n, cos_n))).astype(np.complex64)
+                hole_n = resize_native(hf[hole_key][u].astype(np.float32), nt, nc) > 0.5
+                w = feather_weight(flo, nc, starts, tile_w)[None, :].astype(np.float32) * hole_n
+                vnum[:, flo:flo + nc] += w * V
+                wsum[:, flo:flo + nc] += w
+                hany[:, flo:flo + nc] |= hole_n
+            vb = np.where(wsum > 0, vnum / np.maximum(wsum, 1e-12), 0).astype(np.complex64)
+
+            band = d[:, bl, :, :]
+            for p in range(npol):
+                band[:, :, p] = np.where(hany, vb, band[:, :, p])
+            if args.weight_frac is not None:
+                for p in range(npol):
+                    ws[:, bl, :, p] = np.where(hany, args.weight_frac * w_row[:, bl, p][:, None], ws[:, bl, :, p])
+            if args.unflag or args.weight_frac is not None:
+                for p in range(npol):
+                    fl[:, bl, :, p] = np.where(hany, False, fl[:, bl, :, p])
+            done += 1
+
+        ms.putcolslice(args.out_col, d.reshape(nrows, full_n_chan, npol), blc, trc, [], r0, nrows)
+        if args.weight_frac is not None:
+            ms.putcolslice('WEIGHT_SPECTRUM', ws.reshape(nrows, full_n_chan, npol), blc, trc, [], r0, nrows)
+        if args.unflag or args.weight_frac is not None:
+            ms.putcolslice('FLAG', fl.reshape(nrows, full_n_chan, npol), blc, trc, [], r0, nrows)
+        log(f"  run tlo={tlo} nt={nt}: {len(bls)} baselines written  (total {done}/{cap} tiles)")
 
     ms.flush(); root.flush(); hf.close()
-    log(f"done: {written} baselines -> {args.out_col}{' (FLAG cleared in holes)' if args.unflag else ''}")
+    log(f"done: {done} tiles over {len(runs)} runs -> {args.out_col}{' (FLAG cleared in holes)' if args.unflag else ''}")
 
 
 if __name__ == '__main__':
