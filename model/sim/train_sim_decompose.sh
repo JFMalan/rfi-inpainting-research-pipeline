@@ -5,7 +5,7 @@
 #SBATCH --constraint=A40
 #SBATCH --cpus-per-task=8
 #SBATCH --mem=64GB
-#SBATCH --time=96:00:00
+#SBATCH --time=144:00:00
 #SBATCH --output=logs/train-decompose-%j-stdout.log
 #SBATCH --error=logs/train-decompose-%j-stderr.log
 #SBATCH --mail-type=BEGIN,END,FAIL
