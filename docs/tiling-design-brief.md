@@ -20,10 +20,11 @@ The audit (`docs/methodology-audit.md`) shifts the methodology around the tiling
 - **Recoverable/irreducible split is a FINDING, not a failure.** Wide fully-flagged persistent bands are
   largely irreducible (white noise is incoherent — Pagano 2023; contiguous-vs-random — Chakraborty 2022);
   stop optimizing against them.
-- **TARGET DECISION PENDING (ask the user):** the audit recommends switching from the smooth/decompose
-  target to a **full-amplitude target + delay-space fabrication guard** (over-smoothing causes signal loss
-  — the ~6% peak suppression). This REVERSES the "keep smooth target" note later in this doc. Confirm with
-  the user before choosing `train_sim.sh` (full-amp) vs `train_sim_decompose.sh` (smooth).
+- **TARGET DECIDED (2026-06-25): full-amplitude target + delay-space fabrication guard** (use
+  `train_sim.sh`, NOT `train_sim_decompose.sh`). Rationale: over-smoothing causes signal loss (~6% peak
+  suppression; Kern & Liu 2021), and the U-Paint fabrication risk was overstated, so we don't blunt the
+  model with a smooth target — we allow full amplitude and CATCH fabrication by measuring high-delay power.
+  This supersedes any "keep smooth target" wording elsewhere in this doc.
 - The earlier "U-Paint was catastrophic (10^4)" framing is an OVERREACH — Pagano presents the CNN as
   viable/transferable. Don't lean on it.
 - Fix `GOAL.md` ref [12] (Luo et al. arXiv:2604.01531 is a future-dated, bogus ID).
@@ -104,8 +105,8 @@ Per baseline, native is 540 time × 898 freq (band 900–1650 MHz; MS attr `chan
 ## Then retrain (only after the gate passes)
 - Re-extract all training runs run[1-9] with tiling via `reextract.sh` (check which `run<N>/sim_clean.ms`
   still exist — /scratch3 auto-deletes at 90 days; missing → full `simulate.sh`). Keep SEED.
-- Retrain: `model/sim/train_sim.sh` (full-amp → phase1_all) and/or `train_sim_decompose.sh` (smooth
-  target, recommended per research). Back up existing checkpoints first.
+- Retrain: `model/sim/train_sim.sh` (full-amplitude target → phase1_all) — this is the DECIDED target
+  (see corrections at top). Back up existing checkpoints first.
 - Infer → write-back → image; judge on continuum RMS AND delay space vs flagging.
 
 ## Hard constraints / gotchas
