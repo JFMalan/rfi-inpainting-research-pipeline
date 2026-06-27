@@ -4,6 +4,7 @@ import time
 import h5py
 import numpy as np
 from casacore.tables import table
+from scipy.ndimage import gaussian_filter
 from skimage.transform import resize
 
 t0 = time.time()
@@ -16,6 +17,20 @@ def log(m):
 def to512(arr, sz):
     return resize(arr, (sz, sz), order=1, mode='edge', anti_aliasing=True,
                   preserve_range=True).astype(np.float32)
+
+
+def smooth_component(amp, mask, sigma=1.0):
+    # mirror data.py: freq-interp across the hole, then 2D low-pass. This is the BEST a perfect
+    # decompose model could output in the holes (smooth recoverable amplitude, no fabricated grain).
+    filled = amp.copy()
+    idx = np.arange(amp.shape[1])
+    for t in range(amp.shape[0]):
+        row = filled[t]; keep = mask[t] < 0.5
+        if keep.sum() < 4:
+            filled[t] = row.mean() if keep.any() else 1.0
+            continue
+        filled[t] = np.interp(idx, idx[keep], row[keep])
+    return gaussian_filter(filled, sigma=sigma, mode='nearest').astype(np.float32)
 
 
 def main(args):
@@ -45,8 +60,10 @@ def main(args):
         sr = tlo * n_baseline + bl
         D = root.getcol('DATA', startrow=sr, nrow=nt, rowincr=n_baseline)[:, clo:chi, :]
         theta = np.angle(D.mean(axis=2)).astype(np.float32)
-        preds[u] = np.stack([hf[amp_key][u].astype(np.float32),
-                             to512(np.cos(theta), sz), to512(np.sin(theta), sz)], 0)
+        amp = hf[amp_key][u].astype(np.float32)
+        if args.smooth_amp:
+            amp = smooth_component(amp, hf[hole_key][u].astype(np.float32), args.smooth_sigma)
+        preds[u] = np.stack([amp, to512(np.cos(theta), sz), to512(np.sin(theta), sz)], 0)
         if u == 0 or (u + 1) % 100 == 0:
             log(f"  built {u + 1}/{cap}  bl={bl} tlo={tlo}")
 
@@ -61,5 +78,8 @@ if __name__ == '__main__':
     ap.add_argument('--h5', required=True)
     ap.add_argument('--out-preds', required=True, dest='out_preds')
     ap.add_argument('--sim', action='store_true')
+    ap.add_argument('--smooth-amp', action='store_true', dest='smooth_amp',
+                    help='write smooth_component(clean) amplitude = the decompose-model ceiling')
+    ap.add_argument('--smooth-sigma', type=float, default=1.0, dest='smooth_sigma')
     ap.add_argument('--max-units', type=int, default=None, dest='max_units')
     main(ap.parse_args())
