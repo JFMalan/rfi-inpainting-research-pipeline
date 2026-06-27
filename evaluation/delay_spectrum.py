@@ -63,12 +63,18 @@ def main(args):
     taper = blackman_harris(N)
     df_hz = (fmax - fmin) * 1e6 / (N - 1)
     tau_us = np.fft.fftshift(np.fft.fftfreq(N, d=df_hz)) * 1e6
-    A = dpss_basis(N, args.dpss_hw) if args.dpss else None
+    # DPSS classical-baseline configs: a half-width sweep, or a single (hw, lam).
+    dpss_cfgs = []
+    if args.dpss_sweep:
+        for hw in [float(x) for x in args.dpss_sweep.split(',')]:
+            dpss_cfgs.append((f'dpss_hw{hw:g}', dpss_basis(N, hw), args.dpss_lam))
+    elif args.dpss:
+        dpss_cfgs.append(('dpss', dpss_basis(N, args.dpss_hw), args.dpss_lam))
+    dpss_labels = [c[0] for c in dpss_cfgs]
     log(f"delay spectrum: {len(groups)} baselines  band {fmin:.1f}-{fmax:.1f} MHz ({N} ch)  "
-        f"inpcol={args.inp_col} present={have_inp}  dpss={args.dpss}"
-        + (f" (hw={args.dpss_hw} lam={args.dpss_lam} K={A.shape[0]})" if args.dpss else ""))
+        f"inpcol={args.inp_col} present={have_inp}  dpss={dpss_labels} (lam={args.dpss_lam})")
 
-    variants = ['clean', 'flagged'] + (['dpss'] if args.dpss else []) + (['inpainted'] if have_inp else [])
+    variants = ['clean', 'flagged'] + dpss_labels + (['inpainted'] if have_inp else [])
     P = {k: np.zeros(N, np.float64) for k in variants}
     n_acc = 0
     for gi, ((bl, tlo), units) in enumerate(groups.items()):
@@ -85,8 +91,8 @@ def main(args):
         Vf = Vc.copy(); Vf[hole] = 0.0
         P['clean']   += delay_power(Vc, taper).mean(axis=0)
         P['flagged'] += delay_power(Vf, taper).mean(axis=0)
-        if args.dpss:
-            P['dpss'] += delay_power(dpss_fill(Vc, hole, A, args.dpss_lam), taper).mean(axis=0)
+        for label, A, lam in dpss_cfgs:
+            P[label] += delay_power(dpss_fill(Vc, hole, A, lam), taper).mean(axis=0)
         if have_inp:
             Di = root.getcol(args.inp_col, startrow=sr, nrow=nt, rowincr=n_baseline)[:, chan_lo:chan_lo + N, :]
             P['inpainted'] += delay_power(Di.mean(axis=2), taper).mean(axis=0)
@@ -99,9 +105,13 @@ def main(args):
         P[k] /= max(n_acc, 1)
 
     center = N // 2
-    k = np.abs(np.arange(N) - center)
-    hi = k > args.fg_bins
+    hi = np.abs(np.arange(N) - center) > args.fg_bins
     eps = 1e-30
+    wclean = P['clean'] + eps   # power weight: emphasise where signal lives, suppress noisy deep-delay bins
+
+    def wlogrmse(kk):
+        d = (np.log10(P[kk] + eps) - np.log10(P['clean'] + eps)) ** 2
+        return float(np.sqrt((wclean * d).sum() / wclean.sum()))
 
     def logrmse(kk):
         return float(np.sqrt(np.mean((np.log10(P[kk] + eps) - np.log10(P['clean'] + eps)) ** 2)))
@@ -109,19 +119,23 @@ def main(args):
     def hiratio(kk):
         return float(P[kk][hi].sum() / max(P['clean'][hi].sum(), eps))
 
-    log(f"=== delay-space power (averaged over {n_acc} baselines, |delay bin|>{args.fg_bins} = high-delay) ===")
-    scored = [kk for kk in variants if kk != 'clean']
-    for kk in scored:
-        log(f"  {kk:<10} logP-RMSE-vs-clean {logrmse(kk):.4f}   high-delay power ratio {hiratio(kk):.3f} (1.0 = clean)")
-    # the real question: does the learned model beat the classical baseline (DPSS) and flagging?
+    log(f"=== delay-space power ({n_acc} baselines; wlogP-RMSE = power-weighted, the robust headline) ===")
+    log(f"  {'variant':<12}{'wlogP-RMSE':>12}{'logP-RMSE':>12}{'hi-delay ratio':>16}")
+    for kk in [v for v in variants if v != 'clean']:
+        log(f"  {kk:<12}{wlogrmse(kk):>12.4f}{logrmse(kk):>12.4f}{hiratio(kk):>16.3f}")
+
+    best_dpss = min(dpss_labels, key=wlogrmse) if dpss_labels else None
+    if best_dpss:
+        log(f"  best DPSS (lowest wlogP-RMSE): {best_dpss}")
     if have_inp:
-        for base in (['dpss'] if args.dpss else []) + ['flagged']:
-            better = logrmse('inpainted') < logrmse(base) and abs(hiratio('inpainted') - 1) < abs(hiratio(base) - 1)
-            log(f"  verdict vs {base}: {'INPAINTED wins' if better else 'inpainted does NOT clearly beat ' + base} "
-                f"(logP-RMSE {logrmse('inpainted'):.4f} vs {logrmse(base):.4f})")
+        for base in ([best_dpss] if best_dpss else []) + ['flagged']:
+            win = wlogrmse('inpainted') < wlogrmse(base) and abs(hiratio('inpainted') - 1) < abs(hiratio(base) - 1)
+            log(f"  verdict vs {base}: {'MODEL wins' if win else 'model does NOT clearly beat ' + base} "
+                f"(wlogP-RMSE {wlogrmse('inpainted'):.4f} vs {wlogrmse(base):.4f}; "
+                f"hi-ratio {hiratio('inpainted'):.3f} vs {hiratio(base):.3f})")
 
     fig, ax = plt.subplots(figsize=(8, 5))
-    for kk in variants:
+    for kk in ['clean', 'flagged'] + ([best_dpss] if best_dpss else []) + (['inpainted'] if have_inp else []):
         ax.semilogy(tau_us, P[kk] + eps, label=kk, lw=1.3)
     ax.axvline(tau_us[center + args.fg_bins], color='gray', ls='--', lw=0.8)
     ax.axvline(tau_us[center - args.fg_bins], color='gray', ls='--', lw=0.8)
@@ -143,5 +157,7 @@ if __name__ == '__main__':
     ap.add_argument('--dpss-hw', type=float, default=0.1, dest='dpss_hw',
                     help='DPSS delay half-width as a fraction of the Nyquist delay')
     ap.add_argument('--dpss-lam', type=float, default=0.1, dest='dpss_lam', help='DPSS ridge regularisation')
+    ap.add_argument('--dpss-sweep', default=None, dest='dpss_sweep',
+                    help='comma list of DPSS half-widths to sweep, e.g. 0.04,0.1,0.2 (lam fixed at --dpss-lam)')
     ap.add_argument('--max-units', type=int, default=None, dest='max_units')
     main(ap.parse_args())
