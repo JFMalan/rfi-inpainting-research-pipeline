@@ -5,7 +5,7 @@
 #SBATCH --constraint=A100|A40|V100
 #SBATCH --cpus-per-task=8
 #SBATCH --mem=64GB
-#SBATCH --time=72:00:00
+#SBATCH --time=144:00:00
 #SBATCH --output=logs/train-%j-stdout.log
 #SBATCH --error=logs/train-%j-stderr.log
 #SBATCH --mail-type=BEGIN,END,FAIL
@@ -14,10 +14,11 @@
 set -e
 
 RUN_ID=${RUN_ID:-all}
-EPOCHS=${EPOCHS:-40}
+EPOCHS=${EPOCHS:-80}     # tiling doubled the data; 80ep ~117h (fits 144h walltime)
 BATCH=${BATCH:-4}
 MAX_PATCHES=${MAX_PATCHES:-}
 PHASE=${PHASE:-1}
+TAG=${TAG:-}            # e.g. _tiled80ep -> OUT phase1_all_tiled80ep (don't overwrite the old phase1_all)
 
 GPU=/idia/software/containers/ASTRO-GPU-PyTorch-2026-01-28.sif
 SCRIPTS=/users/$USER/rfi-inpainting-research-pipeline/model
@@ -28,7 +29,7 @@ if [ "$RUN_ID" = "all" ]; then
 else
     DATASET="/scratch3/users/$USER/rfi/simulated/run${RUN_ID}/dataset.h5"
 fi
-OUT=/idia/users/$USER/rfi/runs/phase${PHASE}_${RUN_ID}
+OUT=/idia/users/$USER/rfi/runs/phase${PHASE}_${RUN_ID}${TAG}
 
 mkdir -p $OUT logs
 
