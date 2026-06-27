@@ -24,6 +24,9 @@ NITER=${NITER:-10000}
 MAX_UNITS=${MAX_UNITS:-}
 DO_INPAINT=${DO_INPAINT:-1}   # 0 = skip the inpainted column (e.g. flagged+mean-fill preview before a model exists)
 MEANFILL=${MEANFILL:-0}       # 1 = also write + image a per-channel time-mean fill (3-way benchmark)
+DPSS=${DPSS:-0}               # 1 = add the DPSS classical gap-fill baseline to the delay-space comparison
+DPSS_HW=${DPSS_HW:-0.1}       # DPSS delay half-width as fraction of Nyquist delay
+DPSS_LAM=${DPSS_LAM:-0.1}     # DPSS ridge regularisation
 
 ROOT=/users/$USER/rfi-inpainting-research-pipeline
 ASTROPY=/idia/software/containers/ASTRO-PY3.10.sif
@@ -71,10 +74,12 @@ singularity exec $ASTROPY python $ROOT/evaluation/compare_images.py \
     $CLEAN_ARG --flagged $IMG/flagged-image.fits $MEANFILL_ARG $INP_ARG \
     --out $OUT/image_comparison.png
 
-if [ "$DO_INPAINT" = "1" ]; then
-    echo "==== compare (delay space) ===="
+DELAY_INP=""; [ "$DO_INPAINT" = "1" ] && DELAY_INP="--inp-col $INPCOL"
+DPSS_ARG=""; [ "$DPSS" = "1" ] && DPSS_ARG="--dpss --dpss-hw $DPSS_HW --dpss-lam $DPSS_LAM"
+if [ "$DO_INPAINT" = "1" ] || [ "$DPSS" = "1" ]; then
+    echo "==== compare (delay space; headline metric) ===="
     singularity exec $ASTROPY python $ROOT/evaluation/delay_spectrum.py \
-        --ms "$MS" --h5 "$H5" --inp-col $INPCOL --out $OUT/delay_spectrum.png $SIMARG $MU
+        --ms "$MS" --h5 "$H5" $DELAY_INP $DPSS_ARG --out $OUT/delay_spectrum.png $SIMARG $MU
 fi
 
 echo "done -> $OUT/image_comparison.png  $OUT/delay_spectrum.png  (fits in $IMG/)"

@@ -1,4 +1,6 @@
 import argparse
+import os
+import sys
 import time
 from collections import defaultdict
 
@@ -9,6 +11,9 @@ matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 from casacore.tables import table
 from skimage.transform import resize
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from classical_fill import dpss_basis, dpss_fill
 
 t0 = time.time()
 
@@ -58,10 +63,13 @@ def main(args):
     taper = blackman_harris(N)
     df_hz = (fmax - fmin) * 1e6 / (N - 1)
     tau_us = np.fft.fftshift(np.fft.fftfreq(N, d=df_hz)) * 1e6
+    A = dpss_basis(N, args.dpss_hw) if args.dpss else None
     log(f"delay spectrum: {len(groups)} baselines  band {fmin:.1f}-{fmax:.1f} MHz ({N} ch)  "
-        f"inpcol={args.inp_col} present={have_inp}")
+        f"inpcol={args.inp_col} present={have_inp}  dpss={args.dpss}"
+        + (f" (hw={args.dpss_hw} lam={args.dpss_lam} K={A.shape[0]})" if args.dpss else ""))
 
-    P = {k: np.zeros(N, np.float64) for k in ('clean', 'flagged', 'inpainted')}
+    variants = ['clean', 'flagged'] + (['dpss'] if args.dpss else []) + (['inpainted'] if have_inp else [])
+    P = {k: np.zeros(N, np.float64) for k in variants}
     n_acc = 0
     for gi, ((bl, tlo), units) in enumerate(groups.items()):
         nt = nt_arr[units[0]]
@@ -77,6 +85,8 @@ def main(args):
         Vf = Vc.copy(); Vf[hole] = 0.0
         P['clean']   += delay_power(Vc, taper).mean(axis=0)
         P['flagged'] += delay_power(Vf, taper).mean(axis=0)
+        if args.dpss:
+            P['dpss'] += delay_power(dpss_fill(Vc, hole, A, args.dpss_lam), taper).mean(axis=0)
         if have_inp:
             Di = root.getcol(args.inp_col, startrow=sr, nrow=nt, rowincr=n_baseline)[:, chan_lo:chan_lo + N, :]
             P['inpainted'] += delay_power(Di.mean(axis=2), taper).mean(axis=0)
@@ -92,23 +102,26 @@ def main(args):
     k = np.abs(np.arange(N) - center)
     hi = k > args.fg_bins
     eps = 1e-30
+
+    def logrmse(kk):
+        return float(np.sqrt(np.mean((np.log10(P[kk] + eps) - np.log10(P['clean'] + eps)) ** 2)))
+
+    def hiratio(kk):
+        return float(P[kk][hi].sum() / max(P['clean'][hi].sum(), eps))
+
     log(f"=== delay-space power (averaged over {n_acc} baselines, |delay bin|>{args.fg_bins} = high-delay) ===")
-    keys = ['flagged', 'inpainted'] if have_inp else ['flagged']
-    for kk in keys:
-        logrmse = float(np.sqrt(np.mean((np.log10(P[kk] + eps) - np.log10(P['clean'] + eps)) ** 2)))
-        ratio = float(P[kk][hi].sum() / max(P['clean'][hi].sum(), eps))
-        log(f"  {kk:<10} logP-RMSE-vs-clean {logrmse:.4f}   high-delay power ratio {ratio:.3f} (1.0 = clean)")
+    scored = [kk for kk in variants if kk != 'clean']
+    for kk in scored:
+        log(f"  {kk:<10} logP-RMSE-vs-clean {logrmse(kk):.4f}   high-delay power ratio {hiratio(kk):.3f} (1.0 = clean)")
+    # the real question: does the learned model beat the classical baseline (DPSS) and flagging?
     if have_inp:
-        rf = abs(P['flagged'][hi].sum() / max(P['clean'][hi].sum(), eps) - 1.0)
-        ri = abs(P['inpainted'][hi].sum() / max(P['clean'][hi].sum(), eps) - 1.0)
-        ef = np.sqrt(np.mean((np.log10(P['flagged'] + eps) - np.log10(P['clean'] + eps)) ** 2))
-        ei = np.sqrt(np.mean((np.log10(P['inpainted'] + eps) - np.log10(P['clean'] + eps)) ** 2))
-        verdict = "INPAINTED closer to clean in delay space" if (ei < ef and ri < rf) else \
-                  ("flagged closer" if (ef < ei and rf < ri) else "mixed")
-        log(f"  verdict: {verdict}")
+        for base in (['dpss'] if args.dpss else []) + ['flagged']:
+            better = logrmse('inpainted') < logrmse(base) and abs(hiratio('inpainted') - 1) < abs(hiratio(base) - 1)
+            log(f"  verdict vs {base}: {'INPAINTED wins' if better else 'inpainted does NOT clearly beat ' + base} "
+                f"(logP-RMSE {logrmse('inpainted'):.4f} vs {logrmse(base):.4f})")
 
     fig, ax = plt.subplots(figsize=(8, 5))
-    for kk in (['clean', 'flagged', 'inpainted'] if have_inp else ['clean', 'flagged']):
+    for kk in variants:
         ax.semilogy(tau_us, P[kk] + eps, label=kk, lw=1.3)
     ax.axvline(tau_us[center + args.fg_bins], color='gray', ls='--', lw=0.8)
     ax.axvline(tau_us[center - args.fg_bins], color='gray', ls='--', lw=0.8)
@@ -126,5 +139,9 @@ if __name__ == '__main__':
     ap.add_argument('--out', required=True)
     ap.add_argument('--sim', action='store_true')
     ap.add_argument('--fg-bins', type=int, default=20, dest='fg_bins')
+    ap.add_argument('--dpss', action='store_true', help='add the DPSS classical gap-fill baseline')
+    ap.add_argument('--dpss-hw', type=float, default=0.1, dest='dpss_hw',
+                    help='DPSS delay half-width as a fraction of the Nyquist delay')
+    ap.add_argument('--dpss-lam', type=float, default=0.1, dest='dpss_lam', help='DPSS ridge regularisation')
     ap.add_argument('--max-units', type=int, default=None, dest='max_units')
     main(ap.parse_args())
