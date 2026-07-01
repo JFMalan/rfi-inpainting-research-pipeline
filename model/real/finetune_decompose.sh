@@ -16,7 +16,7 @@ set -e
 # mean-fill ON THE SMOOTH TARGET. Also runs from-scratch for the sim-prior comparison.
 VARIANTS=${VARIANTS:-"v6_native512"}
 INIT=${INIT:-/idia/users/$USER/rfi/runs/phase1_all_decompose_tiled80ep/best.pt}
-ITERS=${ITERS:-8000}
+ITERS=${ITERS:-20000}   # ~23 epochs at 878 it/ep; ~6.5h/arm at 0.86 it/s (fits 18h walltime)
 BATCH=${BATCH:-4}
 LR=${LR:-4e-5}         # fine-tune LR (5x below from-scratch 2e-4) so the sim prior isn't blown away
 EMA=${EMA:-0.999}      # fast EMA: 0.9999 froze the shadow at the init over a short run (audit)
