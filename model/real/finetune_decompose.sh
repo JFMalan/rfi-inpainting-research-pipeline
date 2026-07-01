@@ -5,7 +5,9 @@
 #SBATCH --constraint=A40
 #SBATCH --cpus-per-task=4
 #SBATCH --mem=32GB
-#SBATCH --time=18:00:00
+#SBATCH --time=24:00:00
+# EPOCHS=60 is ~17h/arm; DO_SCRATCH=1 runs a 2nd arm (~34h total) -> for a long run set
+# DO_SCRATCH=0 and do the scratch comparison separately, or raise --time.
 #SBATCH --output=logs/finetune-decompose-%j-stdout.log
 #SBATCH --error=logs/finetune-decompose-%j-stderr.log
 
@@ -16,7 +18,8 @@ set -e
 # mean-fill ON THE SMOOTH TARGET. Also runs from-scratch for the sim-prior comparison.
 VARIANTS=${VARIANTS:-"v6_native512"}
 INIT=${INIT:-/idia/users/$USER/rfi/runs/phase1_all_decompose_tiled80ep/best.pt}
-ITERS=${ITERS:-20000}   # ~23 epochs at 878 it/ep; ~6.5h/arm at 0.86 it/s (fits 18h walltime)
+EPOCHS=${EPOCHS:-60}     # epoch budget; cosine LR anneals 4e-5 -> 2e-6 over this. ~17min/epoch
+MAX_ITERS=${MAX_ITERS:-} # empty = no hard iter cap; train to EPOCHS or until early-stop plateau
 BATCH=${BATCH:-4}
 LR=${LR:-4e-5}         # fine-tune LR (5x below from-scratch 2e-4) so the sim prior isn't blown away
 EMA=${EMA:-0.999}      # fast EMA: 0.9999 froze the shadow at the init over a short run (audit)
@@ -44,8 +47,9 @@ run_one () {
     local NAME=$1 MODE=$2 H5=$3 OUT=$4 RLR=$5 EXTRA=$6
     echo ""
     echo "======== TRAIN $NAME [$MODE] (decompose, lr=$RLR ema=$EMA) ========"
+    local MI_ARG=""; [ -n "$MAX_ITERS" ] && MI_ARG="--max-iters $MAX_ITERS"
     singularity exec --nv $NVBIND $GPU python $SCRIPTS/train_real.py \
-        --data $H5 --out $OUT --epochs 1000 --batch-size $BATCH --max-iters $ITERS --lr $RLR \
+        --data $H5 --out $OUT --epochs $EPOCHS --batch-size $BATCH $MI_ARG --lr $RLR \
         --ema-decay $EMA --sample-every 4 --val-eval-patches 24 --min-epochs 8 --min-delta 0.005 --patience 6 \
         --fake-mask-mode $FAKE_MASK_MODE $SMOOTH_ARG $EXTRA || { echo "train failed $NAME $MODE"; return; }
     echo "======== EVAL  $NAME [$MODE] ========"
