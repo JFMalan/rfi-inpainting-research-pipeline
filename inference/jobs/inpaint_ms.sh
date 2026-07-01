@@ -4,7 +4,7 @@
 #SBATCH --gres=gpu:1
 #SBATCH --constraint=A100|A40|V100
 #SBATCH --cpus-per-task=8
-#SBATCH --mem=32GB
+#SBATCH --mem=128GB
 #SBATCH --time=08:00:00
 #SBATCH --output=logs/inpaint-ms-%j-stdout.log
 #SBATCH --error=logs/inpaint-ms-%j-stderr.log
