@@ -50,7 +50,11 @@ def main(args):
     has_fpatch = 'freq_min_patch' in hf
 
     flags_frac = hf['flags'][:].astype(np.float32).mean(axis=(1, 2))
-    test = np.where((split == 1) & (flags_frac < args.max_flag_frac))[0]
+    is_test = split == 1
+    fp = flags_frac[is_test]
+    log(f"split==1 units={int(is_test.sum())}  their flagfrac "
+        f"min/med/max={fp.min():.2f}/{np.median(fp):.2f}/{fp.max():.2f}" if is_test.any() else "no split==1 units")
+    test = np.where(is_test & (flags_frac < args.max_flag_frac))[0]
     if args.max_units:
         test = test[:args.max_units]
     log(f"device={dev} ({gpu})  h5={args.h5}  test units={len(test)} (split==1, flagfrac<{args.max_flag_frac})")
@@ -105,15 +109,20 @@ def main(args):
 
             for i, (data, phase, flags, divisor, fm) in enumerate(meta):
                 fmb = fm > 0.5
+                rfb = flags > 0.5
                 V_obs = (data * divisor * np.exp(1j * phase)).astype(np.complex128)
+                # common reference: DPSS-fill the real-RFI channels (no truth there) so all variants
+                # share it and the ONLY difference is the fake holes over known-good pixels.
+                V_ref = V_obs.copy()
+                if rfb.any():
+                    V_ref[rfb] = dpss_fill(V_obs, rfb, A, args.dpss_lam)[rfb]
                 amp_p = pred[i, 0]; ph_p = np.arctan2(pred[i, 2], pred[i, 1])
-                V_model = V_obs.copy()
+                V_model = V_ref.copy()
                 V_model[fmb] = (amp_p * divisor * np.exp(1j * ph_p))[fmb]
-                gap = (flags > 0.5) | fmb                      # DPSS fits good (non-RFI, non-fake) pixels only
-                V_dpss = V_obs.copy()
-                V_dpss[fmb] = dpss_fill(V_obs, gap, A, args.dpss_lam)[fmb]
-                V_flag = V_obs.copy(); V_flag[fmb] = 0.0
-                P['truth']   += delay_power(V_obs, taper)
+                V_dpss = V_ref.copy()                           # DPSS fits genuine good pixels (not RFI, not fake)
+                V_dpss[fmb] = dpss_fill(V_obs, rfb | fmb, A, args.dpss_lam)[fmb]
+                V_flag = V_ref.copy(); V_flag[fmb] = 0.0
+                P['truth']   += delay_power(V_ref, taper)       # true good values at the fake holes
                 P['model']   += delay_power(V_model, taper)
                 P['dpss']    += delay_power(V_dpss, taper)
                 P['flagged'] += delay_power(V_flag, taper)
@@ -156,7 +165,7 @@ if __name__ == '__main__':
     ap.add_argument('--steps', type=int, default=50)
     ap.add_argument('--batch', type=int, default=8)
     ap.add_argument('--max-units', type=int, default=300, dest='max_units')
-    ap.add_argument('--max-flag-frac', type=float, default=0.4, dest='max_flag_frac')
+    ap.add_argument('--max-flag-frac', type=float, default=0.85, dest='max_flag_frac')
     ap.add_argument('--frac-range', type=float, nargs=2, default=(0.1, 0.25), dest='frac_range')
     ap.add_argument('--dpss-hw', type=float, default=0.1, dest='dpss_hw')
     ap.add_argument('--dpss-lam', type=float, default=0.1, dest='dpss_lam')
