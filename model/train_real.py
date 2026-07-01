@@ -163,10 +163,6 @@ def main(args):
             running += loss.item()
             nit += 1
             total_iters += 1
-            if it == 0 or (it + 1) % 50 == 0:
-                rate = (it + 1) / max(time.time() - t0, 1e-6)
-                print(f"  e{epoch} it{it+1} (tot {total_iters}) loss {loss.item():.4f} "
-                      f"({rate:.2f} it/s)", flush=True)
             if args.max_iters and total_iters >= args.max_iters:
                 hit_cap = True
                 break
