@@ -5,9 +5,9 @@
 #SBATCH --constraint=A40
 #SBATCH --cpus-per-task=4
 #SBATCH --mem=32GB
-#SBATCH --time=24:00:00
-# EPOCHS=60 is ~17h/arm; DO_SCRATCH=1 runs a 2nd arm (~34h total) -> for a long run set
-# DO_SCRATCH=0 and do the scratch comparison separately, or raise --time.
+#SBATCH --time=40:00:00
+# EPOCHS=60 ~17h/arm; DO_SCRATCH=1 (default) runs finetune + scratch = ~34h worst case
+# (early-stop usually cuts it shorter). 40h covers both arms without truncation.
 #SBATCH --output=logs/finetune-decompose-%j-stdout.log
 #SBATCH --error=logs/finetune-decompose-%j-stderr.log
 
@@ -48,9 +48,10 @@ run_one () {
     echo ""
     echo "======== TRAIN $NAME [$MODE] (decompose, lr=$RLR ema=$EMA) ========"
     local MI_ARG=""; [ -n "$MAX_ITERS" ] && MI_ARG="--max-iters $MAX_ITERS"
+    # eval every 2 epochs, patience 5 -> early-stop after 10 epochs of no >min-delta gain
     singularity exec --nv $NVBIND $GPU python $SCRIPTS/train_real.py \
         --data $H5 --out $OUT --epochs $EPOCHS --batch-size $BATCH $MI_ARG --lr $RLR \
-        --ema-decay $EMA --sample-every 4 --val-eval-patches 24 --min-epochs 8 --min-delta 0.005 --patience 6 \
+        --ema-decay $EMA --sample-every 2 --val-eval-patches 24 --min-epochs 8 --min-delta 0.005 --patience 5 \
         --fake-mask-mode $FAKE_MASK_MODE $SMOOTH_ARG $EXTRA || { echo "train failed $NAME $MODE"; return; }
     echo "======== EVAL  $NAME [$MODE] ========"
     singularity exec --nv $NVBIND $GPU python $SCRIPTS/real/eval_real.py \
