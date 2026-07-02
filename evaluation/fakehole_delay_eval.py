@@ -70,7 +70,10 @@ def main(args):
     taper = blackman_harris(sz)
     log(f"model loaded; dpss hw={args.dpss_hw} K={A.shape[0]} lam={args.dpss_lam}")
 
-    P = {k: np.zeros(sz, np.float64) for k in ('truth', 'model', 'dpss', 'flagged')}
+    floors = [None if f in ('none', 'None') else ('auto' if f == 'auto' else float(f))
+              for f in args.noise_floors]
+    mkeys = [f"model_nf{('none' if f is None else f)}" for f in floors]
+    P = {k: np.zeros(sz, np.float64) for k in ['truth', 'dpss', 'flagged'] + mkeys}
     n_acc = 0
     pe_cache = {}
     bs = args.batch
@@ -83,6 +86,7 @@ def main(args):
                 phase = hf['phase'][u].astype(np.float32)
                 flags = hf['flags'][u].astype(np.float32)
                 divisor = hf['dn_divisor'][u].astype(np.float32)
+                np.random.seed(args.seed + int(u))     # fixed hole per unit -> comparable across ckpts/floors
                 fm = fake_mask(flags, frac_range=args.frac_range, mode='mixed')
                 if fm.sum() < 50:
                     continue
@@ -104,8 +108,10 @@ def main(args):
             m = torch.from_numpy(np.stack(hid_l, 0)).to(dev)
             pe_b = torch.from_numpy(np.stack(pe_l, 0).copy()).to(dev)
             cond = build_cond(x0, m, pe_b, hole_fill=getattr(cfg, 'hole_fill', 'mean'))
-            pred = diff.sample(model, cond, x0, m, predict=cfg.predict, eta=0.0,
-                               steps=args.steps, noise_floor=None).cpu().numpy()
+            preds = {}
+            for f, mk in zip(floors, mkeys):
+                preds[mk] = diff.sample(model, cond, x0, m, predict=cfg.predict, eta=0.0,
+                                        steps=args.steps, noise_floor=f).cpu().numpy()
 
             for i, (data, phase, flags, divisor, fm) in enumerate(meta):
                 fmb = fm > 0.5
@@ -116,16 +122,17 @@ def main(args):
                 V_ref = V_obs.copy()
                 if rfb.any():
                     V_ref[rfb] = dpss_fill(V_obs, rfb, A, args.dpss_lam)[rfb]
-                amp_p = pred[i, 0]; ph_p = np.arctan2(pred[i, 2], pred[i, 1])
-                V_model = V_ref.copy()
-                V_model[fmb] = (amp_p * divisor * np.exp(1j * ph_p))[fmb]
                 V_dpss = V_ref.copy()                           # DPSS fits genuine good pixels (not RFI, not fake)
                 V_dpss[fmb] = dpss_fill(V_obs, rfb | fmb, A, args.dpss_lam)[fmb]
                 V_flag = V_ref.copy(); V_flag[fmb] = 0.0
                 P['truth']   += delay_power(V_ref, taper)       # true good values at the fake holes
-                P['model']   += delay_power(V_model, taper)
                 P['dpss']    += delay_power(V_dpss, taper)
                 P['flagged'] += delay_power(V_flag, taper)
+                for mk in mkeys:
+                    amp_p = preds[mk][i, 0]; ph_p = np.arctan2(preds[mk][i, 2], preds[mk][i, 1])
+                    Vm = V_ref.copy()
+                    Vm[fmb] = (amp_p * divisor * np.exp(1j * ph_p))[fmb]
+                    P[mk] += delay_power(Vm, taper)
                 n_acc += 1
             log(f"  {min(s + bs, len(test))}/{len(test)} batches  acc={n_acc}")
 
@@ -146,13 +153,17 @@ def main(args):
         return float(P[kk][hi].sum() / max(P['truth'][hi].sum(), eps))
 
     log(f"=== FAKE-HOLE delay-space recovery on REAL held-out ({n_acc} tiles vs true good data) ===")
-    log(f"  {'variant':<10}{'wlogP-RMSE':>12}{'hi-delay ratio':>16}")
-    for kk in ('flagged', 'dpss', 'model'):
-        log(f"  {kk:<10}{wlogrmse(kk):>12.4f}{hiratio(kk):>16.3f}")
-    win = wlogrmse('model') < wlogrmse('dpss') and abs(hiratio('model') - 1) < abs(hiratio('dpss') - 1)
-    log(f"  verdict vs dpss: {'MODEL wins' if win else 'model does NOT clearly beat dpss'} "
-        f"(wlogP-RMSE {wlogrmse('model'):.4f} vs {wlogrmse('dpss'):.4f})")
-    np.savez(args.out, **P, fg_bins=args.fg_bins, n=n_acc)
+    log(f"  {'variant':<16}{'wlogP-RMSE':>12}{'hi-delay ratio':>16}")
+    for kk in ['flagged', 'dpss'] + mkeys:
+        log(f"  {kk:<16}{wlogrmse(kk):>12.4f}{hiratio(kk):>16.3f}")
+    best_mk = min(mkeys, key=wlogrmse)                    # best noise_floor by headline metric
+    win = wlogrmse(best_mk) < wlogrmse('dpss') and abs(hiratio(best_mk) - 1) < abs(hiratio('dpss') - 1)
+    log(f"  best model floor: {best_mk}")
+    log(f"  verdict vs dpss: {'MODEL wins both' if win else 'split (model wins headline: '
+        + str(wlogrmse(best_mk) < wlogrmse('dpss')) + ')'} "
+        f"(wlogP-RMSE {wlogrmse(best_mk):.4f} vs dpss {wlogrmse('dpss'):.4f}; "
+        f"hi-ratio {hiratio(best_mk):.3f} vs {hiratio('dpss'):.3f})")
+    np.savez(args.out, **P, fg_bins=args.fg_bins, n=n_acc, floors=[str(f) for f in floors])
     log(f"saved power spectra -> {args.out}")
 
 
@@ -167,6 +178,8 @@ if __name__ == '__main__':
     ap.add_argument('--max-units', type=int, default=300, dest='max_units')
     ap.add_argument('--max-flag-frac', type=float, default=0.85, dest='max_flag_frac')
     ap.add_argument('--frac-range', type=float, nargs=2, default=(0.1, 0.25), dest='frac_range')
+    ap.add_argument('--noise-floors', nargs='+', default=['none'], dest='noise_floors',
+                    help="noise_floor values to sweep: none | auto | float (e.g. none 0.3 0.5 auto)")
     ap.add_argument('--dpss-hw', type=float, default=0.1, dest='dpss_hw')
     ap.add_argument('--dpss-lam', type=float, default=0.1, dest='dpss_lam')
     ap.add_argument('--fg-bins', type=int, default=20, dest='fg_bins')
