@@ -217,7 +217,8 @@ def main(args):
     ms.close()
     print(f"read done ({time.time() - t0:.0f}s)", flush=True)
 
-    flagged[:, persist] = True
+    if not args.no_force_persist:
+        flagged[:, persist] = True   # skip to keep tricolour's real flags in the persistent bands
     tt = np.unique(times); ntime = len(tt); nbl = amp.shape[0] // ntime
     amp = amp[:ntime * nbl].reshape(ntime, nbl, n_chan)
     phase = phase[:ntime * nbl].reshape(ntime, nbl, n_chan)
@@ -269,4 +270,6 @@ if __name__ == '__main__':
     p.add_argument('--split-seed', type=int, default=1234)
     p.add_argument('--smooth-bins', type=int, default=64)
     p.add_argument('--only', default=None, help='comma-separated variant names to build (default all)')
+    p.add_argument('--no-force-persist', action='store_true', dest='no_force_persist',
+                   help='keep tricolour flags in persistent bands (do not force-flag) for the location ceiling test')
     main(p.parse_args())

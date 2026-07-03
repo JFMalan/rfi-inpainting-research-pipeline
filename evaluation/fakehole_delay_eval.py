@@ -73,8 +73,10 @@ def main(args):
     floors = [None if f in ('none', 'None') else ('auto' if f == 'auto' else float(f))
               for f in args.noise_floors]
     mkeys = [f"model_nf{('none' if f is None else f)}" for f in floors]
-    variants = ['truth', 'dpss', 'gpr', 'flagged'] + mkeys
+    model_keys = mkeys + (['post'] if args.post_sample else [])   # 'post' = genuine posterior draws
+    variants = ['truth', 'dpss', 'gpr', 'flagged'] + model_keys
     Pl = {k: [] for k in variants}          # per-tile delay power, for bootstrap CIs
+    hmode = {'mixed': 'mixed', 'blob': '2d', 'band': 'stripe'}[args.hole_mode]
     n_acc = 0
     pe_cache = {}
     bs = args.batch
@@ -87,8 +89,10 @@ def main(args):
                 phase = hf['phase'][u].astype(np.float32)
                 flags = hf['flags'][u].astype(np.float32)
                 divisor = hf['dn_divisor'][u].astype(np.float32)
+                if args.no_divnorm:                    # score in normalised space to test if the divisor distorts delay
+                    divisor = np.ones_like(divisor)
                 np.random.seed(args.seed + int(u))     # fixed hole per unit -> comparable across ckpts/floors
-                fm = fake_mask(flags, frac_range=args.frac_range, mode='mixed')
+                fm = fake_mask(flags, frac_range=args.frac_range, mode=hmode)
                 if fm.sum() < 50:
                     continue
                 hidden = np.clip(flags + fm, 0, 1)
@@ -113,6 +117,10 @@ def main(args):
             for f, mk in zip(floors, mkeys):
                 preds[mk] = diff.sample(model, cond, x0, m, predict=cfg.predict, eta=0.0,
                                         steps=args.steps, noise_floor=f).cpu().numpy()
+            ens = [diff.sample(model, cond, x0, m, predict=cfg.predict, eta=args.eta,
+                               steps=args.steps, repaint_u=args.repaint_u,
+                               noise_floor=None).cpu().numpy()
+                   for _ in range(args.ensemble)] if args.post_sample else []
 
             for i, (data, phase, flags, divisor, fm) in enumerate(meta):
                 fmb = fm > 0.5
@@ -137,6 +145,14 @@ def main(args):
                     Vm = V_ref.copy()
                     Vm[fmb] = (amp_p * divisor * np.exp(1j * ph_p))[fmb]
                     Pl[mk].append(delay_power(Vm, taper))
+                if args.post_sample:
+                    dp = np.zeros(sz, np.float64)       # ensemble mean of per-draw delay power
+                    for e in ens:
+                        amp_p = e[i, 0]; ph_p = np.arctan2(e[i, 2], e[i, 1])
+                        Vm = V_ref.copy()
+                        Vm[fmb] = (amp_p * divisor * np.exp(1j * ph_p))[fmb]
+                        dp += delay_power(Vm, taper)
+                    Pl['post'].append(dp / len(ens))
                 n_acc += 1
             log(f"  {min(s + bs, len(test))}/{len(test)} batches  acc={n_acc}")
 
@@ -167,9 +183,9 @@ def main(args):
 
     log(f"=== FAKE-HOLE delay-space recovery on REAL held-out ({n_acc} tiles vs true good data) ===")
     log(f"  {'variant':<16}{'wlogP-RMSE':>12}{'hi-delay ratio':>16}")
-    for kk in ['flagged', 'dpss', 'gpr'] + mkeys:
+    for kk in ['flagged', 'dpss', 'gpr'] + model_keys:
         log(f"  {kk:<16}{wlogrmse(kk):>12.4f}{hiratio(kk):>16.3f}")
-    best_mk = min(mkeys, key=wlogrmse)                    # best noise_floor by headline metric
+    best_mk = min(model_keys, key=wlogrmse)               # best model variant by headline metric
     classical = min(['dpss', 'gpr'], key=wlogrmse)        # the STRONGER classical fill = the honest bar
 
     # bootstrap over tiles: CI on the model-vs-best-classical wlogP-RMSE gap (positive = model better)
@@ -210,6 +226,14 @@ if __name__ == '__main__':
     ap.add_argument('--dpss-lam', type=float, default=0.1, dest='dpss_lam')
     ap.add_argument('--gpr-ell', type=float, default=30.0, dest='gpr_ell')
     ap.add_argument('--gpr-noise', type=float, default=0.05, dest='gpr_noise')
+    ap.add_argument('--hole-mode', default='mixed', choices=['mixed', 'blob', 'band'], dest='hole_mode',
+                    help="fake-hole geometry: mixed | blob (narrow 2d) | band (persistent-band-shaped stripes)")
+    ap.add_argument('--no-divnorm', action='store_true', dest='no_divnorm')
+    ap.add_argument('--post-sample', action='store_true', dest='post_sample',
+                    help="also score a genuine posterior-sample ensemble (eta>0 / repaint) vs the flat noise_floor")
+    ap.add_argument('--eta', type=float, default=1.0)
+    ap.add_argument('--repaint-u', type=int, default=1, dest='repaint_u')
+    ap.add_argument('--ensemble', type=int, default=4)
     ap.add_argument('--fg-bins', type=int, default=20, dest='fg_bins')
     ap.add_argument('--bootstrap', type=int, default=1000)
     ap.add_argument('--seed', type=int, default=0)

@@ -221,6 +221,8 @@ def fake_mask(real_flags, frac_range=(0.05, 0.25), width_range=(8, 32), max_trie
             shape = 'blob' if r < 0.35 else ('stripe' if r < 0.8 else 'burst')
         elif mode == '2d':
             shape = 'blob'
+        elif mode == 'stripe':
+            shape = 'stripe'
         else:
             shape = 'stripe' if np.random.rand() < 0.6 else 'burst'
         if shape == 'blob':
@@ -228,7 +230,7 @@ def fake_mask(real_flags, frac_range=(0.05, 0.25), width_range=(8, 32), max_trie
             f0 = np.random.randint(0, max(1, n_freq - wf)); t0 = np.random.randint(0, max(1, n_time - wt))
             fm[t0:t0 + wt, f0:f0 + wf] = 1.0
         elif shape == 'stripe':
-            hi = band_hi if mode == 'mixed' else whi
+            hi = band_hi if mode in ('mixed', 'stripe') else whi
             w = np.random.randint(wlo, hi + 1); f0 = np.random.randint(0, max(1, n_freq - w))
             fm[:, f0:f0 + w] = 1.0
         else:
