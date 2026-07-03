@@ -14,7 +14,7 @@ from config import phase2
 from data import positional_encoding, build_cond, fake_mask
 from diffusion import Diffusion
 from unet import UNet
-from classical_fill import dpss_basis, dpss_fill
+from classical_fill import dpss_basis, dpss_fill, gpr_fill
 
 t0 = time.time()
 
@@ -73,7 +73,7 @@ def main(args):
     floors = [None if f in ('none', 'None') else ('auto' if f == 'auto' else float(f))
               for f in args.noise_floors]
     mkeys = [f"model_nf{('none' if f is None else f)}" for f in floors]
-    variants = ['truth', 'dpss', 'flagged'] + mkeys
+    variants = ['truth', 'dpss', 'gpr', 'flagged'] + mkeys
     Pl = {k: [] for k in variants}          # per-tile delay power, for bootstrap CIs
     n_acc = 0
     pe_cache = {}
@@ -125,9 +125,12 @@ def main(args):
                     V_ref[rfb] = dpss_fill(V_obs, rfb, A, args.dpss_lam)[rfb]
                 V_dpss = V_ref.copy()                           # DPSS fits genuine good pixels (not RFI, not fake)
                 V_dpss[fmb] = dpss_fill(V_obs, rfb | fmb, A, args.dpss_lam)[fmb]
+                V_gpr = V_ref.copy()
+                V_gpr[fmb] = gpr_fill(V_obs, rfb | fmb, args.gpr_ell, args.gpr_noise)[fmb]
                 V_flag = V_ref.copy(); V_flag[fmb] = 0.0
                 Pl['truth'].append(delay_power(V_ref, taper))   # true good values at the fake holes
                 Pl['dpss'].append(delay_power(V_dpss, taper))
+                Pl['gpr'].append(delay_power(V_gpr, taper))
                 Pl['flagged'].append(delay_power(V_flag, taper))
                 for mk in mkeys:
                     amp_p = preds[mk][i, 0]; ph_p = np.arctan2(preds[mk][i, 2], preds[mk][i, 1])
@@ -164,27 +167,28 @@ def main(args):
 
     log(f"=== FAKE-HOLE delay-space recovery on REAL held-out ({n_acc} tiles vs true good data) ===")
     log(f"  {'variant':<16}{'wlogP-RMSE':>12}{'hi-delay ratio':>16}")
-    for kk in ['flagged', 'dpss'] + mkeys:
+    for kk in ['flagged', 'dpss', 'gpr'] + mkeys:
         log(f"  {kk:<16}{wlogrmse(kk):>12.4f}{hiratio(kk):>16.3f}")
     best_mk = min(mkeys, key=wlogrmse)                    # best noise_floor by headline metric
+    classical = min(['dpss', 'gpr'], key=wlogrmse)        # the STRONGER classical fill = the honest bar
 
-    # bootstrap over tiles: CI on the model-vs-DPSS wlogP-RMSE gap (positive = model better)
+    # bootstrap over tiles: CI on the model-vs-best-classical wlogP-RMSE gap (positive = model better)
     brng = np.random.default_rng(args.seed)
     gaps = np.empty(args.bootstrap)
     for b in range(args.bootstrap):
         idx = brng.integers(0, n_acc, n_acc)
         sp = {k: Parr[k][idx].mean(0) for k in variants}
-        gaps[b] = wlogrmse_sp(sp, 'dpss') - wlogrmse_sp(sp, best_mk)
+        gaps[b] = wlogrmse_sp(sp, classical) - wlogrmse_sp(sp, best_mk)
     lo, himed = np.percentile(gaps, [2.5, 97.5])
     frac_win = float((gaps > 0).mean())
-    log(f"  best model floor: {best_mk}")
-    log(f"  bootstrap ({args.bootstrap}x over tiles): wlogP-RMSE gap (dpss - model) = "
-        f"{gaps.mean():+.4f}  95% CI [{lo:+.4f}, {himed:+.4f}]  P(model<dpss)={frac_win:.3f}")
-    win = wlogrmse(best_mk) < wlogrmse('dpss') and abs(hiratio(best_mk) - 1) < abs(hiratio('dpss') - 1)
-    log(f"  verdict vs dpss: {'MODEL wins both' if win else 'split (model wins headline: '
-        + str(wlogrmse(best_mk) < wlogrmse('dpss')) + ')'} "
-        f"(wlogP-RMSE {wlogrmse(best_mk):.4f} vs dpss {wlogrmse('dpss'):.4f}; "
-        f"hi-ratio {hiratio(best_mk):.3f} vs {hiratio('dpss'):.3f})")
+    log(f"  best model floor: {best_mk}  |  stronger classical: {classical}")
+    log(f"  bootstrap ({args.bootstrap}x over tiles): wlogP-RMSE gap ({classical} - model) = "
+        f"{gaps.mean():+.4f}  95% CI [{lo:+.4f}, {himed:+.4f}]  P(model<{classical})={frac_win:.3f}")
+    win = wlogrmse(best_mk) < wlogrmse(classical) and abs(hiratio(best_mk) - 1) < abs(hiratio(classical) - 1)
+    log(f"  verdict vs {classical}: {'MODEL wins both' if win else 'split (model wins headline: '
+        + str(wlogrmse(best_mk) < wlogrmse(classical)) + ')'} "
+        f"(wlogP-RMSE {wlogrmse(best_mk):.4f} vs {classical} {wlogrmse(classical):.4f}; "
+        f"hi-ratio {hiratio(best_mk):.3f} vs {hiratio(classical):.3f})")
     np.savez(args.out, **P, fg_bins=args.fg_bins, n=n_acc, floors=[str(f) for f in floors])
     log(f"saved power spectra -> {args.out}")
 
@@ -204,6 +208,8 @@ if __name__ == '__main__':
                     help="noise_floor values to sweep: none | auto | float (e.g. none 0.3 0.5 auto)")
     ap.add_argument('--dpss-hw', type=float, default=0.1, dest='dpss_hw')
     ap.add_argument('--dpss-lam', type=float, default=0.1, dest='dpss_lam')
+    ap.add_argument('--gpr-ell', type=float, default=30.0, dest='gpr_ell')
+    ap.add_argument('--gpr-noise', type=float, default=0.05, dest='gpr_noise')
     ap.add_argument('--fg-bins', type=int, default=20, dest='fg_bins')
     ap.add_argument('--bootstrap', type=int, default=1000)
     ap.add_argument('--seed', type=int, default=0)
