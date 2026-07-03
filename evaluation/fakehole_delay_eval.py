@@ -73,7 +73,8 @@ def main(args):
     floors = [None if f in ('none', 'None') else ('auto' if f == 'auto' else float(f))
               for f in args.noise_floors]
     mkeys = [f"model_nf{('none' if f is None else f)}" for f in floors]
-    P = {k: np.zeros(sz, np.float64) for k in ['truth', 'dpss', 'flagged'] + mkeys}
+    variants = ['truth', 'dpss', 'flagged'] + mkeys
+    Pl = {k: [] for k in variants}          # per-tile delay power, for bootstrap CIs
     n_acc = 0
     pe_cache = {}
     bs = args.batch
@@ -125,40 +126,61 @@ def main(args):
                 V_dpss = V_ref.copy()                           # DPSS fits genuine good pixels (not RFI, not fake)
                 V_dpss[fmb] = dpss_fill(V_obs, rfb | fmb, A, args.dpss_lam)[fmb]
                 V_flag = V_ref.copy(); V_flag[fmb] = 0.0
-                P['truth']   += delay_power(V_ref, taper)       # true good values at the fake holes
-                P['dpss']    += delay_power(V_dpss, taper)
-                P['flagged'] += delay_power(V_flag, taper)
+                Pl['truth'].append(delay_power(V_ref, taper))   # true good values at the fake holes
+                Pl['dpss'].append(delay_power(V_dpss, taper))
+                Pl['flagged'].append(delay_power(V_flag, taper))
                 for mk in mkeys:
                     amp_p = preds[mk][i, 0]; ph_p = np.arctan2(preds[mk][i, 2], preds[mk][i, 1])
                     Vm = V_ref.copy()
                     Vm[fmb] = (amp_p * divisor * np.exp(1j * ph_p))[fmb]
-                    P[mk] += delay_power(Vm, taper)
+                    Pl[mk].append(delay_power(Vm, taper))
                 n_acc += 1
             log(f"  {min(s + bs, len(test))}/{len(test)} batches  acc={n_acc}")
 
     hf.close()
-    for k in P:
-        P[k] /= max(n_acc, 1)
+    if n_acc == 0:
+        log("no usable test tiles (all skipped for too-small fake holes); nothing to score")
+        return
+    Parr = {k: np.stack(Pl[k]) for k in variants}   # (n_tiles, sz)
+    P = {k: Parr[k].mean(0) for k in variants}
 
     center = sz // 2
     hi = np.abs(np.arange(sz) - center) > args.fg_bins
     eps = 1e-30
-    w = P['truth'] + eps
 
-    def wlogrmse(kk):
-        d = (np.log10(P[kk] + eps) - np.log10(P['truth'] + eps)) ** 2
+    def wlogrmse_sp(sp, kk):
+        w = sp['truth'] + eps
+        d = (np.log10(sp[kk] + eps) - np.log10(sp['truth'] + eps)) ** 2
         return float(np.sqrt((w * d).sum() / w.sum()))
 
+    def hiratio_sp(sp, kk):
+        return float(sp[kk][hi].sum() / max(sp['truth'][hi].sum(), eps))
+
+    def wlogrmse(kk):
+        return wlogrmse_sp(P, kk)
+
     def hiratio(kk):
-        return float(P[kk][hi].sum() / max(P['truth'][hi].sum(), eps))
+        return hiratio_sp(P, kk)
 
     log(f"=== FAKE-HOLE delay-space recovery on REAL held-out ({n_acc} tiles vs true good data) ===")
     log(f"  {'variant':<16}{'wlogP-RMSE':>12}{'hi-delay ratio':>16}")
     for kk in ['flagged', 'dpss'] + mkeys:
         log(f"  {kk:<16}{wlogrmse(kk):>12.4f}{hiratio(kk):>16.3f}")
     best_mk = min(mkeys, key=wlogrmse)                    # best noise_floor by headline metric
-    win = wlogrmse(best_mk) < wlogrmse('dpss') and abs(hiratio(best_mk) - 1) < abs(hiratio('dpss') - 1)
+
+    # bootstrap over tiles: CI on the model-vs-DPSS wlogP-RMSE gap (positive = model better)
+    brng = np.random.default_rng(args.seed)
+    gaps = np.empty(args.bootstrap)
+    for b in range(args.bootstrap):
+        idx = brng.integers(0, n_acc, n_acc)
+        sp = {k: Parr[k][idx].mean(0) for k in variants}
+        gaps[b] = wlogrmse_sp(sp, 'dpss') - wlogrmse_sp(sp, best_mk)
+    lo, himed = np.percentile(gaps, [2.5, 97.5])
+    frac_win = float((gaps > 0).mean())
     log(f"  best model floor: {best_mk}")
+    log(f"  bootstrap ({args.bootstrap}x over tiles): wlogP-RMSE gap (dpss - model) = "
+        f"{gaps.mean():+.4f}  95% CI [{lo:+.4f}, {himed:+.4f}]  P(model<dpss)={frac_win:.3f}")
+    win = wlogrmse(best_mk) < wlogrmse('dpss') and abs(hiratio(best_mk) - 1) < abs(hiratio('dpss') - 1)
     log(f"  verdict vs dpss: {'MODEL wins both' if win else 'split (model wins headline: '
         + str(wlogrmse(best_mk) < wlogrmse('dpss')) + ')'} "
         f"(wlogP-RMSE {wlogrmse(best_mk):.4f} vs dpss {wlogrmse('dpss'):.4f}; "
@@ -183,5 +205,6 @@ if __name__ == '__main__':
     ap.add_argument('--dpss-hw', type=float, default=0.1, dest='dpss_hw')
     ap.add_argument('--dpss-lam', type=float, default=0.1, dest='dpss_lam')
     ap.add_argument('--fg-bins', type=int, default=20, dest='fg_bins')
+    ap.add_argument('--bootstrap', type=int, default=1000)
     ap.add_argument('--seed', type=int, default=0)
     main(ap.parse_args())
