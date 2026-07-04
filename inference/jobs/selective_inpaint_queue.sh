@@ -17,11 +17,16 @@ V=$(env H5=$H5 FT_CKPT=$FT NF=none KEEP_PERSIST=1 OUT=$VIZ/compare_selective.png
     sbatch --parsable model/diagnostics/jobs/compare_models_real.sh)
 echo "  -> viz $V"
 
-echo "[write] full selective write-back to INPAINTED_DATA (all baselines, non-persistent only)"
-# noise_floor=none: conditional-mean fill is the right mode for IMAGING (added texture hurts image fidelity)
-W=$(env SIM=0 CKPT=$FT MS=$MS H5=$H5 KEEP_PERSIST=1 UNFLAG=1 NOISE_FLOOR=none STEPS=50 \
-    sbatch --parsable inference/jobs/inpaint_ms.sh)
-echo "  -> write-back $W"
+PREDS=/scratch3/users/$USER/rfi/inpaint_preds_selective.npz
+echo "[infer] GPU inference -> preds (48GB, SMOOTH=0 full-amp finetune, noise_floor=none for imaging)"
+P=$(env SIM=0 CKPT=$FT H5=$H5 OUTCOL=INPAINTED_DATA PREDS=$PREDS SMOOTH=0 NOISE_FLOOR=none STEPS=50 \
+    sbatch --parsable inference/jobs/inpaint_infer.sh)
+echo "  -> infer $P"
+
+echo "[write] CPU selective write-back on Main (128GB) -> INPAINTED_DATA (non-persistent only)"
+W=$(env SIM=0 MS=$MS H5=$H5 OUTCOL=INPAINTED_DATA PREDS=$PREDS KEEP_PERSIST=1 UNFLAG=1 \
+    sbatch --parsable --dependency=afterok:$P inference/jobs/inpaint_writeback.sh)
+echo "  -> write-back $W (waits on $P)"
 
 echo "[image] wsclean: Flagged-everything vs Selective-inpaint (+DPSS delay baseline), after the write-back"
 I=$(env SIM=0 MS=$MS H5=$H5 KEEP_PERSIST=1 DO_INPAINT=1 DPSS=1 OUT=$VIZ/image_selective \

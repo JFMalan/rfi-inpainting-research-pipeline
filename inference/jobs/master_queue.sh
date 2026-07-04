@@ -28,10 +28,15 @@ echo "[B-viz] selective spectrogram (finetune/sim/scratch, persistent bands left
 BV=$(env H5=$H5 FT_CKPT=$FT NF=none KEEP_PERSIST=1 OUT=$VIZ/compare_selective.png MINFF=0.2 MAXFF=0.85 \
      sbatch --parsable model/diagnostics/jobs/compare_models_real.sh)
 echo "  -> $BV"
-echo "[B-write] full selective write-back -> INPAINTED_DATA (non-persistent only, noise_floor=none for imaging)"
-BW=$(env SIM=0 CKPT=$FT MS=$MS H5=$H5 KEEP_PERSIST=1 UNFLAG=1 NOISE_FLOOR=none STEPS=50 \
-     sbatch --parsable inference/jobs/inpaint_ms.sh)
-echo "  -> $BW"
+PREDS=/scratch3/users/$USER/rfi/inpaint_preds_selective.npz
+echo "[B-infer] GPU inference -> preds (48GB, fits a busy GPU node; SMOOTH=0 for the full-amp finetune)"
+BP=$(env SIM=0 CKPT=$FT H5=$H5 OUTCOL=INPAINTED_DATA PREDS=$PREDS SMOOTH=0 NOISE_FLOOR=none STEPS=50 \
+     sbatch --parsable inference/jobs/inpaint_infer.sh)
+echo "  -> $BP"
+echo "[B-write] CPU selective write-back on Main (128GB) -> INPAINTED_DATA (non-persistent only). afterok B-infer"
+BW=$(env SIM=0 MS=$MS H5=$H5 OUTCOL=INPAINTED_DATA PREDS=$PREDS KEEP_PERSIST=1 UNFLAG=1 \
+     sbatch --parsable --dependency=afterok:$BP inference/jobs/inpaint_writeback.sh)
+echo "  -> $BW (waits on $BP)"
 echo "[B-image] wsclean Flagged-everything vs Selective-inpaint (+DPSS delay). afterok B-write (same MS)"
 BI=$(env SIM=0 MS=$MS H5=$H5 KEEP_PERSIST=1 DO_INPAINT=1 DPSS=1 OUT=$VIZ/image_selective \
      sbatch --parsable --dependency=afterok:$BW evaluation/image_eval.sh)
