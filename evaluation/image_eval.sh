@@ -29,6 +29,7 @@ DPSS_HW=${DPSS_HW:-0.1}       # DPSS delay half-width as fraction of Nyquist del
 DPSS_LAM=${DPSS_LAM:-0.1}     # DPSS ridge regularisation
 KEEP_PERSIST=${KEEP_PERSIST:-0}  # 1 = selective: image the inpaint with persistent bands LEFT FLAGGED
                                  # (pair with KEEP_PERSIST=1 on the inpaint_ms.sh write-back)
+DELAY=${DELAY:-1}                # 0 = skip the (slow) delay-space comparison, continuum image only
 
 ROOT=/users/$USER/rfi-inpainting-research-pipeline
 ASTROPY=/idia/software/containers/ASTRO-PY3.10.sif
@@ -80,7 +81,7 @@ singularity exec $ASTROPY python $ROOT/evaluation/compare_images.py \
 
 DELAY_INP=""; [ "$DO_INPAINT" = "1" ] && DELAY_INP="--inp-col $INPCOL"
 DPSS_ARG=""; [ "$DPSS" = "1" ] && DPSS_ARG="--dpss --dpss-hw $DPSS_HW --dpss-lam $DPSS_LAM"
-if [ "$DO_INPAINT" = "1" ] || [ "$DPSS" = "1" ]; then
+if [ "$DELAY" = "1" ] && { [ "$DO_INPAINT" = "1" ] || [ "$DPSS" = "1" ]; }; then
     echo "==== compare (delay space; headline metric) ===="
     singularity exec $ASTROPY python $ROOT/evaluation/delay_spectrum.py \
         --ms "$MS" --h5 "$H5" $DELAY_INP $DPSS_ARG --out $OUT/delay_spectrum.png $SIMARG $MU
