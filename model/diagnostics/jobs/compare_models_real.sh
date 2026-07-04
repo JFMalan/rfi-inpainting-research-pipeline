@@ -27,6 +27,8 @@ N=${N:-20}
 STEPS=${STEPS:-50}
 MINFF=${MINFF:-0.15}   # flag-fraction window for tile selection; lower MAXFF picks transient RFI
 MAXFF=${MAXFF:-0.6}    # (surrounding good context) over the wide persistent bands
+KEEP_PERSIST=${KEEP_PERSIST:-0}   # 1 = fill only non-persistent RFI, show persistent bands (red) left flagged
+KP_ARG=""; [ "$KEEP_PERSIST" = "1" ] && KP_ARG="--keep-persist"
 
 for c in "$SIM_CKPT" "$FT_CKPT" "$SC_CKPT"; do
     [ -f "$c" ] || { echo "checkpoint not found: $c"; exit 1; }
@@ -41,7 +43,7 @@ NVBIND="--bind $LIBCUDA:$LIBDIR/libcuda.so.1 --bind $LIBNVML:$LIBDIR/libnvidia-m
 
 singularity exec --nv $NVBIND $GPU python $ROOT/model/diagnostics/compare_models_real.py \
     --h5 "$H5" --output "$OUT" --noise-floor $NF --n-show $N --steps $STEPS \
-    --min-flag-frac $MINFF --max-flag-frac $MAXFF \
+    --min-flag-frac $MINFF --max-flag-frac $MAXFF $KP_ARG \
     --ckpts sim="$SIM_CKPT" finetune="$FT_CKPT" scratch="$SC_CKPT"
 
 echo "done -> $OUT"

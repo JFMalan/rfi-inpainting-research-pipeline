@@ -26,6 +26,7 @@ STEPS=${STEPS:-200}
 BATCH=${BATCH:-8}
 OUTCOL=${OUTCOL:-INPAINTED_DATA}
 UNFLAG=${UNFLAG:-0}
+KEEP_PERSIST=${KEEP_PERSIST:-0}   # 1 = fill/unflag only non-persistent RFI, leave the wide persistent bands flagged
 MAX_UNITS=${MAX_UNITS:-}
 # WEIGHT_FRAC: down-weight inpainted pixels in WEIGHT_SPECTRUM to this fraction of the real
 # weight instead of hard-substituting at full weight. 0~=flagged, 1=full. Unset = old behaviour.
@@ -63,6 +64,7 @@ INFER_EXTRA=""; WRITE_EXTRA=""
 [ "$SMOOTH" = "1" ] && INFER_EXTRA="$INFER_EXTRA --smooth-target"
 [ "$ORACLE" = "1" ] && INFER_EXTRA="$INFER_EXTRA --oracle"
 [ "$UNFLAG" = "1" ] && WRITE_EXTRA="$WRITE_EXTRA --unflag"
+[ "$KEEP_PERSIST" = "1" ] && WRITE_EXTRA="$WRITE_EXTRA --keep-persist-flagged"
 [ -n "$WEIGHT_FRAC" ] && WRITE_EXTRA="$WRITE_EXTRA --weight-frac $WEIGHT_FRAC"
 [ -n "$MAX_UNITS" ] && INFER_EXTRA="$INFER_EXTRA --max-units $MAX_UNITS"
 

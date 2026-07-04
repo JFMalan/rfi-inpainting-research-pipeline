@@ -11,11 +11,13 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent / 'data_preparation' / 'real'))
 
 from config import phase2
 from data import positional_encoding, build_cond
 from diffusion import Diffusion
 from unet import UNet
+from rfi_bands import persist_chan_mask
 
 t0 = time.time()
 
@@ -24,10 +26,14 @@ def log(m):
     print(f"[{time.time() - t0:7.1f}s] {m}", flush=True)
 
 
+def overlay(mask2d, rgba):
+    out = np.zeros((*mask2d.T.shape, 4), np.float32)
+    out[mask2d.T > 0] = rgba
+    return out
+
+
 def green(mask2d):
-    rgba = np.zeros((*mask2d.T.shape, 4), np.float32)
-    rgba[mask2d.T > 0] = [0.0, 1.0, 0.2, 0.85]
-    return rgba
+    return overlay(mask2d, [0.0, 1.0, 0.2, 0.85])
 
 
 def load_model(ckpt, cfg, dev):
@@ -79,6 +85,8 @@ def main(args):
             fmin = float(hf['freq_min_patch'][u]); fmax = float(hf['freq_max_patch'][u])
         else:
             fmin, fmax = band_min, band_max
+        persist = persist_chan_mask(np.linspace(fmin, fmax, sz))[None, :]   # (1, n_freq)
+        fill_mask = (flags > 0.5) & (~persist if args.keep_persist else True)
         pe = positional_encoding(fmin, fmax, band_min, band_max, sz, sz, cfg.pe_channels)
         x0 = torch.from_numpy(np.stack([data, np.cos(phase), np.sin(phase)], 0)[None]).to(dev)
         m = torch.from_numpy(flags[None, None]).to(dev)
@@ -89,8 +97,9 @@ def main(args):
             for model in models:
                 pr = diff.sample(model, cond, x0, m, predict=cfg.predict, eta=0.0,
                                  steps=args.steps, noise_floor=nf).cpu().numpy()[0]
-                fills.append(np.where(flags > 0.5, pr[0], data))
-        rows.append((int(u), data, flags, fmin, fmax, fills))
+                fills.append(np.where(fill_mask, pr[0], data))
+        kept = (flags > 0.5) & persist if args.keep_persist else np.zeros_like(flags, bool)
+        rows.append((int(u), data, fill_mask, kept, fmin, fmax, fills))
         log(f"  tile {k + 1}/{len(test)} (unit {int(u)}, flag={flags.mean():.2f})")
     hf.close()
 
@@ -99,19 +108,23 @@ def main(args):
     fig, axes = plt.subplots(n, ncols, figsize=(3.7 * ncols, 3.2 * n))
     if n == 1:
         axes = axes[None, :]
-    titles = ["observed amp (RFI)", "RFI mask"] + [f"{lb} fill" for lb in labels]
-    for r, (u, data, flags, fmin, fmax, fills) in enumerate(rows):
-        trust = flags == 0
+    mask_title = "RFI mask (green=fill, red=kept flagged)" if args.keep_persist else "RFI mask"
+    titles = ["observed amp (RFI)", mask_title] + [f"{lb} fill" for lb in labels]
+    for r, (u, data, fill_mask, kept, fmin, fmax, fills) in enumerate(rows):
+        allflag = fill_mask | kept
+        trust = ~allflag
         src = data[trust] if trust.any() else data
         vmin, vmax = np.percentile(src, 1), np.percentile(src, 99)
         ext = [0, data.shape[0], fmin, fmax]
         axes[r, 0].imshow(data.T, aspect='auto', origin='lower', extent=ext, vmin=vmin, vmax=vmax, cmap='plasma')
         axes[r, 1].imshow(data.T, aspect='auto', origin='lower', extent=ext, vmin=vmin, vmax=vmax, cmap='plasma')
-        axes[r, 1].imshow(green(flags), aspect='auto', origin='lower', extent=ext)
+        axes[r, 1].imshow(green(fill_mask), aspect='auto', origin='lower', extent=ext)
+        if kept.any():
+            axes[r, 1].imshow(overlay(kept, [1.0, 0.1, 0.1, 0.85]), aspect='auto', origin='lower', extent=ext)
         for j, fl in enumerate(fills):
             axes[r, 2 + j].imshow(fl.T, aspect='auto', origin='lower', extent=ext,
                                   vmin=vmin, vmax=vmax, cmap='plasma')
-        axes[r, 0].set_ylabel(f"unit {u}\nFreq (MHz)\nflag={flags.mean():.2f}\n"
+        axes[r, 0].set_ylabel(f"unit {u}\nFreq (MHz)\nflag={allflag.mean():.2f}\n"
                               f"scale[{vmin:.2f},{vmax:.2f}]", fontsize=7)
         if r == 0:
             for j, t in enumerate(titles):
@@ -138,5 +151,7 @@ if __name__ == '__main__':
     ap.add_argument('--n-show', type=int, default=20, dest='n_show')
     ap.add_argument('--min-flag-frac', type=float, default=0.15, dest='min_flag_frac')
     ap.add_argument('--max-flag-frac', type=float, default=0.6, dest='max_flag_frac')
+    ap.add_argument('--keep-persist', action='store_true', dest='keep_persist',
+                    help='fill only non-persistent RFI; show the persistent bands (red) left flagged')
     ap.add_argument('--seed', type=int, default=0)
     main(ap.parse_args())

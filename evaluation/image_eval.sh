@@ -27,6 +27,8 @@ MEANFILL=${MEANFILL:-0}       # 1 = also write + image a per-channel time-mean f
 DPSS=${DPSS:-0}               # 1 = add the DPSS classical gap-fill baseline to the delay-space comparison
 DPSS_HW=${DPSS_HW:-0.1}       # DPSS delay half-width as fraction of Nyquist delay
 DPSS_LAM=${DPSS_LAM:-0.1}     # DPSS ridge regularisation
+KEEP_PERSIST=${KEEP_PERSIST:-0}  # 1 = selective: image the inpaint with persistent bands LEFT FLAGGED
+                                 # (pair with KEEP_PERSIST=1 on the inpaint_ms.sh write-back)
 
 ROOT=/users/$USER/rfi-inpainting-research-pipeline
 ASTROPY=/idia/software/containers/ASTRO-PY3.10.sif
@@ -48,10 +50,12 @@ wsc () {  # name  column
 }
 
 set_flag () { singularity exec $ASTROPY python $ROOT/evaluation/set_holes_flag.py \
-    --ms "$MS" --h5 "$H5" --mode $1 $SIMARG $MU; }
+    --ms "$MS" --h5 "$H5" --mode $1 --bands ${2:-all} $SIMARG $MU; }
 
-# ensure holes are unflagged, then image truth + the filled columns (holes cleared -> wsclean uses the fill)
-set_flag clear
+# ensure holes are unflagged, then image truth + the filled columns (holes cleared -> wsclean uses the fill).
+# KEEP_PERSIST=1 leaves the persistent bands flagged so the inpaint image = non-persistent RFI filled only.
+set_flag clear all
+[ "$KEEP_PERSIST" = "1" ] && set_flag set persist
 if [ "$DO_INPAINT" = "1" ]; then echo "==== image Inpainted ($INPCOL) ===="; wsc inpainted $INPCOL; fi
 if [ "$MEANFILL" = "1" ]; then
     echo "==== mean-fill write + image (per-channel time-mean) ===="
@@ -60,11 +64,11 @@ if [ "$MEANFILL" = "1" ]; then
 fi
 if [ "$SIM" = "1" ]; then echo "==== image Clean (DATA truth) ===="; wsc clean DATA; fi
 
-# flag the holes, image the flag-only (missing-data) case, then restore
+# flag ALL holes, image the flag-everything (standard-practice) case, then restore
 echo "==== flag holes -> image Flagged (DATA) ===="
-set_flag set
+set_flag set all
 wsc flagged DATA
-set_flag clear
+set_flag clear all
 
 CLEAN_ARG=""; [ "$SIM" = "1" ] && CLEAN_ARG="--clean $IMG/clean-image.fits"
 INP_ARG=""; [ "$DO_INPAINT" = "1" ] && INP_ARG="--inpainted $IMG/inpainted-image.fits"

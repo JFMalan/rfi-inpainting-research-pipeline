@@ -10,7 +10,9 @@ from casacore.tables import table, maketabdesc, makecoldesc
 from skimage.transform import resize
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / 'data_preparation'))
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / 'data_preparation' / 'real'))
 from tiling import feather_weight
+from rfi_bands import persist_chan_mask
 
 t0 = time.time()
 
@@ -111,6 +113,13 @@ def main(args):
     npol = int(ms.getcell(args.out_col, 0).shape[1])
     blc = [chan_lo, 0]; trc = [chan_lo + full_n_chan - 1, npol - 1]
 
+    persist_band = None
+    if args.keep_persist_flagged:
+        sw = table(args.ms + '/SPECTRAL_WINDOW', ack=False)
+        freqs_full = sw.getcol('CHAN_FREQ')[0] / 1e6; sw.close()
+        persist_band = persist_chan_mask(freqs_full)[chan_lo:chan_lo + full_n_chan]
+        log(f"keep-persist-flagged: {int(persist_band.sum())}/{full_n_chan} channels stay flagged (not filled)")
+
     done = 0
     for (tlo, nt), bls in runs.items():
         r0 = tlo * n_baseline
@@ -139,6 +148,8 @@ def main(args):
                 wsum[:, flo:flo + nc] += w
                 hany[:, flo:flo + nc] |= hole_n
             vb = np.where(wsum > 0, vnum / np.maximum(wsum, 1e-12), 0).astype(np.complex64)
+            if persist_band is not None:
+                hany &= ~persist_band[None, :]   # leave persistent-band RFI flagged, don't fill it
 
             band = d[:, bl, :, :]
             for p in range(npol):
@@ -172,5 +183,7 @@ if __name__ == '__main__':
     ap.add_argument('--field', type=int, default=None)
     ap.add_argument('--sim', action='store_true')
     ap.add_argument('--unflag', action='store_true')
+    ap.add_argument('--keep-persist-flagged', action='store_true', dest='keep_persist_flagged',
+                    help='fill/unflag only non-persistent RFI; leave the wide persistent bands flagged')
     ap.add_argument('--weight-frac', type=float, default=None, dest='weight_frac')
     main(ap.parse_args())
