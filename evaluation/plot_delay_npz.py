@@ -35,32 +35,50 @@ def main(args):
     models = sorted(v for v in variants if v.startswith('model'))
     order += models
 
-    fig, ax = plt.subplots(figsize=(8, 5))
-    mi = 0
-    for k in order:
+    def smooth(y, w):
+        if w <= 1:
+            return y
+        k = np.ones(w) / w
+        return np.convolve(y, k, mode='same')
+
+    def style(k):
         if k.startswith('model'):
             nf = k.replace('model_nf', '')
             lab = f'model (noise_floor={nf})' if nf != 'none' else 'model (no texture)'
-            color = MODEL_COLORS[mi % len(MODEL_COLORS)]; mi += 1
-        else:
-            lab = LABELS.get(k, k)
-            color = COLORS.get(k)
+            return lab, MODEL_COLORS[models.index(k) % len(MODEL_COLORS)]
+        return LABELS.get(k, k), COLORS.get(k)
+
+    fig, (ax, ax2) = plt.subplots(2, 1, figsize=(8, 8), sharex=True,
+                                  gridspec_kw={'height_ratios': [3, 2]})
+    for k in order:
+        lab, color = style(k)
         if k != 'truth':
             lab += f'   wlogP-RMSE={wlogrmse(k):.3f}, hi-ratio={hiratio(k):.2f}'
-        ax.semilogy(tau, d[k] + eps, label=lab,
-                    color=color, lw=2.0 if k == 'truth' else 1.4,
+        ax.semilogy(tau, d[k] + eps, label=lab, color=color, lw=2.0 if k == 'truth' else 1.4,
                     ls='--' if k == 'truth' else '-', zorder=3 if k.startswith('model') else 2)
     ax.axvspan(-fg_bins, fg_bins, color='0.9', zorder=0)
-    ax.text(0, ax.get_ylim()[1], ' foreground\n (low delay)', va='top', ha='center', fontsize=7, color='0.4')
-    ax.set_xlabel('delay bin (relative to zero delay)')
-    ax.set_ylabel('delay-space power (per-baseline mean)')
+    ax.set_ylabel('delay power (per-baseline mean)')
     n = int(d['n']) if 'n' in d else 0
-    title = args.title or f'Real held-out delay-space recovery ({n} fake-hole tiles vs true good data)'
-    ax.set_title(title, fontsize=10)
+    ax.set_title(args.title or f'Real held-out delay-space recovery ({n} tiles vs true good data)', fontsize=10)
     ax.legend(fontsize=7, loc='upper right')
+
+    # ratio-to-truth panel: truth = 1.0; closest to 1 across the tail wins (this is what hi-ratio measures)
+    for k in order:
+        if k == 'truth':
+            continue
+        lab, color = style(k)
+        ax2.plot(tau, smooth(d[k] / (truth + eps), args.smooth), color=color, lw=1.4,
+                 zorder=3 if k.startswith('model') else 2)
+    ax2.axhline(1.0, color='k', ls='--', lw=1.5, zorder=4)
+    ax2.axvspan(-fg_bins, fg_bins, color='0.9', zorder=0)
+    ax2.set_ylim(0, 1.8)
+    ax2.set_xlabel('delay bin (relative to zero delay)')
+    ax2.set_ylabel('power / truth\n(1.0 = perfect)')
+    ax2.text(0.99, 0.05, 'below 1 = under-recovers   above 1 = fabricates',
+             transform=ax2.transAxes, ha='right', fontsize=7, color='0.4')
     if args.gap_ci:
-        ax.text(0.02, 0.02, args.gap_ci, transform=ax.transAxes, fontsize=8,
-                bbox=dict(boxstyle='round', fc='white', ec='0.7'))
+        ax2.text(0.02, 0.92, args.gap_ci, transform=ax2.transAxes, fontsize=8, va='top',
+                 bbox=dict(boxstyle='round', fc='white', ec='0.7'))
     fig.tight_layout()
     out = Path(args.out); out.parent.mkdir(parents=True, exist_ok=True)
     fig.savefig(out, dpi=150, bbox_inches='tight')
@@ -79,4 +97,5 @@ if __name__ == '__main__':
     ap.add_argument('--fg-bins', type=int, default=20, dest='fg_bins')
     ap.add_argument('--gap-ci', default=None, dest='gap_ci',
                     help='optional annotation text, e.g. "model vs DPSS: +0.031, 95% CI [+0.003, +0.077]"')
+    ap.add_argument('--smooth', type=int, default=7, help='moving-average width for the ratio panel')
     main(ap.parse_args())
