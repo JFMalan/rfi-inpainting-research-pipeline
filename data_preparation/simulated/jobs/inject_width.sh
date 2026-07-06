@@ -2,8 +2,8 @@
 #SBATCH --job-name='rfi-inject-width'
 #SBATCH --partition=Main
 #SBATCH --cpus-per-task=4
-#SBATCH --mem=32GB
-#SBATCH --time=02:00:00
+#SBATCH --mem=48GB
+#SBATCH --time=06:00:00
 #SBATCH --output=logs/inject-width-%j-stdout.log
 #SBATCH --error=logs/inject-width-%j-stderr.log
 
