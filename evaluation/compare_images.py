@@ -1,4 +1,6 @@
 import argparse
+import json
+from pathlib import Path
 
 import numpy as np
 import matplotlib
@@ -31,6 +33,7 @@ def main(args):
         s[k] = stats(img)
         print(f"{k:<12}{s[k]['rms']:>14.3e}{s[k]['peak']:>12.4f}{s[k]['dr']:>12.1f}", flush=True)
 
+    metrics = {k: dict(s[k]) for k in s}
     if 'clean' in data:
         ref = data['clean']
         print("\nfidelity vs clean (lower = closer to truth):", flush=True)
@@ -38,6 +41,7 @@ def main(args):
             if k == 'clean':
                 continue
             rmse = float(np.sqrt(np.nanmean((data[k] - ref) ** 2)))
+            metrics[k]['rmse_vs_clean'] = rmse
             print(f"  {k:<10} image RMSE {rmse:.3e}", flush=True)
         if {'flagged', 'inpainted'} <= set(data):
             better = "INPAINTED closer to clean" if \
@@ -58,6 +62,9 @@ def main(args):
     fig.tight_layout()
     fig.savefig(args.out, dpi=130, bbox_inches='tight')
     print(f"\nsaved -> {args.out}", flush=True)
+    if args.metrics_out:
+        Path(args.metrics_out).write_text(json.dumps(metrics, indent=2))
+        print(f"metrics -> {args.metrics_out}", flush=True)
 
 
 if __name__ == '__main__':
@@ -67,4 +74,5 @@ if __name__ == '__main__':
     ap.add_argument('--meanfill', default='')
     ap.add_argument('--inpainted', default='')
     ap.add_argument('--out', required=True)
+    ap.add_argument('--metrics-out', default=None, dest='metrics_out')
     main(ap.parse_args())

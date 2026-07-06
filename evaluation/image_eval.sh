@@ -77,7 +77,7 @@ MEANFILL_ARG=""; [ "$MEANFILL" = "1" ] && MEANFILL_ARG="--meanfill $IMG/meanfill
 echo "==== compare (continuum image) ===="
 singularity exec $ASTROPY python $ROOT/evaluation/compare_images.py \
     $CLEAN_ARG --flagged $IMG/flagged-image.fits $MEANFILL_ARG $INP_ARG \
-    --out $OUT/image_comparison.png
+    --out $OUT/image_comparison.png --metrics-out $OUT/metrics.json
 
 DELAY_INP=""; [ "$DO_INPAINT" = "1" ] && DELAY_INP="--inp-col $INPCOL"
 DPSS_ARG=""; [ "$DPSS" = "1" ] && DPSS_ARG="--dpss --dpss-hw $DPSS_HW --dpss-lam $DPSS_LAM"

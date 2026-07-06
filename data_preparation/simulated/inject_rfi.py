@@ -5,8 +5,6 @@ import numpy as np
 import h5py
 from pathlib import Path
 
-from rfi_toolbox.data_generation.synthetic_generator import SyntheticDataGenerator
-
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'real'))
 from rfi_bands import LBAND_PERSISTENT_MHZ
@@ -120,6 +118,26 @@ def inject(clean_patch, gen, synth_cfg, bands, target_frac, scale_min, scale_max
     return corrupted.astype(np.float32), rfi_mask
 
 
+def controlled_spans(n_freq, band_width, target_frac):
+    # deterministic full-time frequency stripes of fixed width, evenly spaced across the band.
+    # n_bands set so total flagged fraction ~ target_frac, isolating WIDTH from amount-flagged.
+    n_bands = max(1, int(round(target_frac * n_freq / band_width)))
+    centers = np.linspace(0, n_freq, n_bands + 2)[1:-1]
+    spans = []
+    for c in centers:
+        f0 = int(round(c - band_width / 2))
+        f0 = max(0, min(n_freq - band_width, f0))
+        spans.append((f0, f0 + band_width))
+    return spans
+
+
+def controlled_inject(clean_patch, spans):
+    mask = np.zeros_like(clean_patch)
+    for f0, f1 in spans:
+        mask[:, f0:f1] = 1.0
+    return clean_patch.astype(np.float32), mask.astype(np.float32)
+
+
 def resize_hw(arr, h, w, order=1):
     if arr.shape == (h, w):
         return arr.astype(np.float32)
@@ -151,11 +169,19 @@ def main(args):
     n_tiles = len(starts)
     cap = n_cross * n_tiles
 
-    synth_cfg = _synth_config(full_n_chan, full_n_time)
-    gen = SyntheticDataGenerator({"synthetic": synth_cfg})
-    bands = persistent_bands(full_n_chan, freq_min, freq_max)
-    print(f"native {full_n_time}x{full_n_chan}, {len(bands)} persistent bands, "
-          f"target frac {args.target_frac}", flush=True)
+    controlled = args.band_width and args.band_width > 0
+    if controlled:
+        spans = controlled_spans(full_n_chan, args.band_width, args.target_frac)
+        gen = synth_cfg = bands = None
+        print(f"CONTROLLED mode: {len(spans)} bands of width {args.band_width} ch "
+              f"(target frac {args.target_frac}); spans={spans}", flush=True)
+    else:
+        from rfi_toolbox.data_generation.synthetic_generator import SyntheticDataGenerator
+        synth_cfg = _synth_config(full_n_chan, full_n_time)
+        gen = SyntheticDataGenerator({"synthetic": synth_cfg})
+        bands = persistent_bands(full_n_chan, freq_min, freq_max)
+        print(f"native {full_n_time}x{full_n_chan}, {len(bands)} persistent bands, "
+              f"target frac {args.target_frac}", flush=True)
     print(f"freq tiles {n_tiles} starts={starts} width={nc}; time_lo={tlo} height={th} "
           f"({'crop' if th == sz else 'resize'}); {n_cross} baselines -> {cap} units", flush=True)
 
@@ -193,8 +219,11 @@ def main(args):
             bl = int(fin['baseline_id'][u])
             a1 = int(fin['ant1'][u]); a2 = int(fin['ant2'][u])
 
-            corrupted_n, mask_n = inject(clean_n, gen, synth_cfg, bands, args.target_frac,
-                                         args.scale_min, args.scale_max, args.persist_frac)
+            if controlled:
+                corrupted_n, mask_n = controlled_inject(clean_n, spans)
+            else:
+                corrupted_n, mask_n = inject(clean_n, gen, synth_cfg, bands, args.target_frac,
+                                             args.scale_min, args.scale_max, args.persist_frac)
             fracs.append(float(mask_n.mean()))
 
             for f0 in starts:
@@ -239,6 +268,9 @@ if __name__ == '__main__':
     parser.add_argument('--img-size',     type=int,   default=512)
     parser.add_argument('--seed',         type=int,   default=42)
     parser.add_argument('--target-frac',  type=float, default=0.37)
+    parser.add_argument('--band-width',   type=int,   default=0,
+                        help='>0 = controlled test mode: deterministic full-time freq stripes of this '
+                             'native-channel width (fraction ~ target-frac); 0 = original stochastic RFI')
     parser.add_argument('--persist-frac', type=float, default=0.6)
     parser.add_argument('--scale-min',    type=float, default=RFI_SCALE_MIN)
     parser.add_argument('--scale-max',    type=float, default=RFI_SCALE_MAX)
