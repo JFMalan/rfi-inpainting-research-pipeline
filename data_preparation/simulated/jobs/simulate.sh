@@ -17,6 +17,7 @@ SYNTHESIS=${SYNTHESIS:-1.2}
 NCHAN=${NCHAN:-1024}
 SKY_MODEL=${SKY_MODEL:-sky_model_bright.txt}
 SEED=${SEED:-42}
+NOISE_SCALE=${NOISE_SCALE:-1.0}   # 0 = noise-free; 1 = physical MeerKAT SEFD; 2/4 = higher for a noise sweep
 DIR=${DIR:-"J2000,04h00m00.0s,-30d00m00s"}
 IMG_SIZE=${IMG_SIZE:-512}
 TARGET_FRAC=${TARGET_FRAC:-0.37}
@@ -74,7 +75,7 @@ singularity exec $AFRICANUS crystalball \
 
 echo "[3/6] $(date '+%H:%M:%S') adding thermal noise (CASA sm.corrupt)"
 singularity exec $CASA casa --nologger --log2term \
-    -c $SCRIPTS/data_preparation/simulated/add_noise.py $SIM_MS $SEED
+    -c $SCRIPTS/data_preparation/simulated/add_noise.py $SIM_MS $SEED $NOISE_SCALE
 
 echo "[4/6] $(date '+%H:%M:%S') extracting native per-baseline waterfalls"
 singularity exec $ASTROPY python $SCRIPTS/data_preparation/simulated/extract_patches_sim.py \

@@ -6,6 +6,7 @@ if not pos:
     raise RuntimeError("MS path not found in argv")
 ms_path = pos[0]
 noise_seed = int(pos[1]) if len(pos) > 1 else 0
+noise_scale = float(pos[2]) if len(pos) > 2 else 1.0   # 0 = noise-free; 1 = physical MeerKAT SEFD; 2 = 2x, etc.
 
 tb.open(ms_path + '/SPECTRAL_WINDOW')
 chan_freqs = tb.getcol('CHAN_FREQ')[0]   # Hz, shape (nchan,)
@@ -22,7 +23,12 @@ freq_mhz = chan_freqs / 1e6
 sefd_per_chan = np.interp(freq_mhz, _SEFD_NODES_MHZ, _SEFD_NODES_JY)  # (nchan,)
 
 delta_t = 8.0
-sigma_per_chan = sefd_per_chan / np.sqrt(2.0 * delta_nu * delta_t)  # (nchan,)
+sigma_per_chan = noise_scale * sefd_per_chan / np.sqrt(2.0 * delta_nu * delta_t)  # (nchan,)
+print(f"noise_scale={noise_scale}  (0=noise-free, 1=physical MeerKAT)", flush=True)
+
+if noise_scale <= 0:
+    print("noise_scale=0 -> leaving DATA noise-free", flush=True)
+    sys.exit(0)
 
 sigma_mean = sigma_per_chan.mean()
 sigma_min  = sigma_per_chan.min()

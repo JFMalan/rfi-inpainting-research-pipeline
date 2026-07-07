@@ -150,7 +150,8 @@ def main(args):
                 sin_n = resize_native(preds[u, 2], nt, nc)
                 V = (amp_n * div_n * np.exp(1j * np.arctan2(sin_n, cos_n))).astype(np.complex64)
                 hole_n = resize_native(hf[hole_key][u].astype(np.float32), nt, nc) > 0.5
-                w = feather_weight(flo, nc, starts, tile_w)[None, :].astype(np.float32) * hole_n
+                fw = np.ones(nc, np.float32) if args.no_feather else feather_weight(flo, nc, starts, tile_w)
+                w = fw[None, :].astype(np.float32) * hole_n
                 vnum[:, flo:flo + nc] += w * V
                 wsum[:, flo:flo + nc] += w
                 hany[:, flo:flo + nc] |= hole_n
@@ -189,6 +190,8 @@ if __name__ == '__main__':
     ap.add_argument('--src-col', default='DATA', dest='src_col')
     ap.add_argument('--reset-col', action='store_true', dest='reset_col',
                     help='re-copy src-col into out-col before filling (clean base when reusing a column across runs)')
+    ap.add_argument('--no-feather', action='store_true', dest='no_feather',
+                    help='ablation: uniform (unblended) tile averaging instead of the feathered partition-of-unity blend')
     ap.add_argument('--field', type=int, default=None)
     ap.add_argument('--sim', action='store_true')
     ap.add_argument('--unflag', action='store_true')
