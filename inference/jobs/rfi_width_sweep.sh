@@ -40,7 +40,7 @@ prev=""
 for W in $WIDTHS; do
     H5=$DATADIR/dataset_w$W.h5
     dep="afterok:${PJID[$W]}"; [ -n "$prev" ] && dep="$dep,afterok:$prev"
-    WJ=$(env SIM=1 MS=$MS H5=$H5 OUTCOL=INPAINTED_DATA PREDS=$DATADIR/preds_w$W.npz \
+    WJ=$(env SIM=1 MS=$MS H5=$H5 OUTCOL=INPAINTED_DATA PREDS=$DATADIR/preds_w$W.npz RESET_COL=1 \
          sbatch --parsable --dependency=$dep inference/jobs/inpaint_writeback.sh)
     IMJ=$(env SIM=1 MS=$MS H5=$H5 INPCOL=INPAINTED_DATA DO_INPAINT=1 DELAY=0 DPSS=0 MEANFILL=0 \
          OUT=$VIZ/w$W \

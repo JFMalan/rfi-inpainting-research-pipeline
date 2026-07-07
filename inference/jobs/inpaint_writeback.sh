@@ -17,6 +17,7 @@ OUTCOL=${OUTCOL:-INPAINTED_DATA}
 UNFLAG=${UNFLAG:-0}
 KEEP_PERSIST=${KEEP_PERSIST:-0}
 WEIGHT_FRAC=${WEIGHT_FRAC:-}
+RESET_COL=${RESET_COL:-0}   # 1 = re-copy DATA into the out-col first (needed when reusing one column across a sweep)
 
 ASTROPY=/idia/software/containers/ASTRO-PY3.10.sif
 ROOT=/users/$USER/rfi-inpainting-research-pipeline
@@ -31,6 +32,7 @@ WRITE_EXTRA=""
 [ "$SIM" = "1" ] && WRITE_EXTRA="$WRITE_EXTRA --sim"
 [ "$UNFLAG" = "1" ] && WRITE_EXTRA="$WRITE_EXTRA --unflag"
 [ "$KEEP_PERSIST" = "1" ] && WRITE_EXTRA="$WRITE_EXTRA --keep-persist-flagged"
+[ "$RESET_COL" = "1" ] && WRITE_EXTRA="$WRITE_EXTRA --reset-col"
 [ -n "$WEIGHT_FRAC" ] && WRITE_EXTRA="$WRITE_EXTRA --weight-frac $WEIGHT_FRAC"
 
 echo "CPU write-back  $PREDS -> $OUTCOL in $MS"

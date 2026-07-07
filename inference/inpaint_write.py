@@ -26,9 +26,16 @@ def resize_native(arr, n_time, n_chan, order=1, aa=False):
                   anti_aliasing=aa, preserve_range=True).astype(np.float32)
 
 
-def ensure_column(root, out_col, src_col, chunk=50000):
+def ensure_column(root, out_col, src_col, chunk=50000, reset=False):
     if out_col in root.colnames():
-        log(f"column {out_col} exists, reusing")
+        if not reset:
+            log(f"column {out_col} exists, reusing")
+            return
+        log(f"resetting {out_col} <- {src_col} (clean base for a fresh hole set)")
+        n = root.nrows()
+        for s in range(0, n, chunk):
+            nr = min(chunk, n - s)
+            root.putcol(out_col, root.getcol(src_col, startrow=s, nrow=nr), startrow=s, nrow=nr)
         return
     log(f"adding {out_col} (copy of {src_col})")
     cd = makecoldesc(out_col, root.getcoldesc(src_col))
@@ -99,7 +106,7 @@ def main(args):
         raise RuntimeError("MS rows not time-major — row map unsafe")
     log(f"MS {n_row} rows  n_time={n_time}  n_baseline={n_baseline}  src_col={src_col}")
 
-    ensure_column(root, args.out_col, src_col)
+    ensure_column(root, args.out_col, src_col, reset=args.reset_col)
     if args.weight_frac is not None:
         ensure_weight_spectrum(root)
     if args.field is not None:
@@ -180,6 +187,8 @@ if __name__ == '__main__':
     ap.add_argument('--preds', required=True)
     ap.add_argument('--out-col', default='INPAINTED_DATA', dest='out_col')
     ap.add_argument('--src-col', default='DATA', dest='src_col')
+    ap.add_argument('--reset-col', action='store_true', dest='reset_col',
+                    help='re-copy src-col into out-col before filling (clean base when reusing a column across runs)')
     ap.add_argument('--field', type=int, default=None)
     ap.add_argument('--sim', action='store_true')
     ap.add_argument('--unflag', action='store_true')
