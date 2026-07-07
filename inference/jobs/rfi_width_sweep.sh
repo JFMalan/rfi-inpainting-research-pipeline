@@ -23,25 +23,35 @@ for f in "$CLEAN_H5" "$MS" "$CKPT"; do
     [ -e "$f" ] || { echo "missing: $f  (clean_baselines.h5 comes from reextract.sh on $RUN)"; exit 1; }
 done
 
+SKIP_PHASE1=${SKIP_PHASE1:-0}   # 1 = reuse existing datasets/preds on disk; only re-run write-back+image+summary
 declare -A PJID
-echo "=== phase 1: inject + infer per width (parallel) ==="
-for W in $WIDTHS; do
-    H5=$DATADIR/dataset_w$W.h5
-    IJ=$(env CLEAN_H5=$CLEAN_H5 OUT=$H5 BAND_WIDTH=$W TARGET_FRAC=$TARGET_FRAC \
-         sbatch --parsable data_preparation/simulated/jobs/inject_width.sh)
-    PJ=$(env SIM=1 SMOOTH=0 CKPT=$CKPT H5=$H5 OUTCOL=INPAINTED_DATA PREDS=$DATADIR/preds_w$W.npz STEPS=50 \
-         sbatch --parsable --dependency=afterok:$IJ inference/jobs/inpaint_infer.sh)
-    PJID[$W]=$PJ
-    echo "  w=$W  inject $IJ -> infer $PJ"
-done
+if [ "$SKIP_PHASE1" = "1" ]; then
+    echo "=== phase 1 SKIPPED: reusing $DATADIR/dataset_w*.h5 + preds_w*.npz ==="
+    for W in $WIDTHS; do
+        [ -f "$DATADIR/preds_w$W.npz" ] || { echo "missing preds_w$W.npz -- run phase 1 first"; exit 1; }
+    done
+else
+    echo "=== phase 1: inject + infer per width (parallel) ==="
+    for W in $WIDTHS; do
+        H5=$DATADIR/dataset_w$W.h5
+        IJ=$(env CLEAN_H5=$CLEAN_H5 OUT=$H5 BAND_WIDTH=$W TARGET_FRAC=$TARGET_FRAC \
+             sbatch --parsable data_preparation/simulated/jobs/inject_width.sh)
+        PJ=$(env SIM=1 SMOOTH=0 CKPT=$CKPT H5=$H5 OUTCOL=INPAINTED_DATA PREDS=$DATADIR/preds_w$W.npz STEPS=50 \
+             sbatch --parsable --dependency=afterok:$IJ inference/jobs/inpaint_infer.sh)
+        PJID[$W]=$PJ
+        echo "  w=$W  inject $IJ -> infer $PJ"
+    done
+fi
 
 echo "=== phase 2: write-back + image per width (serial on the sim MS) ==="
 prev=""
 for W in $WIDTHS; do
     H5=$DATADIR/dataset_w$W.h5
-    dep="afterok:${PJID[$W]}"; [ -n "$prev" ] && dep="$dep,afterok:$prev"
+    deps=""; [ -n "${PJID[$W]}" ] && deps="afterok:${PJID[$W]}"
+    [ -n "$prev" ] && deps="${deps:+$deps,}afterok:$prev"
+    DEPARG=""; [ -n "$deps" ] && DEPARG="--dependency=$deps"
     WJ=$(env SIM=1 MS=$MS H5=$H5 OUTCOL=INPAINTED_DATA PREDS=$DATADIR/preds_w$W.npz RESET_COL=1 \
-         sbatch --parsable --dependency=$dep inference/jobs/inpaint_writeback.sh)
+         sbatch --parsable $DEPARG inference/jobs/inpaint_writeback.sh)
     IMJ=$(env SIM=1 MS=$MS H5=$H5 INPCOL=INPAINTED_DATA DO_INPAINT=1 DELAY=0 DPSS=0 MEANFILL=0 \
          OUT=$VIZ/w$W \
          sbatch --parsable --dependency=afterok:$WJ evaluation/image_eval.sh)
