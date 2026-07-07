@@ -40,11 +40,14 @@ mkdir -p $SIMDIR $VISDIR logs
 rm -rf $SIM_MS
 
 # generate this run's random sky on the compute node (singularity is blocked on login)
+FLUX_MIN=${FLUX_MIN:-0.1}
+FLUX_MAX=${FLUX_MAX:-5.0}
 if [ "${GEN_RANDOM_SKY:-0}" = "1" ]; then
     SKY_MODEL=sky_random_${RUN_ID}.txt
-    echo "[0/6] $(date '+%H:%M:%S') generating random sky (seed $RUN_ID) -> $SKY_MODEL"
+    echo "[0/6] $(date '+%H:%M:%S') generating random sky (seed $RUN_ID, flux ${FLUX_MIN}-${FLUX_MAX} Jy) -> $SKY_MODEL"
     singularity exec $ASTROPY python $SCRIPTS/data_preparation/simulated/make_random_sky.py \
-        --output $SCRIPTS/data_preparation/simulated/$SKY_MODEL --seed $RUN_ID
+        --output $SCRIPTS/data_preparation/simulated/$SKY_MODEL --seed $RUN_ID \
+        --flux-min $FLUX_MIN --flux-max $FLUX_MAX
 fi
 
 echo "RUN_ID=$RUN_ID  SYNTHESIS=${SYNTHESIS}h  NCHAN=$NCHAN  SKY_MODEL=$SKY_MODEL  SEED=$SEED"
