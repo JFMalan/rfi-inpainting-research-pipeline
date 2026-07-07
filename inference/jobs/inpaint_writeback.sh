@@ -18,6 +18,7 @@ UNFLAG=${UNFLAG:-0}
 KEEP_PERSIST=${KEEP_PERSIST:-0}
 WEIGHT_FRAC=${WEIGHT_FRAC:-}
 RESET_COL=${RESET_COL:-0}   # 1 = re-copy DATA into the out-col first (needed when reusing one column across a sweep)
+NO_FEATHER=${NO_FEATHER:-0} # 1 = ablation: unblended (uniform) tile averaging instead of the feathered blend
 
 ASTROPY=/idia/software/containers/ASTRO-PY3.10.sif
 ROOT=/users/$USER/rfi-inpainting-research-pipeline
@@ -33,6 +34,7 @@ WRITE_EXTRA=""
 [ "$UNFLAG" = "1" ] && WRITE_EXTRA="$WRITE_EXTRA --unflag"
 [ "$KEEP_PERSIST" = "1" ] && WRITE_EXTRA="$WRITE_EXTRA --keep-persist-flagged"
 [ "$RESET_COL" = "1" ] && WRITE_EXTRA="$WRITE_EXTRA --reset-col"
+[ "$NO_FEATHER" = "1" ] && WRITE_EXTRA="$WRITE_EXTRA --no-feather"
 [ -n "$WEIGHT_FRAC" ] && WRITE_EXTRA="$WRITE_EXTRA --weight-frac $WEIGHT_FRAC"
 
 echo "CPU write-back  $PREDS -> $OUTCOL in $MS"
