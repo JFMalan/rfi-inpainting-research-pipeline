@@ -18,7 +18,7 @@ def load(path):
 def stats(img):
     mean, med, std = sigma_clipped_stats(img, sigma=3.0, maxiters=5)
     peak = float(np.nanmax(img))
-    return {'rms': float(std), 'peak': peak, 'dr': peak / std if std > 0 else 0.0}
+    return {'rms': float(std), 'peak': peak, 'dr': float(peak / std) if std > 0 else 0.0}
 
 
 def main(args):
@@ -63,7 +63,7 @@ def main(args):
     fig.savefig(args.out, dpi=130, bbox_inches='tight')
     print(f"\nsaved -> {args.out}", flush=True)
     if args.metrics_out:
-        Path(args.metrics_out).write_text(json.dumps(metrics, indent=2))
+        Path(args.metrics_out).write_text(json.dumps(metrics, indent=2, default=float))
         print(f"metrics -> {args.metrics_out}", flush=True)
 
 
