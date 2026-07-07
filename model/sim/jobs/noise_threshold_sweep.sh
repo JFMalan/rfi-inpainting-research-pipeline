@@ -12,6 +12,8 @@ SCALES=${SCALES:-"1.0 0.5 0.25 0.125"}
 SKY_MODEL=${SKY_MODEL:-sky_model.txt}   # normal brightness; SAME sky every level so only noise varies
 EPOCHS=${EPOCHS:-30}
 TRAIN_TIME=${TRAIN_TIME:-12:00:00}      # ~5h for 30ep on one run; override train_sim.sh 144h wall
+NODELIST=${NODELIST:-}                  # e.g. gpu-007 to pin the training jobs to one node (only if free)
+NODEARG=""; [ -n "$NODELIST" ] && NODEARG="--nodelist=$NODELIST"
 SIMROOT=/scratch3/users/$USER/rfi/simulated
 RUNS=/idia/users/$USER/rfi/runs
 VIZ=/idia/users/$USER/rfi/viz/noise_threshold
@@ -29,7 +31,7 @@ for S in $SCALES; do
          sbatch --parsable data_preparation/simulated/jobs/simulate.sh)
     deps="afterok:$SJ"; [ -n "$prev" ] && deps="$deps,afterok:$prev"
     TJ=$(env RUN_ID=$RID EPOCHS=$EPOCHS PHASE=1 \
-         sbatch --parsable --time=$TRAIN_TIME --dependency=$deps model/sim/train_sim.sh)
+         sbatch --parsable --time=$TRAIN_TIME $NODEARG --dependency=$deps model/sim/train_sim.sh)
     TRAINJOBS+=("$TJ")
     prev=$TJ
     lowest="$SIMROOT/run$RID/clean_baselines.h5"; lowscale=$S
