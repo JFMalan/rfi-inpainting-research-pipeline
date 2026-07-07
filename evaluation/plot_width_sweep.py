@@ -9,7 +9,7 @@ import matplotlib.pyplot as plt
 
 
 def main(args):
-    widths, flag, inp, flag_dr, inp_dr = [], [], [], [], []
+    widths, flag, inp, cls, flag_dr, inp_dr, cls_dr = [], [], [], [], [], [], []
     for w in args.widths:
         m = Path(args.root) / f'w{w}' / 'metrics.json'
         if not m.exists():
@@ -22,16 +22,20 @@ def main(args):
         widths.append(w)
         flag.append(d['flagged'].get('rmse_vs_clean', np.nan))
         inp.append(d['inpainted'].get('rmse_vs_clean', np.nan))
+        cls.append(d.get('classical', {}).get('rmse_vs_clean', np.nan))
         flag_dr.append(d['flagged'].get('dr', np.nan))
         inp_dr.append(d['inpainted'].get('dr', np.nan))
+        cls_dr.append(d.get('classical', {}).get('dr', np.nan))
     if not widths:
         raise SystemExit('no metrics found')
     widths = np.array(widths, float)
-    flag, inp = np.array(flag), np.array(inp)
+    flag, inp, cls = np.array(flag), np.array(inp), np.array(cls)
 
     fig, (ax, ax2) = plt.subplots(1, 2, figsize=(13, 5))
     ax.plot(widths, flag * 1e6, 'o-', color='0.5', label='flagged (discard RFI)')
-    ax.plot(widths, inp * 1e6, 'o-', color='tab:red', label='inpainted (model)')
+    ax.plot(widths, inp * 1e6, 'o-', color='tab:red', label='inpainted (diffusion model)')
+    if np.isfinite(cls).any():
+        ax.plot(widths, cls * 1e6, 'o-', color='tab:orange', label='DPSS classical fill')
     below = inp < flag
     if below.any():
         ax.fill_between(widths, 0, ax.get_ylim()[1], where=below, color='tab:green', alpha=0.08)
@@ -49,6 +53,8 @@ def main(args):
 
     ax2.plot(widths, flag_dr, 'o-', color='0.5', label='flagged')
     ax2.plot(widths, inp_dr, 'o-', color='tab:red', label='inpainted')
+    if np.isfinite(cls_dr).any():
+        ax2.plot(widths, cls_dr, 'o-', color='tab:orange', label='DPSS classical')
     ax2.set_xscale('log', base=2); ax2.set_xticks(widths); ax2.set_xticklabels([f'{int(w)}' for w in widths])
     ax2.set_xlabel('RFI band width (native channels)'); ax2.set_ylabel('dynamic range (higher = better)')
     ax2.set_title('Dynamic range vs RFI width'); ax2.legend()

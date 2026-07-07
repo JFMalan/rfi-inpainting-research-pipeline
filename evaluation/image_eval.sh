@@ -24,6 +24,7 @@ NITER=${NITER:-10000}
 MAX_UNITS=${MAX_UNITS:-}
 DO_INPAINT=${DO_INPAINT:-1}   # 0 = skip the inpainted column (e.g. flagged+mean-fill preview before a model exists)
 MEANFILL=${MEANFILL:-0}       # 1 = also write + image a per-channel time-mean fill (3-way benchmark)
+DPSSFILL=${DPSSFILL:-0}       # 1 = also write + image a DPSS classical gap-fill (continuum comparison)
 DPSS=${DPSS:-0}               # 1 = add the DPSS classical gap-fill baseline to the delay-space comparison
 DPSS_HW=${DPSS_HW:-0.1}       # DPSS delay half-width as fraction of Nyquist delay
 DPSS_LAM=${DPSS_LAM:-0.1}     # DPSS ridge regularisation
@@ -63,6 +64,12 @@ if [ "$MEANFILL" = "1" ]; then
     singularity exec $ASTROPY python $ROOT/evaluation/mean_fill_write.py --ms "$MS" --h5 "$H5" --out-col MEANFILL_DATA $SIMARG
     wsc meanfill MEANFILL_DATA
 fi
+if [ "$DPSSFILL" = "1" ]; then
+    echo "==== DPSS classical-fill write + image ===="
+    singularity exec $ASTROPY python $ROOT/evaluation/dpss_fill_write.py --ms "$MS" --h5 "$H5" \
+        --out-col DPSSFILL_DATA --dpss-hw $DPSS_HW --dpss-lam $DPSS_LAM $SIMARG
+    wsc dpssfill DPSSFILL_DATA
+fi
 if [ "$SIM" = "1" ]; then echo "==== image Clean (DATA truth) ===="; wsc clean DATA; fi
 
 # flag ALL holes, image the flag-everything (standard-practice) case, then restore
@@ -74,9 +81,10 @@ set_flag clear all
 CLEAN_ARG=""; [ "$SIM" = "1" ] && CLEAN_ARG="--clean $IMG/clean-image.fits"
 INP_ARG=""; [ "$DO_INPAINT" = "1" ] && INP_ARG="--inpainted $IMG/inpainted-image.fits"
 MEANFILL_ARG=""; [ "$MEANFILL" = "1" ] && MEANFILL_ARG="--meanfill $IMG/meanfill-image.fits"
+CLASSICAL_ARG=""; [ "$DPSSFILL" = "1" ] && CLASSICAL_ARG="--classical $IMG/dpssfill-image.fits"
 echo "==== compare (continuum image) ===="
 singularity exec $ASTROPY python $ROOT/evaluation/compare_images.py \
-    $CLEAN_ARG --flagged $IMG/flagged-image.fits $MEANFILL_ARG $INP_ARG \
+    $CLEAN_ARG --flagged $IMG/flagged-image.fits $MEANFILL_ARG $CLASSICAL_ARG $INP_ARG \
     --out $OUT/image_comparison.png --metrics-out $OUT/metrics.json
 
 DELAY_INP=""; [ "$DO_INPAINT" = "1" ] && DELAY_INP="--inp-col $INPCOL"
