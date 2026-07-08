@@ -27,7 +27,20 @@ sigma_per_chan = noise_scale * sefd_per_chan / np.sqrt(2.0 * delta_nu * delta_t)
 print(f"noise_scale={noise_scale}  (0=noise-free, 1=physical MeerKAT)", flush=True)
 
 if noise_scale <= 0:
-    print("noise_scale=0 -> leaving DATA noise-free", flush=True)
+    # extract reads CORRECTED_DATA when present, but crystalball wrote the clean signal to
+    # DATA and no sm.corrupt runs here, so CORRECTED_DATA would be empty (zeros). Copy DATA
+    # across so the noise-free extraction picks up the clean signal.
+    print("noise_scale=0 -> noise-free; copying DATA to CORRECTED_DATA", flush=True)
+    tb.open(ms_path, nomodify=False)
+    if 'CORRECTED_DATA' in tb.colnames():
+        nrow = tb.nrows()
+        chunk = 50000
+        for start in range(0, nrow, chunk):
+            n = min(chunk, nrow - start)
+            tb.putcol('CORRECTED_DATA', tb.getcol('DATA', startrow=start, nrow=n),
+                      startrow=start, nrow=n)
+        print(f"copied DATA -> CORRECTED_DATA ({nrow} rows)", flush=True)
+    tb.close()
     sys.exit(0)
 
 sigma_mean = sigma_per_chan.mean()
