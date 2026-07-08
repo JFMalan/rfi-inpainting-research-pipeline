@@ -12,7 +12,7 @@ set -e
 NOISE_SCALE=${NOISE_SCALE:-1.0}                 # noise level of the input/context run (must exist)
 SKY_MODEL=${SKY_MODEL:-sky_model.txt}           # same sky as the noisy run
 EPOCHS=${EPOCHS:-30}
-TRAIN_TIME=${TRAIN_TIME:-12:00:00}
+TRAIN_TIME=${TRAIN_TIME:-24:00:00}
 NODELIST=${NODELIST:-}
 NODEARG=""; [ -n "$NODELIST" ] && NODEARG="--nodelist=$NODELIST"
 SIMROOT=/scratch3/users/$USER/rfi/simulated

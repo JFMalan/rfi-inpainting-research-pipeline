@@ -11,7 +11,7 @@ set -e
 SCALES=${SCALES:-"1.0 0.5 0.25 0.125"}
 SKY_MODEL=${SKY_MODEL:-sky_model.txt}   # normal brightness; SAME sky every level so only noise varies
 EPOCHS=${EPOCHS:-30}
-TRAIN_TIME=${TRAIN_TIME:-12:00:00}      # ~5h for 30ep on one run; override train_sim.sh 144h wall
+TRAIN_TIME=${TRAIN_TIME:-24:00:00}      # override train_sim.sh 144h wall; 24h covers 30ep incl V100 + eval
 NODELIST=${NODELIST:-}                  # e.g. gpu-007 to pin the training jobs to one node (only if free)
 NODEARG=""; [ -n "$NODELIST" ] && NODEARG="--nodelist=$NODELIST"
 SIMROOT=/scratch3/users/$USER/rfi/simulated
