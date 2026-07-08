@@ -46,11 +46,15 @@ def main(args):
     ncols = len(present)
     fig, axes = plt.subplots(len(tiles), ncols, figsize=(3.3 * ncols, 3.0 * len(tiles)))
     axes = np.atleast_2d(axes)
+    def tile(f, t):
+        a = f[field][t]
+        return a[ch] if a.ndim == 3 else a
+
     for ri, t in enumerate(tiles):
-        ref = present[0][1][field][t, ch]
+        ref = tile(present[0][1], t)
         vmin, vmax = np.percentile(ref, 1), np.percentile(ref, 99)
         for ci, (s, f) in enumerate(present):
-            img = f[field][t, ch]
+            img = tile(f, t)
             ax = axes[ri, ci]
             ax.imshow(img.T, aspect='auto', origin='lower', vmin=vmin, vmax=vmax, cmap='plasma')
             ax.set_xticks([]); ax.set_yticks([])
