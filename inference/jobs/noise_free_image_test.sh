@@ -13,12 +13,14 @@ H5=${H5:-/scratch3/users/$USER/rfi/simulated/runthr_paired/dataset.h5}
 MS=${MS:-/scratch3/users/$USER/rfi/simulated/runthr_n0000/sim_clean.ms}
 PREDS=/scratch3/users/$USER/rfi/preds_thr_paired.npz
 VIZ=/idia/users/$USER/rfi/viz/noise_threshold/image_test
+NODELIST=${NODELIST:-}   # e.g. gpu-005 to pin the GPU infer job
+NODEARG=""; [ -n "$NODELIST" ] && NODEARG="--nodelist=$NODELIST"
 mkdir -p logs "$VIZ"
 for f in "$CKPT" "$H5" "$MS"; do [ -e "$f" ] || { echo "missing: $f"; exit 1; }; done
 
 echo "[infer] GPU inference -> preds (fine structure, noise_floor=none)"
 P=$(env SIM=1 SMOOTH=0 CKPT=$CKPT H5=$H5 OUTCOL=INPAINTED_DATA PREDS=$PREDS NOISE_FLOOR=none STEPS=50 \
-    sbatch --parsable inference/jobs/inpaint_infer.sh)
+    sbatch --parsable $NODEARG inference/jobs/inpaint_infer.sh)
 echo "  -> infer $P"
 
 echo "[write] write recovered signal into the noise-free MS (RESET_COL: context = clean DATA)"
