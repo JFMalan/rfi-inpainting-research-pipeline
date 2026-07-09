@@ -11,8 +11,8 @@ set -e
 CKPT=${CKPT:-/idia/users/$USER/rfi/runs/phase1_thr_paired/best.pt}
 H5=${H5:-/scratch3/users/$USER/rfi/simulated/runthr_paired/dataset.h5}
 MS=${MS:-/scratch3/users/$USER/rfi/simulated/runthr_n0000/sim_clean.ms}
-PREDS=/scratch3/users/$USER/rfi/preds_thr_paired.npz
-VIZ=/idia/users/$USER/rfi/viz/noise_threshold/image_test
+PREDS=${PREDS:-/scratch3/users/$USER/rfi/preds_thr_paired.npz}
+VIZ=${OUT:-/idia/users/$USER/rfi/viz/noise_threshold/image_test}
 NODELIST=${NODELIST:-}   # e.g. gpu-005 to pin the GPU infer job
 NODEARG=""; [ -n "$NODELIST" ] && NODEARG="--nodelist=$NODELIST"
 mkdir -p logs "$VIZ"
