@@ -98,6 +98,7 @@ def run_checks(path, n_check=500):
 
 
 def plot_sample_pairs(clean, corrupted, mask, freqs, freq_min, freq_max, n_time, n_plot, out_dir):
+    # legacy layout for datasets without the clean-target fields
     n_plot = min(n_plot, len(clean))
     ncols = 3
     fig, axes = plt.subplots(n_plot, ncols, figsize=(12, 3.5 * n_plot))
@@ -140,6 +141,82 @@ def plot_sample_pairs(clean, corrupted, mask, freqs, freq_min, freq_max, n_time,
     plt.savefig(out, dpi=120, bbox_inches="tight")
     plt.close()
     print(f"samples plot    -> {out}")
+
+
+def plot_sample_rows(path, n_plot, out_dir):
+    # observed (noise, no RFI) | target (no noise, no RFI) | model input (noise + RFI),
+    # one sample per row; rows grouped per baseline with its time windows stacked so the
+    # same time bin sits directly beneath its sibling tiles. Noise sigma and sky
+    # brightness are computed in raw Jy via the stored divisor.
+    with h5py.File(path, "r") as f:
+        n_total = f["clean"].shape[0]
+        n_time = int(f.attrs["n_time"])
+        bl = f["baseline_id"][:]
+        tlo = f["time_lo"][:] if "time_lo" in f else np.zeros(n_total, int)
+        flo = f["freq_lo"][:] if "freq_lo" in f else np.zeros(n_total, int)
+
+        order = np.lexsort((flo, tlo, bl))
+        chosen = []
+        for b in np.unique(bl[order]):
+            grp = order[bl[order] == b]
+            grp = grp[np.lexsort((flo[grp], tlo[grp]))]   # time window outer, tile inner
+            chosen.extend(int(k) for k in grp)
+            if len(chosen) >= n_plot:
+                break
+        chosen = chosen[:n_plot]
+
+        clean = np.stack([f["clean"][k] for k in chosen])
+        target = np.stack([f["amp_target"][k] for k in chosen])
+        corrupted = np.stack([f["corrupted"][k] for k in chosen])
+        mask = np.stack([f["mask"][k] for k in chosen])
+        div = np.stack([f["dn_divisor"][k] for k in chosen])
+        fmins = [float(f["freq_min_patch"][k]) for k in chosen] if "freq_min_patch" in f \
+            else [float(f.attrs["freq_min_mhz"])] * len(chosen)
+        fmaxs = [float(f["freq_max_patch"][k]) for k in chosen] if "freq_max_patch" in f \
+            else [float(f.attrs["freq_max_mhz"])] * len(chosen)
+
+    n = len(chosen)
+    fig, axes = plt.subplots(n, 3, figsize=(13, 3.5 * n))
+    if n == 1:
+        axes = axes[np.newaxis, :]
+
+    for i in range(n):
+        k = chosen[i]
+        ext = [0, n_time, fmins[i], fmaxs[i]]
+        vmin = np.percentile(clean[i], 1)
+        vmax = np.percentile(clean[i], 99)
+        noise_jy = float(((clean[i] - target[i]) * div[i]).std())
+        sky_jy = target[i] * div[i]
+
+        axes[i, 0].imshow(clean[i].T, aspect="auto", origin="lower", extent=ext,
+                          vmin=vmin, vmax=vmax, cmap="plasma")
+        axes[i, 0].set_ylabel(f"Freq (MHz)\nnoise $\\sigma$={noise_jy:.3f} Jy", fontsize=8)
+        axes[i, 0].set_title(f"observed, no RFI (thermal noise)   "
+                             f"bl {bl[k]}  t0={tlo[k]}", fontsize=8)
+
+        axes[i, 1].imshow(target[i].T, aspect="auto", origin="lower", extent=ext,
+                          vmin=vmin, vmax=vmax, cmap="plasma")
+        axes[i, 1].set_ylabel(f"sky $\\mu$={sky_jy.mean():.3f} Jy  "
+                              f"p99={np.percentile(sky_jy, 99):.3f} Jy", fontsize=8)
+        axes[i, 1].set_title("target (no noise, no RFI)", fontsize=8)
+
+        axes[i, 2].imshow(corrupted[i].T, aspect="auto", origin="lower", extent=ext,
+                          vmin=vmin, vmax=vmax, cmap="plasma")
+        axes[i, 2].imshow(green_overlay(mask[i]), aspect="auto", origin="lower", extent=ext)
+        axes[i, 2].set_title(f"model input (noise + RFI, green = mask)  "
+                             f"rfi={mask[i].mean():.2f}", fontsize=8)
+
+    for ax in axes[-1]:
+        ax.set_xlabel("Time bins", fontsize=8)
+    for row in axes:
+        for ax in row:
+            ax.tick_params(labelsize=6)
+
+    plt.tight_layout()
+    out = out_dir / "validate_samples.png"
+    plt.savefig(out, dpi=120, bbox_inches="tight")
+    plt.close()
+    print(f"samples plot    -> {out}  ({n} rows, grouped by baseline/time window)")
 
 
 def plot_amplitude_dist(clean, out_dir, waterfall_path=None):
@@ -330,7 +407,13 @@ def main(args):
     clean, corrupted, mask, freqs, freq_min, freq_max, n_time, n_freq, mean_mask_spectrum, _ = \
         run_checks(args.input)
 
-    plot_sample_pairs(clean, corrupted, mask, freqs, freq_min, freq_max, n_time, args.n_plot, out_dir)
+    with h5py.File(args.input, "r") as f:
+        has_target = "amp_target" in f
+    if has_target:
+        plot_sample_rows(args.input, args.n_plot, out_dir)
+    else:
+        plot_sample_pairs(clean, corrupted, mask, freqs, freq_min, freq_max, n_time,
+                          args.n_plot, out_dir)
     plot_amplitude_dist(clean, out_dir, waterfall_path=args.waterfall)
     plot_spectra(clean, mean_mask_spectrum, freqs, out_dir, waterfall_path=args.waterfall)
     if args.waterfall:
