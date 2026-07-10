@@ -29,7 +29,7 @@ DPSS=${DPSS:-0}               # 1 = add the DPSS classical gap-fill baseline to 
 DPSS_HW=${DPSS_HW:-0.1}       # DPSS delay half-width as fraction of Nyquist delay
 DPSS_LAM=${DPSS_LAM:-0.1}     # DPSS ridge regularisation
 KEEP_PERSIST=${KEEP_PERSIST:-0}  # 1 = selective: image the inpaint with persistent bands LEFT FLAGGED
-                                 # (pair with KEEP_PERSIST=1 on the inpaint_ms.sh write-back)
+                                 # (pair with KEEP_PERSIST=1 on the archive/inference/jobs/inpaint_ms.sh write-back)
 DELAY=${DELAY:-1}                # 0 = skip the (slow) delay-space comparison, continuum image only
 
 ROOT=/users/$USER/rfi-inpainting-research-pipeline

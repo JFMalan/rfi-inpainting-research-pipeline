@@ -37,7 +37,7 @@ fi
 
 dep=""; [ -n "$SJ" ] && dep="--dependency=afterok:$SJ"
 PJ=$(env NOISY=$NOISY CLEAN=$CLEAN OUT=$PAIRED \
-     sbatch --parsable $dep evaluation/jobs/pair_dataset.sh)
+     sbatch --parsable $dep archive/evaluation/jobs/pair_dataset.sh)
 echo "  pair dataset: $PJ -> $PAIRED"
 
 TJ=$(env RUN_ID=thr_paired EPOCHS=$EPOCHS PHASE=1 \

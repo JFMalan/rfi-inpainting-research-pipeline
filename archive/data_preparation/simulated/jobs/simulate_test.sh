@@ -1,26 +1,21 @@
 #!/bin/bash
-#SBATCH --job-name='rfi-simulate'
+#SBATCH --job-name='rfi-simulate-test'
 #SBATCH --partition=Main
 #SBATCH --cpus-per-task=8
 #SBATCH --mem=128GB
-#SBATCH --time=08:00:00
-#SBATCH --output=logs/simulate-%j-stdout.log
-#SBATCH --error=logs/simulate-%j-stderr.log
-#SBATCH --mail-type=BEGIN,END,FAIL
-#SBATCH --mail-user=jfmalan123@gmail.com
+#SBATCH --time=03:00:00
+#SBATCH --output=logs/simulate-test-%j-stdout.log
+#SBATCH --error=logs/simulate-test-%j-stderr.log
 
 set -e
 
-# Defaults — override via: sbatch --export=ALL,RUN_ID=2,SYNTHESIS=2.0,NCHAN=4096,SKY_MODEL=sky_model_2.txt simulate.sh
-RUN_ID=${RUN_ID:-1}
+RUN_ID=${RUN_ID:-test}
 SYNTHESIS=${SYNTHESIS:-1.2}
 NCHAN=${NCHAN:-1024}
-SKY_MODEL=${SKY_MODEL:-sky_model.txt}
-SEED=${SEED:-42}
-NOISE_SCALE=${NOISE_SCALE:-1.0}   # 0 = noise-free; 1 = physical MeerKAT SEFD; 2/4 = higher for a noise sweep
-DIR=${DIR:-"J2000,04h00m00.0s,-30d00m00s"}
+SKY_MODEL=${SKY_MODEL:-archive/data_preparation/simulated/sky_model_bright.txt}
 IMG_SIZE=${IMG_SIZE:-512}
-TARGET_FRAC=${TARGET_FRAC:-0.37}
+TARGET_FRAC=${TARGET_FRAC:-0.40}
+SEED=${SEED:-42}
 
 SIMMS=/idia/software/containers/STIMELA_IMAGES/stimela_simms_1.2.0.sif
 AFRICANUS=/idia/software/containers/STIMELA_IMAGES/stimela_codex-africanus_1.6.7.sif
@@ -39,26 +34,12 @@ VISDIR=$SIMDIR/vis
 mkdir -p $SIMDIR $VISDIR logs
 rm -rf $SIM_MS
 
-# generate this run's random sky on the compute node (singularity is blocked on login)
-FLUX_MIN=${FLUX_MIN:-0.1}
-FLUX_MAX=${FLUX_MAX:-5.0}
-if [ "${GEN_RANDOM_SKY:-0}" = "1" ]; then
-    SKY_MODEL=sky_random_${RUN_ID}.txt
-    echo "[0/6] $(date '+%H:%M:%S') generating random sky (seed $RUN_ID, flux ${FLUX_MIN}-${FLUX_MAX} Jy) -> $SKY_MODEL"
-    singularity exec $ASTROPY python $SCRIPTS/data_preparation/simulated/make_random_sky.py \
-        --output $SCRIPTS/data_preparation/simulated/$SKY_MODEL --seed $RUN_ID \
-        --flux-min $FLUX_MIN --flux-max $FLUX_MAX
-fi
-
-echo "RUN_ID=$RUN_ID  SYNTHESIS=${SYNTHESIS}h  NCHAN=$NCHAN  SKY_MODEL=$SKY_MODEL  SEED=$SEED"
-
-# compute channel width to keep 856 MHz total bandwidth
 DFREQ=$(python3 -c "print(f'{856.0/$NCHAN:.4f}MHz')")
 
 echo "[1/6] $(date '+%H:%M:%S') creating empty MeerKAT MS (simms)"
 singularity exec $SIMMS simms \
     -T meerkat \
-    -dir "$DIR" \
+    -dir "J2000,04h00m00.0s,-30d00m00s" \
     -dt 8 \
     -st $SYNTHESIS \
     -f0 880MHz \
@@ -69,7 +50,7 @@ singularity exec $SIMMS simms \
 
 echo "[2/6] $(date '+%H:%M:%S') predicting sky model (crystalball)"
 singularity exec $AFRICANUS crystalball \
-    -sm $SCRIPTS/data_preparation/simulated/$SKY_MODEL \
+    -sm $SCRIPTS/$SKY_MODEL \
     -o DATA \
     -rc 10000 \
     -mc 25 \
@@ -78,20 +59,21 @@ singularity exec $AFRICANUS crystalball \
 
 echo "[3/6] $(date '+%H:%M:%S') adding thermal noise (CASA sm.corrupt)"
 singularity exec $CASA casa --nologger --log2term \
-    -c $SCRIPTS/data_preparation/simulated/add_noise.py $SIM_MS $SEED $NOISE_SCALE
+    -c $SCRIPTS/data_preparation/simulated/add_noise.py $SIM_MS
 
-echo "[4/6] $(date '+%H:%M:%S') extracting native per-baseline waterfalls"
+echo "[4/6] $(date '+%H:%M:%S') extracting per-baseline ${IMG_SIZE}x${IMG_SIZE} waterfalls"
 singularity exec $ASTROPY python $SCRIPTS/data_preparation/simulated/extract_patches_sim.py \
     --ms $SIM_MS \
     --output $CLEAN_H5 \
     --waterfall-out $WATERFALL \
-    --freq-min 900 --freq-max 1650
+    --freq-min 900 --freq-max 1650 \
+    --img-size $IMG_SIZE
 
-echo "[5/6] $(date '+%H:%M:%S') injecting synthetic RFI on the native band and tiling to ${IMG_SIZE}x${IMG_SIZE}"
+echo "[5/6] $(date '+%H:%M:%S') injecting synthetic RFI"
 singularity exec $ASTROPY /bin/bash -c "
     source $VENV/bin/activate &&
     python $SCRIPTS/data_preparation/simulated/inject_rfi.py \
-        --input $CLEAN_H5 --output $DATASET --img-size $IMG_SIZE --seed $SEED --target-frac $TARGET_FRAC
+        --input $CLEAN_H5 --output $DATASET --seed $SEED --target-frac $TARGET_FRAC
 "
 
 echo "[6/6] $(date '+%H:%M:%S') validating dataset and generating visualisations"
@@ -99,7 +81,9 @@ singularity exec $ASTROPY python $SCRIPTS/data_preparation/simulated/visualisati
     --input $DATASET \
     --output $VISDIR \
     --waterfall ${WATERFALL}.npy \
-    --n-plot 12 \
-    --n-patches-show 200
+    --n-plot 6 \
+    --n-patches-show 50
 
 echo "done $(date '+%H:%M:%S')"
+echo "dataset -> $DATASET"
+echo "plots   -> $VISDIR"
