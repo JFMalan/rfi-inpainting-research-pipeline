@@ -69,7 +69,7 @@ train:
   phase2:
     modes: []
     epochs: 60
-    batch: 8
+    batch: 4
     lr: 4.0e-5
     ema_decay: auto
 

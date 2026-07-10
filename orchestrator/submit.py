@@ -209,6 +209,7 @@ def main():
     state = json.loads(state_path.read_text()) if state_path.exists() else {}
 
     jobids = {}
+    resubmitted = set()
     for st in stages:
         name = st['name']
         if only is not None and name not in only:
@@ -218,17 +219,28 @@ def main():
             continue
 
         prev = state.get(name, {})
+        dep_redone = any(dp in resubmitted for dp in st['deps'])
         if prev.get('jobid') and name not in force:
             s = job_state(prev['jobid'])
             if s == 'COMPLETED':
                 print(f'skip   {name}  (job {prev["jobid"]} completed)', flush=True)
                 jobids[name] = prev['jobid']
                 continue
-            if s in ('PENDING', 'RUNNING'):
+            if s == 'RUNNING' or (s == 'PENDING' and not dep_redone):
                 print(f'reuse  {name}  (job {prev["jobid"]} {s.lower()})', flush=True)
                 jobids[name] = prev['jobid']
                 continue
-            print(f'redo   {name}  (job {prev["jobid"]} {s.lower()})', flush=True)
+            if s == 'PENDING' and dep_redone:
+                # its afterok points at a dead jobid (a dep was resubmitted) — rewire
+                subprocess.run(['scancel', str(prev['jobid'])], capture_output=True)
+                print(f'rewire {name}  (job {prev["jobid"]} cancelled, dep resubmitted)', flush=True)
+            else:
+                print(f'redo   {name}  (job {prev["jobid"]} {s.lower()})', flush=True)
+        elif prev.get('jobid') and name in force:
+            s = job_state(prev['jobid'])
+            if s in ('PENDING', 'RUNNING'):
+                subprocess.run(['scancel', str(prev['jobid'])], capture_output=True)
+                print(f'force  {name}  (job {prev["jobid"]} {s.lower()} cancelled)', flush=True)
 
         deps = [jobids[dp] for dp in st['deps'] if dp in jobids]
         missing = [dp for dp in st['deps'] if dp not in jobids]
@@ -256,6 +268,7 @@ def main():
             sys.exit(1)
         jobid = r.stdout.strip().split(';')[0]
         jobids[name] = jobid
+        resubmitted.add(name)
         state[name] = {'jobid': jobid, 'script': st['script']}
         state_path.parent.mkdir(exist_ok=True)
         state_path.write_text(json.dumps(state, indent=2))

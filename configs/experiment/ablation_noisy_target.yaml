@@ -51,7 +51,7 @@ train:
   phase2:
     modes: [finetune, scratch] # always both; the sim-prior contrast is a report result
     epochs: 60
-    batch: 8
+    batch: 4
     lr: 4.0e-5
     ema_decay: auto            # run-length scaled; set a number to pin
 

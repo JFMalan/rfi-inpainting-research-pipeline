@@ -50,7 +50,8 @@ train:
   phase2:
     modes: [finetune, scratch] # always both; the sim-prior contrast is a report result
     epochs: 60
-    batch: 8
+    batch: 4                   # batch 8 at 512x512 OOMs a 32GB V100 (job 232991); 4 is the
+                               # cluster-tested 512-native value (early stopping bounds runtime)
     lr: 4.0e-5
     ema_decay: auto            # run-length scaled; set a number to pin
 
