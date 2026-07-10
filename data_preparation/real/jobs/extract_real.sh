@@ -13,7 +13,7 @@ set -e
 
 MS=${MS:-/idia/projects/astro-cirg/data_for_rfi/1570802018_sdp_l0-J2018_5539-corr.ms}
 COLUMN=${COLUMN:-DATA}
-MAX_BL_FLAG=${MAX_BL_FLAG:-0.5}
+MAX_BL_FLAG=${MAX_BL_FLAG:-0.85}
 IMG_SIZE=${IMG_SIZE:-512}
 FREQ_MIN=${FREQ_MIN:-900}
 FREQ_MAX=${FREQ_MAX:-1650}

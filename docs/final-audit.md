@@ -52,7 +52,7 @@ noisy columns. Past datasets: internally consistent but flat-noise — say so in
 | Phase 1 on 10 runs, mean-fill val baseline kept | MET |
 | Val-eval step count configurable | MET — --val-eval-steps / config val_eval_steps |
 | Phase 2 both configs always | MET — orchestrator submits finetune + scratch |
-| 40k cap, >85% flagged excluded, split by baseline | MET — max_samples→--max-patches; extraction already excludes >50% flagged units (stricter than 85%); baseline-grouped splits unchanged |
+| 40k cap, >85% flagged excluded, split by baseline | MET — max_samples→--max-patches; extraction keeps units up to 85% flagged (user raised from 50%: the real data is heavily flagged); baseline-grouped splits unchanged |
 | Real recipe unchanged (noisy target) | MET — loss_phase2 untouched |
 | Real dataset re-extracted fresh | CLUSTER — extract_real stage on the J2018 corr MS (pre_flagged=true per user); needs the run |
 | Test-sample panels, full + selective | MET — panels_real_{full,selective} stages |
