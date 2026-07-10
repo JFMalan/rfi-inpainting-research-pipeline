@@ -182,14 +182,21 @@ def slurm_flags(exp, key):
     return flags
 
 
-def job_state(jobid):
+def job_info(jobid):
     try:
-        out = subprocess.run(['sacct', '-j', str(jobid), '--format=State', '--noheader',
+        out = subprocess.run(['sacct', '-j', str(jobid), '--format=State,Elapsed', '--noheader',
                               '--parsable2', '-X'], capture_output=True, text=True, timeout=30)
         lines = [l.strip() for l in out.stdout.splitlines() if l.strip()]
-        return lines[0].split(' ')[0] if lines else 'UNKNOWN'
+        if not lines:
+            return 'UNKNOWN', '-'
+        state, _, elapsed = lines[0].partition('|')
+        return state.split(' ')[0], elapsed or '-'
     except Exception:
-        return 'UNKNOWN'
+        return 'UNKNOWN', '-'
+
+
+def job_state(jobid):
+    return job_info(jobid)[0]
 
 
 def main():
