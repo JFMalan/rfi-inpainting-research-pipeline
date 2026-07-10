@@ -81,7 +81,7 @@ def stage_env(exp, tel, stage, run=None, mode=None, arena=None, variant=None):
 
     if stage == 'train_phase1':
         t = exp['train']['phase1']
-        return {
+        env = {
             'RUN_ID': 'all',
             'PHASE': 1,
             'TAG': exp['name'],
@@ -91,8 +91,14 @@ def stage_env(exp, tel, stage, run=None, mode=None, arena=None, variant=None):
             'SEED': exp['seed'],
             'VAL_EVAL_STEPS': t['val_eval_steps'],
             'VAL_EVAL_PATCHES': t['val_eval_patches'],
-            'CLEAN_TARGET': exp['extract']['clean_target'],
+            'CLEAN_TARGET': t.get('clean_target', exp['extract']['clean_target']),
         }
+        # Massoud-ladder rung knobs (absent on the production experiment)
+        for key, var in (('amp_only', 'AMP_ONLY'), ('raw_amp', 'RAW_AMP'),
+                         ('rand_mask', 'RAND_MASK'), ('loss', 'LOSS')):
+            if key in t:
+                env[var] = t[key]
+        return env
 
     if stage == 'train_phase2':
         if mode not in ('finetune', 'scratch'):

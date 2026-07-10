@@ -53,7 +53,7 @@ class PatchDataset(Dataset):
     def __init__(self, paths, pe_channels=4, augment=False, max_patches=None,
                  split='train', val_frac=0.05, test_frac=0.05, split_seed=1234,
                  amp_only=False, rand_mask=False, time_roll=False, smooth_target=False,
-                 smooth_sigma=2.0, clean_target=False):
+                 smooth_sigma=2.0, clean_target=False, raw_amp=False):
         if smooth_target and clean_target:
             raise ValueError('smooth_target and clean_target are mutually exclusive')
         if isinstance(paths, str):
@@ -108,6 +108,7 @@ class PatchDataset(Dataset):
         self.smooth_target = smooth_target
         self.smooth_sigma = smooth_sigma
         self.clean_target = clean_target
+        self.raw_amp = raw_amp
         self.pe_channels = pe_channels
         self._handles = {}
         self._pe_cache = {}
@@ -141,6 +142,14 @@ class PatchDataset(Dataset):
         if self.clean_target:
             amp_t = f['amp_target'][row].astype(np.float32)
             phase_t = f['phase_target'][row].astype(np.float32)
+
+        if self.raw_amp:
+            # undo the divisive norm (Massoud R0 rung: no div-norm in the recipe)
+            div = f['dn_divisor'][row].astype(np.float32)
+            clean = clean * div
+            corrupted = corrupted * div
+            if self.clean_target:
+                amp_t = amp_t * div
 
         if 'freq_min_patch' in f:
             fmin = float(f['freq_min_patch'][row])

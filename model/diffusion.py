@@ -12,6 +12,15 @@ def cosine_beta_schedule(T, s=0.008):
     return betas.clamp(1e-8, 0.999).float()
 
 
+def loss_err(pred, target, kind='l1'):
+    d = pred - target
+    if kind == 'l2':
+        return d.pow(2)
+    if kind == 'l1l2':
+        return d.abs() + d.pow(2)
+    return d.abs()
+
+
 class Diffusion:
     def __init__(self, T=1000, device='cpu'):
         self.T = T
@@ -57,7 +66,7 @@ class Diffusion:
         pred = model(torch.cat([x_in, cond], dim=1), t)
 
         target = noise if cfg.predict == 'noise' else x0
-        err = (pred - target).abs()
+        err = loss_err(pred, target, getattr(cfg, 'loss_kind', 'l1'))
         denom = (m.sum() * err.shape[1]).clamp(min=1.0)
         return (err * m).sum() / denom
 
@@ -81,7 +90,7 @@ class Diffusion:
         pred = model(torch.cat([x_in, cond], dim=1), t)
 
         target = noise if cfg.predict == 'noise' else obs
-        err = (pred - target).abs()
+        err = loss_err(pred, target, getattr(cfg, 'loss_kind', 'l1'))
         denom = (fake.sum() * err.shape[1]).clamp(min=1.0)
         return (err * fake).sum() / denom
 

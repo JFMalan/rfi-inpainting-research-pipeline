@@ -1,0 +1,97 @@
+# Massoud component-ladder rung R1: R1 = R0 + divisive normalisation. Same fixed run1-3
+# subset and 30-epoch budget as every other rung; see massoud_r0.yaml for the ladder.
+name: massoud_r1
+telescope: meerkat_lband
+seed: 42
+stages: [train_phase1]           # reuses the datasets simulated by the `final` experiment
+
+paths:
+  scratch: /scratch3/users/$USER/rfi
+  runs: /idia/users/$USER/rfi/runs
+  repo: /users/$USER/rfi-inpainting-research-pipeline
+
+containers:
+  pytorch:   /idia/software/containers/ASTRO-GPU-PyTorch-2026-01-28.sif
+  astro_py3: /idia/software/containers/ASTRO-PY3.10.sif
+  casa:      /idia/software/containers/casa-stable-v6.sif
+  simms:     /idia/software/containers/STIMELA_IMAGES/stimela_simms_1.2.0.sif
+  africanus: /idia/software/containers/STIMELA_IMAGES/stimela_codex-africanus_1.6.7.sif
+  oxkat: auto
+
+sim:
+  n_train_runs: 10
+  test_run: true
+  seed_base: 100
+  synthesis_h: 2.4
+  nchan: 1024
+  img_size: 512
+  noise_scale: [0.7, 1.0]
+  rfi:
+    target_flag_frac: [0.15, 0.50]
+    persist_frac: [0.3, 0.8]
+    scale: [5.0, 50.0]
+  random_sky: true
+
+extract:
+  smooth_bins: 64
+  sim_max_bl_flag_frac: 0.8
+  clean_target: true             # fields exist in the h5; the rung decides whether to train on them
+
+real:
+  ms: /idia/projects/astro-cirg/data_for_rfi/1570802018_sdp_l0-J2018_5539-corr.ms
+  field: ACT-CLJ2023.3-5535
+  column: DATA
+  max_bl_flag_frac: 0.5
+  max_sample_flag_frac: 0.85
+  max_samples: 40000
+
+train:
+  phase1:
+    epochs: 30
+    batch: 4
+    lr: 2.0e-4
+    val_eval_steps: 50
+    val_eval_patches: 64
+    data_glob: "run[1-3]"
+    clean_target: false          # noisy target (their recipe)
+    amp_only: true
+    raw_amp: false
+    rand_mask: true              # mixed masking
+    loss: l1l2
+  phase2:
+    modes: []
+    epochs: 60
+    batch: 8
+    lr: 4.0e-5
+    ema_decay: auto
+
+inference:
+  steps: 200
+  batch: 8
+  noise_floor: { continuum: none, delay: 0.5 }
+
+writeback:
+  out_col: INPAINTED_DATA
+  reset_col: true
+  feather: true
+
+eval:
+  variants: [flagged, inpaint_all]
+  imaging:
+    imsize: 2048
+    cell: 2asec
+    niter: 10000
+    weight: "briggs -0.3"
+    auto_mask: 4
+    auto_threshold: 1
+    mgain: 0.9
+  delay:
+    dpss_hw: 0.1
+    dpss_lam: 0.1
+    gpr_ell: 30.0
+    gpr_noise: 0.05
+    fg_bins: 20
+    bootstrap: 1000
+
+slurm:
+  train: { partition: GPU, gpus: 1, constraint: "A100|A40|V100", mem: 64GB, time: "36:00:00", cpus: 8 }

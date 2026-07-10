@@ -46,8 +46,12 @@ def val_eval(diff, ema_model, val_dl, cfg, out, epoch):
                            steps=cfg.val_eval_steps)
         maes.append(float(mae(pred, x0, mask)))
         psnrs.append(float(psnr(pred, x0, mask)))
-        pherrs.append(float(phase_error(pred, x0, mask)))
-        cplxs.append(float(complex_mae(pred, x0, mask)))
+        if x0.shape[1] >= 3:
+            pherrs.append(float(phase_error(pred, x0, mask)))
+            cplxs.append(float(complex_mae(pred, x0, mask)))
+        else:
+            pherrs.append(0.0)
+            cplxs.append(float(mae(pred, x0, mask)))
         nfrs.append(float(noise_floor_ratio(pred, x0, mask)))
         # mean-fill baseline: per-patch mean of known pixels, all channels
         base = x0.clone()
@@ -77,6 +81,15 @@ def main(args):
     extra = {k: v for k, v in dict(lr=args.lr, val_eval_steps=args.val_eval_steps,
                                    val_eval_patches=args.val_eval_patches).items()
              if v is not None}
+    if args.amp_only:
+        extra['amp_only'] = True
+        extra['target_channels'] = 1
+    if args.rand_mask:
+        extra['rand_mask'] = True
+    if args.raw_amp:
+        extra['raw_amp'] = True
+    if args.loss:
+        extra['loss_kind'] = args.loss
     cfg = (phase2 if args.phase == 2 else phase1)(
         data_glob=args.data, out_dir=args.out, epochs=args.epochs,
         batch_size=args.batch_size, max_patches=args.max_patches, seed=args.seed,
@@ -93,11 +106,13 @@ def main(args):
     ds = PatchDataset(cfg.data_glob, pe_channels=cfg.pe_channels,
                       augment=cfg.augment, max_patches=cfg.max_patches, split='train',
                       smooth_target=cfg.smooth_target, smooth_sigma=cfg.smooth_sigma,
-                      clean_target=cfg.clean_target)
+                      clean_target=cfg.clean_target, amp_only=cfg.amp_only,
+                      rand_mask=cfg.rand_mask, raw_amp=cfg.raw_amp)
     val_ds = PatchDataset(cfg.data_glob, pe_channels=cfg.pe_channels,
                           augment=False, split='val',
                           smooth_target=cfg.smooth_target, smooth_sigma=cfg.smooth_sigma,
-                          clean_target=cfg.clean_target)
+                          clean_target=cfg.clean_target, amp_only=cfg.amp_only,
+                          raw_amp=cfg.raw_amp)
     print(f"dataset: train {len(ds)}  val {len(val_ds)}  {ds.n_time}x{ds.n_freq}  device={device}")
     dl = DataLoader(ds, batch_size=cfg.batch_size, shuffle=True,
                     num_workers=cfg.num_workers, drop_last=True, pin_memory=True)
@@ -200,4 +215,8 @@ if __name__ == '__main__':
     ap.add_argument('--val-eval-patches', type=int, default=None)
     ap.add_argument('--smooth-target', action='store_true', dest='smooth_target')
     ap.add_argument('--clean-target', action='store_true', dest='clean_target')
+    ap.add_argument('--amp-only', action='store_true', dest='amp_only')
+    ap.add_argument('--rand-mask', action='store_true', dest='rand_mask')
+    ap.add_argument('--raw-amp', action='store_true', dest='raw_amp')
+    ap.add_argument('--loss', default=None, choices=['l1', 'l2', 'l1l2'])
     main(ap.parse_args())

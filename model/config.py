@@ -17,6 +17,9 @@ class Config:
 
     timesteps: int = 1000
     predict: str = 'x0'             # 'noise' or 'x0'; x0 validated leak-free
+    loss_kind: str = 'l1'           # 'l1' | 'l2' | 'l1l2' (l1l2 = Massoud R0 recipe)
+    amp_only: bool = False          # 1-channel amplitude (Massoud R0); drops the phase channels
+    raw_amp: bool = False           # undo the divisive norm (amp * dn_divisor) — R0 has no div-norm
     mask_weight: float = 0.6        # unused: loss() is now hole-only (Palette contract)
     hole_fill: str = 'mean'         # conditioning hole fill: 'zero'|'mean'|'noise'|'center'
 

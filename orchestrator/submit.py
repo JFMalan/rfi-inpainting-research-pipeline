@@ -41,9 +41,10 @@ def build_stages(exp, tel):
         add(f'simulate_run{r}', 'data_preparation/simulated/jobs/simulate.sh',
             stage_env(exp, tel, 'simulate', run=r), 'simulate', [])
 
+    glob_pat = exp['train']['phase1'].get('data_glob', 'run[0-9]*')
     add('train_phase1', 'model/sim/train_sim.sh',
         {**stage_env(exp, tel, 'train_phase1'),
-         'DATA': f'{scratch}/simulated/run[0-9]*/dataset.h5', 'OUT': p1_out},
+         'DATA': f'{scratch}/simulated/{glob_pat}/dataset.h5', 'OUT': p1_out},
         'train', [f'simulate_run{r}' for r in sim_runs])
 
     add('flag_real', 'data_preparation/real/jobs/flag_real.sh',
@@ -113,6 +114,15 @@ def build_stages(exp, tel):
              'KEEP_PERSIST': kp, 'OUT': f'{eval_out}/image_real_{variant}'},
             'image', [f'writeback_real_{variant}'])
 
+    wanted = exp.get('stages')
+    if wanted:
+        keep = set()
+        for st in stages:
+            if any(st['name'] == w or st['name'].startswith(w) for w in wanted):
+                keep.add(st['name'])
+        stages = [st for st in stages if st['name'] in keep]
+        for st in stages:
+            st['deps'] = [dp for dp in st['deps'] if dp in keep]
     return stages
 
 
