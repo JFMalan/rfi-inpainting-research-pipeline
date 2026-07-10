@@ -41,7 +41,7 @@ done
 # clean_h5 for SNR calibration: use the lowest-noise run (least noise bias on median |V|)
 alljobs=$(IFS=,; echo "${TRAINJOBS[*]}")
 SUM=$(env RUNS_ROOT=$RUNS SCALES="$SCALES" CLEAN_H5=$lowest OUT=$VIZ/noise_threshold.png \
-      sbatch --parsable --dependency=afterok:$alljobs evaluation/jobs/noise_threshold_summary.sh)
+      sbatch --parsable --dependency=afterok:$alljobs figures/jobs/noise_threshold_summary.sh)
 echo "=== summary: $SUM (afterok $alljobs); SNR calibrated from scale=$lowscale clean_baselines.h5 ==="
 echo ""
 echo "watch: squeue -u \$USER"

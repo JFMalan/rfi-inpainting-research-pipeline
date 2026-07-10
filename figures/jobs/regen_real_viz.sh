@@ -14,7 +14,7 @@ set -e
 
 GPU=/idia/software/containers/ASTRO-GPU-PyTorch-2026-01-28.sif
 ASTROPY=/idia/software/containers/ASTRO-PY3.10.sif
-SCRIPTS=/users/$USER/rfi-inpainting-research-pipeline/model/diagnostics
+SCRIPTS=/users/$USER/rfi-inpainting-research-pipeline/figures
 DATA=${DATA:-/scratch3/users/$USER/rfi/real/variants/v1_upsample512.h5}
 RUNS=/idia/users/$USER/rfi/runs
 # best sim-trained model (full-amp) applied to real: raw context, no smooth flag

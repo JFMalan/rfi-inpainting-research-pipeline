@@ -6,7 +6,7 @@ import numpy as np
 import torch
 import h5py
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / 'model'))
 
 from config import phase1, phase2
 from data import positional_encoding, fake_mask, build_cond, smooth_component

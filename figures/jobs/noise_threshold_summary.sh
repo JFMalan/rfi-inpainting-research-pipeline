@@ -15,6 +15,6 @@ SCALES=${SCALES:-"1.0 0.5 0.25 0.125"}
 CLEAN_H5=${CLEAN_H5:-}
 OUT=${OUT:-/idia/users/$USER/rfi/viz/noise_threshold/noise_threshold.png}
 
-singularity exec $ASTROPY python $ROOT/evaluation/plot_noise_threshold.py \
+singularity exec $ASTROPY python $ROOT/figures/plot_noise_threshold.py \
     --runs-root "$RUNS_ROOT" --scales "$SCALES" --clean-h5 "$CLEAN_H5" --out "$OUT"
 echo "done -> $OUT"

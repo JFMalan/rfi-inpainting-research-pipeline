@@ -58,7 +58,7 @@ singularity exec $ASTROPY python $SCRIPTS/data_preparation/real/extract_ms.py \
     --max-time 512
 
 echo "[4/4] $(date '+%H:%M:%S') visualising"
-singularity exec $ASTROPY python $SCRIPTS/data_preparation/real/visualisation/visualise_real.py \
+singularity exec $ASTROPY python $SCRIPTS/figures/visualise_real.py \
     --ms $SUBSET_MS \
     --output $VIS_OUT \
     --patches $PATCHES_OUT \

@@ -18,7 +18,8 @@ N=${N:-6}
 
 GPU=/idia/software/containers/ASTRO-GPU-PyTorch-2026-01-28.sif
 ASTROPY=/idia/software/containers/ASTRO-PY3.10.sif
-SCRIPTS=/users/$USER/rfi-inpainting-research-pipeline/model/diagnostics
+FIGS=/users/$USER/rfi-inpainting-research-pipeline/figures
+MODEL_SCRIPTS=/users/$USER/rfi-inpainting-research-pipeline/model/diagnostics
 OUT=/idia/users/$USER/rfi/viz
 mkdir -p $OUT logs
 
@@ -27,15 +28,15 @@ LIBNVML=$(ls /usr/lib/x86_64-linux-gnu/libnvidia-ml.so.*.* 2>/dev/null | head -1
 NVBIND="--bind $LIBCUDA:/usr/lib/x86_64-linux-gnu/libcuda.so.1 --bind $LIBNVML:/usr/lib/x86_64-linux-gnu/libnvidia-ml.so.1"
 
 echo "==== SIM inpaint ===="
-singularity exec --nv $NVBIND $GPU python $SCRIPTS/inpaint_viz.py \
+singularity exec --nv $NVBIND $GPU python $FIGS/inpaint_viz.py \
     --data $SIM_H5 --ckpt $CKPT --out $OUT/sim_inpaint.npz --n $N
 
 echo "==== REAL inpaint of ACTUAL RFI flags (same sim model) ===="
-singularity exec --nv $NVBIND $GPU python $SCRIPTS/inpaint_real.py \
+singularity exec --nv $NVBIND $GPU python $MODEL_SCRIPTS/inpaint_real.py \
     --data $REAL_H5 --ckpt $CKPT --out $OUT/real_inpaint.npz --n $N
 
 echo "==== render both ===="
-singularity exec $ASTROPY python $SCRIPTS/visualise_samples.py --input "$OUT/sim_inpaint.npz" --output $OUT --n-show $N
-singularity exec $ASTROPY python $SCRIPTS/visualise_real_inpaint.py --input "$OUT/real_inpaint.npz" --output $OUT/real_inpaint.png --n-show $N
+singularity exec $ASTROPY python $FIGS/visualise_samples.py --input "$OUT/sim_inpaint.npz" --output $OUT --n-show $N
+singularity exec $ASTROPY python $FIGS/visualise_real_inpaint.py --input "$OUT/real_inpaint.npz" --output $OUT/real_inpaint.png --n-show $N
 
 echo "done -> $OUT/sim_inpaint.png  $OUT/real_inpaint.png"

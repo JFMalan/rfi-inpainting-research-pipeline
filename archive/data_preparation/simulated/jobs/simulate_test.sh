@@ -77,7 +77,7 @@ singularity exec $ASTROPY /bin/bash -c "
 "
 
 echo "[6/6] $(date '+%H:%M:%S') validating dataset and generating visualisations"
-singularity exec $ASTROPY python $SCRIPTS/data_preparation/simulated/visualisation/visualise_simulate.py \
+singularity exec $ASTROPY python $SCRIPTS/figures/visualise_simulate.py \
     --input $DATASET \
     --output $VISDIR \
     --waterfall ${WATERFALL}.npy \

@@ -38,7 +38,7 @@ singularity exec $ASTROPY python $SCRIPTS/data_preparation/real/extract_ms.py \
     --sigma-clip   $SIGMA_CLIP \
     --max-flag-frac $MAX_FLAG_FRAC
 
-singularity exec $ASTROPY python $SCRIPTS/data_preparation/real/visualisation/visualise_real.py \
+singularity exec $ASTROPY python $SCRIPTS/figures/visualise_real.py \
     --ms       $FLAGGED_MS \
     --output   $VIS_OUT \
     --patches  $OUT_H5 \

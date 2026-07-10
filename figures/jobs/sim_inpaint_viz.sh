@@ -14,7 +14,7 @@ set -e
 
 GPU=/idia/software/containers/ASTRO-GPU-PyTorch-2026-01-28.sif
 ASTROPY=/idia/software/containers/ASTRO-PY3.10.sif
-SCRIPTS=/users/$USER/rfi-inpainting-research-pipeline/model
+SCRIPTS=/users/$USER/rfi-inpainting-research-pipeline/figures
 DATA=${DATA:-/scratch3/users/$USER/rfi/simulated/run1/dataset.h5}
 FULL=${FULL:-/idia/users/$USER/rfi/runs/phase1_all/best.pt}                # full-amplitude model
 DECOMP=${DECOMP:-/idia/users/$USER/rfi/runs/phase1_all_decompose/best.pt}  # smooth-target model
@@ -32,9 +32,9 @@ run_one () {
     local tag=$1 ckpt=$2
     [ -f "$ckpt" ] || { echo "checkpoint missing: $ckpt, skipping $tag"; return; }
     echo "=== inpaint sim [$tag]  ckpt=$ckpt (GT shown = RAW clean) ==="
-    singularity exec --nv $NVBIND $GPU python $SCRIPTS/diagnostics/inpaint_viz.py \
+    singularity exec --nv $NVBIND $GPU python $SCRIPTS/inpaint_viz.py \
         --data $DATA --ckpt $ckpt --out $OUTDIR/sim_${tag}.npz --n $N --steps $STEPS $WARG
-    singularity exec $ASTROPY python $SCRIPTS/diagnostics/visualise_samples.py \
+    singularity exec $ASTROPY python $SCRIPTS/visualise_samples.py \
         --input $OUTDIR/sim_${tag}.npz --output $OUTDIR/sim_${tag}.png --n-show $N
     echo "  -> $OUTDIR/sim_${tag}.png"
 }
