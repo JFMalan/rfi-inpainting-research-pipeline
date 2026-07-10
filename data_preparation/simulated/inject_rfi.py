@@ -8,7 +8,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'real'))
 from rfi_bands import LBAND_PERSISTENT_MHZ
-from tiling import freq_tile_starts, freq_tile_width, time_extent
+from tiling import freq_tile_starts, freq_tile_width, time_extent, time_window_starts
 
 
 RFI_SCALE_MIN = 5.0
@@ -166,9 +166,10 @@ def main(args):
 
     starts = freq_tile_starts(full_n_chan, sz)
     nc = freq_tile_width(full_n_chan, sz)
-    tlo, th = time_extent(full_n_time, sz)
+    t_starts = time_window_starts(full_n_time, sz)
+    th = min(sz, full_n_time)
     n_tiles = len(starts)
-    cap = n_cross * n_tiles
+    cap = n_cross * n_tiles * len(t_starts)
 
     controlled = args.band_width and args.band_width > 0
     if controlled:
@@ -183,8 +184,9 @@ def main(args):
         bands = persistent_bands(full_n_chan, freq_min, freq_max)
         print(f"native {full_n_time}x{full_n_chan}, {len(bands)} persistent bands, "
               f"target frac {args.target_frac}", flush=True)
-    print(f"freq tiles {n_tiles} starts={starts} width={nc}; time_lo={tlo} height={th} "
-          f"({'crop' if th == sz else 'resize'}); {n_cross} baselines -> {cap} units; "
+    print(f"freq tiles {n_tiles} starts={starts} width={nc}; time windows {len(t_starts)} "
+          f"starts={t_starts} height={th} ({'crop' if th == sz else 'resize'}); "
+          f"{n_cross} baselines -> {cap} units; "
           f"clean target: {'yes' if clean_target else 'no'}", flush=True)
 
     out_path = Path(args.output)
@@ -234,7 +236,8 @@ def main(args):
                                              args.scale_min, args.scale_max, args.persist_frac)
             fracs.append(float(mask_n.mean()))
 
-            for f0 in starts:
+            for tlo in t_starts:
+              for f0 in starts:
                 f1 = f0 + nc
                 t1 = tlo + th
                 cl = resize_hw(clean_n[tlo:t1, f0:f1], sz, sz)

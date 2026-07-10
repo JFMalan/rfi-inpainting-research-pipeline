@@ -33,6 +33,16 @@ def time_extent(n_time, size):
     return 0, n_time
 
 
+def time_window_starts(n_time, size):
+    # non-overlapping full windows; falls back to the centered single-window crop
+    # when the synthesis is too short for two
+    n = n_time // size
+    if n < 2:
+        return [time_extent(n_time, size)[0]]
+    lead = (n_time - n * size) // 2
+    return [lead + k * size for k in range(n)]
+
+
 if __name__ == '__main__':
     for N in (898, 512, 400, 1024, 1300):
         S = 512
