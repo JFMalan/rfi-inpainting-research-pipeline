@@ -11,4 +11,4 @@ model_checkpoints/
 logs/*.log
 *.pdf
 tricolour
-oxkat
+oxkatlogs/pipeline_*.json

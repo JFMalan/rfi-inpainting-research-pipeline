@@ -28,6 +28,13 @@ DPSSFILL=${DPSSFILL:-0}       # 1 = also write + image a DPSS classical gap-fill
 DPSS=${DPSS:-0}               # 1 = add the DPSS classical gap-fill baseline to the delay-space comparison
 DPSS_HW=${DPSS_HW:-0.1}       # DPSS delay half-width as fraction of Nyquist delay
 DPSS_LAM=${DPSS_LAM:-0.1}     # DPSS ridge regularisation
+GPRFILL=${GPRFILL:-0}         # 1 = also write + image the GPR classical gap-fill (constant-mean SE kernel)
+GPR_ELL=${GPR_ELL:-30.0}
+GPR_NOISE=${GPR_NOISE:-0.05}
+WEIGHT=${WEIGHT:-"briggs -0.3"}  # wsclean weighting (oxkat convention)
+AUTO_MASK=${AUTO_MASK:-4}
+AUTO_THRESHOLD=${AUTO_THRESHOLD:-1}
+MGAIN=${MGAIN:-0.9}
 KEEP_PERSIST=${KEEP_PERSIST:-0}  # 1 = selective: image the inpaint with persistent bands LEFT FLAGGED
                                  # (pair with KEEP_PERSIST=1 on the archive/inference/jobs/inpaint_ms.sh write-back)
 DELAY=${DELAY:-1}                # 0 = skip the (slow) delay-space comparison, continuum image only
@@ -46,8 +53,9 @@ echo "oxkat=$OXKAT_SIF  ms=$MS  imsize=$IMSIZE cell=$CELL"
 
 wsc () {  # name  column
     singularity exec $OXKAT wsclean -name $IMG/$1 -data-column $2 \
-        -size $IMSIZE $IMSIZE -scale $CELL -niter $NITER -mgain 0.9 \
-        -weight briggs -0.3 -auto-mask 4 -auto-threshold 1 -use-wgridder -channels-out 1 \
+        -size $IMSIZE $IMSIZE -scale $CELL -niter $NITER -mgain $MGAIN \
+        -weight $WEIGHT -auto-mask $AUTO_MASK -auto-threshold $AUTO_THRESHOLD \
+        -use-wgridder -channels-out 1 \
         -no-update-model-required "$MS"
 }
 
@@ -70,6 +78,12 @@ if [ "$DPSSFILL" = "1" ]; then
         --out-col DPSSFILL_DATA --dpss-hw $DPSS_HW --dpss-lam $DPSS_LAM $SIMARG
     wsc dpssfill DPSSFILL_DATA
 fi
+if [ "$GPRFILL" = "1" ]; then
+    echo "==== GPR classical-fill write + image ===="
+    singularity exec $ASTROPY python $ROOT/evaluation/gpr_fill_write.py --ms "$MS" --h5 "$H5" \
+        --out-col GPR_DATA --gpr-ell $GPR_ELL --gpr-noise $GPR_NOISE $SIMARG
+    wsc gprfill GPR_DATA
+fi
 if [ "$SIM" = "1" ]; then echo "==== image Clean (DATA truth) ===="; wsc clean DATA; fi
 
 # flag ALL holes, image the flag-everything (standard-practice) case, then restore
@@ -82,9 +96,10 @@ CLEAN_ARG=""; [ "$SIM" = "1" ] && CLEAN_ARG="--clean $IMG/clean-image.fits"
 INP_ARG=""; [ "$DO_INPAINT" = "1" ] && INP_ARG="--inpainted $IMG/inpainted-image.fits"
 MEANFILL_ARG=""; [ "$MEANFILL" = "1" ] && MEANFILL_ARG="--meanfill $IMG/meanfill-image.fits"
 CLASSICAL_ARG=""; [ "$DPSSFILL" = "1" ] && CLASSICAL_ARG="--classical $IMG/dpssfill-image.fits"
+GPR_ARG=""; [ "$GPRFILL" = "1" ] && GPR_ARG="--gpr $IMG/gprfill-image.fits"
 echo "==== compare (continuum image) ===="
 singularity exec $ASTROPY python $ROOT/evaluation/compare_images.py \
-    $CLEAN_ARG --flagged $IMG/flagged-image.fits $MEANFILL_ARG $CLASSICAL_ARG $INP_ARG \
+    $CLEAN_ARG --flagged $IMG/flagged-image.fits $MEANFILL_ARG $CLASSICAL_ARG $GPR_ARG $INP_ARG \
     --out $OUT/image_comparison.png --metrics-out $OUT/metrics.json
 
 DELAY_INP=""; [ "$DO_INPAINT" = "1" ] && DELAY_INP="--inp-col $INPCOL"

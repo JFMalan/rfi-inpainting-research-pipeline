@@ -33,7 +33,8 @@ if [ "$RUN_ID" = "all" ]; then
 else
     DATASET="/scratch3/users/$USER/rfi/simulated/run${RUN_ID}/dataset.h5"
 fi
-OUT=/idia/users/$USER/rfi/runs/phase${PHASE}_${RUN_ID}${TAG}
+DATASET=${DATA:-$DATASET}
+OUT=${OUT:-/idia/users/$USER/rfi/runs/phase${PHASE}_${RUN_ID}${TAG}}
 
 mkdir -p $OUT logs
 

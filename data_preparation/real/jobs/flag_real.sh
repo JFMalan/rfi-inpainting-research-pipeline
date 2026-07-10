@@ -11,12 +11,18 @@
 
 set -e
 
-SRC_MS=/idia/data/public/1525469431/1525469431_sdp_l0.ms
-WORKDIR=/scratch3/users/$USER/rfi/real
-FLAGGED_MS=$WORKDIR/1525469431_flagged.ms
+SRC_MS=${SRC_MS:-/idia/data/public/1525469431/1525469431_sdp_l0.ms}
+FIELD_NAME=${FIELD_NAME:-ACT-CLJ2023.3-5535}   # tricolour -fn, per-observation metadata
+FIELD=${FIELD:-0}
+FREQ_MIN=${FREQ_MIN:-900}
+FREQ_MAX=${FREQ_MAX:-1650}
+MAX_BL_FLAG=${MAX_BL_FLAG:-}
+SMOOTH_BINS=${SMOOTH_BINS:-}
+WORKDIR=${WORKDIR:-/scratch3/users/$USER/rfi/real}
+FLAGGED_MS=${FLAGGED_MS:-$WORKDIR/$(basename ${SRC_MS%.ms})_flagged.ms}
 SCRIPTS=/users/$USER/rfi-inpainting-research-pipeline
-PATCHES_OUT=/scratch3/users/$USER/rfi/real_patches.h5
-VIS_OUT=/scratch3/users/$USER/rfi/real_vis
+PATCHES_OUT=${PATCHES_OUT:-/scratch3/users/$USER/rfi/real_patches.h5}
+VIS_OUT=${VIS_OUT:-/scratch3/users/$USER/rfi/real_vis}
 
 mkdir -p $WORKDIR logs
 
@@ -39,27 +45,31 @@ echo "[2/4] $(date '+%H:%M:%S') running tricolour"
 singularity exec $OXKAT tricolour \
     $FLAGGED_MS \
     --config $SCRIPTS/data_preparation/real/tricolour-flagging.yaml \
-    -fn ACT-CLJ2023.3-5535 \
+    -fn $FIELD_NAME \
     -nw 32 \
     -rc 10000 \
     -bc 24 \
     -dpm
 
+EXTRACT_EXTRA=""
+if [ -n "$MAX_BL_FLAG" ]; then EXTRACT_EXTRA="$EXTRACT_EXTRA --max-bl-flag-frac $MAX_BL_FLAG"; fi
+if [ -n "$SMOOTH_BINS" ]; then EXTRACT_EXTRA="$EXTRACT_EXTRA --smooth-bins $SMOOTH_BINS"; fi
+
 echo "[3/4] $(date '+%H:%M:%S') extracting per-baseline patches"
 singularity exec $ASTROPY python $SCRIPTS/data_preparation/real/extract_ms.py \
     --ms $FLAGGED_MS \
     --output $PATCHES_OUT \
-    --freq-min 900 \
-    --freq-max 1650 \
-    --field 0
+    --freq-min $FREQ_MIN \
+    --freq-max $FREQ_MAX \
+    --field $FIELD $EXTRACT_EXTRA
 
 echo "[4/4] $(date '+%H:%M:%S') visualising flagged data"
 singularity exec $ASTROPY python $SCRIPTS/figures/visualise_real.py \
     --ms $FLAGGED_MS \
     --output $VIS_OUT \
-    --freq-min 900 \
-    --freq-max 1650 \
-    --field 0
+    --freq-min $FREQ_MIN \
+    --freq-max $FREQ_MAX \
+    --field $FIELD
 
 echo "done $(date '+%H:%M:%S')"
 echo "patches -> $PATCHES_OUT"
