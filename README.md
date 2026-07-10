@@ -247,7 +247,9 @@ All plot scripts read checkpoints/metrics/npz from disk — no hand-edited plots
   smoke/overfit   training sanity                         image/delay comparisons, panels, ...
 
 ================================================================================================
-  THE DAG AS SUBMITTED (29 stages; -> is afterok)
+  THE DAG AS SUBMITTED (29 stages; -> is afterok, except deps ON TRAINING stages which
+  are afterany: a walltime kill still leaves best.pt, so eval continues on the best-so-far
+  model; a checkpoint-less crash fails fast on the dependents' guards)
 ================================================================================================
 
  simulate_run1 ... simulate_run10 ──────────────> train_phase1 ─────────┬──> evaluate_sim

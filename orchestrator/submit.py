@@ -257,24 +257,33 @@ def main():
                 print(f'force  {name}  (job {prev["jobid"]} {s.lower()} cancelled)', flush=True)
 
         # afterok on an already-completed (possibly purged) job makes sbatch fail with
-        # "Job dependency problem" — a completed dep is satisfied, so leave it out
-        deps = []
+        # "Job dependency problem" — a completed dep is satisfied, so leave it out.
+        # Training deps use afterany: a walltime kill still leaves best.pt (checkpointed
+        # every 2 epochs), so eval continues; a crash with no checkpoint fails fast on
+        # the dependents' checkpoint-exists guards. Data stages stay afterok — a
+        # half-written dataset/MS must never cascade.
+        ok_deps, any_deps = [], []
         for dp in st['deps']:
             if dp not in jobids:
                 continue
             jid = jobids[dp]
-            if str(jid).startswith('dry_') or dp in resubmitted:
-                deps.append(jid)
-            elif cached_state(jid) != 'COMPLETED':
-                deps.append(jid)
+            if not str(jid).startswith('dry_') and dp not in resubmitted \
+                    and cached_state(jid) == 'COMPLETED':
+                continue
+            (any_deps if dp.startswith('train_') else ok_deps).append(jid)
         missing = [dp for dp in st['deps'] if dp not in jobids]
         if missing and only is None:
             print(f'ERROR: {name} depends on unsubmitted {missing}', flush=True)
             sys.exit(1)
 
         cmd = ['sbatch', '--parsable'] + slurm_flags(exp, st['slurm'])
-        if deps:
-            cmd += [f"--dependency=afterok:{':'.join(str(j) for j in deps)}"]
+        dep_parts = []
+        if ok_deps:
+            dep_parts.append('afterok:' + ':'.join(str(j) for j in ok_deps))
+        if any_deps:
+            dep_parts.append('afterany:' + ':'.join(str(j) for j in any_deps))
+        if dep_parts:
+            cmd += ['--dependency=' + ','.join(dep_parts)]
         cmd += [str(REPO / st['script'])]
 
         env = dict(os.environ)
