@@ -9,8 +9,6 @@ __pycache__/
 *.pt
 model_checkpoints/
 logs/*.log
-*.png
 *.pdf
 tricolour
 oxkat
-final.md
