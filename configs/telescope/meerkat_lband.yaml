@@ -36,7 +36,7 @@ persistent_rfi_mhz:            # oxkat / MeerKAT Cookbook short-baseline emitter
 static_mask_uvrange: "0~550"   # tricolour short-baseline static mask
 
 sky:
-  reference_freq_hz: 1.28e9
+  reference_freq_hz: 1.28e+9   # keep the e+ form: plain 1.28e9 is a *string* in YAML 1.1
   pointing: { ra_h: 4.0, dec_deg: -30.0 }
   pointing_str: "J2000,04h00m00.0s,-30d00m00s"
   flux_min_jy: 0.1

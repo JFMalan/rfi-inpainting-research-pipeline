@@ -28,7 +28,7 @@ persistent_rfi_mhz:            # Karoo site (Kohn RFI memo via Wilensky 2019)
 static_mask_uvrange: null      # no MeerKAT-style short-baseline static mask defined
 
 sky:
-  reference_freq_hz: 1.51e8    # GLEAM catalog reference
+  reference_freq_hz: 1.51e+8   # GLEAM catalog reference (e+ form: plain e8 is a string in YAML 1.1)
   pointing: null               # zenith-pointing drift-scan instrument; no fixed field
   pointing_str: null
   flux_min_jy: 0.1             # GLEAM-style foreground cutoff at 151 MHz (0.05 Jy also appears in the literature)
