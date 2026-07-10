@@ -156,6 +156,7 @@ def main(args):
 
     fin = h5py.File(args.input, 'r')
     n_cross = fin['clean'].shape[0]
+    clean_target = 'amp_target' in fin
     full_n_time = int(fin.attrs['full_n_time'])
     full_n_chan = int(fin.attrs['full_n_chan'])
     freq_min = float(fin.attrs['freq_min_mhz'])
@@ -183,7 +184,8 @@ def main(args):
         print(f"native {full_n_time}x{full_n_chan}, {len(bands)} persistent bands, "
               f"target frac {args.target_frac}", flush=True)
     print(f"freq tiles {n_tiles} starts={starts} width={nc}; time_lo={tlo} height={th} "
-          f"({'crop' if th == sz else 'resize'}); {n_cross} baselines -> {cap} units", flush=True)
+          f"({'crop' if th == sz else 'resize'}); {n_cross} baselines -> {cap} units; "
+          f"clean target: {'yes' if clean_target else 'no'}", flush=True)
 
     out_path = Path(args.output)
     out_path.parent.mkdir(parents=True, exist_ok=True)
@@ -210,12 +212,18 @@ def main(args):
         ncd_ds   = mk('native_n_chan', np.int32)
         fmn_ds   = mk('freq_min_patch', np.float32)
         fmx_ds   = mk('freq_max_patch', np.float32)
+        if clean_target:
+            ampt_ds = mk('amp_target', np.float32, sz)
+            pht_ds  = mk('phase_target', np.float32, sz)
 
         w = 0
         for u in range(n_cross):
             clean_n = fin['clean'][u]
             div_n   = fin['dn_divisor'][u]
             phase_n = fin['phase'][u]
+            if clean_target:
+                ampt_n = fin['amp_target'][u]
+                pht_n  = fin['phase_target'][u]
             bl = int(fin['baseline_id'][u])
             a1 = int(fin['ant1'][u]); a2 = int(fin['ant2'][u])
 
@@ -237,6 +245,9 @@ def main(args):
 
                 clean_ds[w] = cl; corr_ds[w] = co; div_ds[w] = dv; phase_ds[w] = ph
                 mask_ds[w] = mk_
+                if clean_target:
+                    ampt_ds[w] = resize_hw(ampt_n[tlo:t1, f0:f1], sz, sz)
+                    pht_ds[w]  = resize_phase_hw(pht_n[tlo:t1, f0:f1], sz, sz)
                 bl_ds[w] = bl; a1_ds[w] = a1; a2_ds[w] = a2
                 tlo_ds[w] = tlo; flo_ds[w] = f0
                 ntd_ds[w] = th; ncd_ds[w] = nc
@@ -255,6 +266,7 @@ def main(args):
         f.attrs['full_n_time'] = full_n_time; f.attrs['full_n_chan'] = full_n_chan
         f.attrs['chan_lo'] = chan_lo
         f.attrs['seed'] = args.seed
+        f.attrs['clean_target'] = clean_target
 
     fin.close()
     print(f"mean flag frac : {np.mean(fracs):.3f}  (target {args.target_frac})", flush=True)

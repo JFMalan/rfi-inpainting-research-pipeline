@@ -80,7 +80,7 @@ def main(args):
     cfg = (phase2 if args.phase == 2 else phase1)(
         data_glob=args.data, out_dir=args.out, epochs=args.epochs,
         batch_size=args.batch_size, max_patches=args.max_patches, seed=args.seed,
-        smooth_target=args.smooth_target, **extra,
+        smooth_target=args.smooth_target, clean_target=args.clean_target, **extra,
     )
     torch.manual_seed(cfg.seed)
     np.random.seed(cfg.seed)
@@ -92,10 +92,12 @@ def main(args):
 
     ds = PatchDataset(cfg.data_glob, pe_channels=cfg.pe_channels,
                       augment=cfg.augment, max_patches=cfg.max_patches, split='train',
-                      smooth_target=cfg.smooth_target, smooth_sigma=cfg.smooth_sigma)
+                      smooth_target=cfg.smooth_target, smooth_sigma=cfg.smooth_sigma,
+                      clean_target=cfg.clean_target)
     val_ds = PatchDataset(cfg.data_glob, pe_channels=cfg.pe_channels,
                           augment=False, split='val',
-                          smooth_target=cfg.smooth_target, smooth_sigma=cfg.smooth_sigma)
+                          smooth_target=cfg.smooth_target, smooth_sigma=cfg.smooth_sigma,
+                          clean_target=cfg.clean_target)
     print(f"dataset: train {len(ds)}  val {len(val_ds)}  {ds.n_time}x{ds.n_freq}  device={device}")
     dl = DataLoader(ds, batch_size=cfg.batch_size, shuffle=True,
                     num_workers=cfg.num_workers, drop_last=True, pin_memory=True)
@@ -197,4 +199,5 @@ if __name__ == '__main__':
     ap.add_argument('--val-eval-steps', type=int, default=None)
     ap.add_argument('--val-eval-patches', type=int, default=None)
     ap.add_argument('--smooth-target', action='store_true', dest='smooth_target')
+    ap.add_argument('--clean-target', action='store_true', dest='clean_target')
     main(ap.parse_args())

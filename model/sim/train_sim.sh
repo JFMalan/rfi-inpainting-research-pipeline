@@ -57,6 +57,7 @@ if [ -n "$LR" ]; then EXTRA="$EXTRA --lr $LR"; fi
 if [ -n "$SEED" ]; then EXTRA="$EXTRA --seed $SEED"; fi
 if [ -n "$VAL_EVAL_STEPS" ]; then EXTRA="$EXTRA --val-eval-steps $VAL_EVAL_STEPS"; fi
 if [ -n "$VAL_EVAL_PATCHES" ]; then EXTRA="$EXTRA --val-eval-patches $VAL_EVAL_PATCHES"; fi
+if [ "${CLEAN_TARGET:-0}" = "1" ]; then EXTRA="$EXTRA --clean-target"; fi
 
 singularity exec --nv $NVBIND $GPU python $SCRIPTS/train.py \
     --data "$DATASET" \

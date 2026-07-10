@@ -41,6 +41,7 @@ class Config:
     rand_mask: bool = False        # fresh random training masks (paper Method 2 / anti-memorisation)
     time_roll: bool = False        # random time-axis roll augmentation
     dropout: float = 0.0           # U-Net dropout
+    clean_target: bool = False     # noise-free target: x0 = pre-noise amp + phase (headline recipe)
     smooth_target: bool = False    # decompose-then-inpaint: predict recoverable smooth bandpass, not noisy amp
     smooth_sigma: float = 1.0      # 2D Gaussian low-pass cutoff; sigma 1.0 cleanly splits
                                    # recoverable structure (smooth ac~0.92) from white noise

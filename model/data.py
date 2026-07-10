@@ -53,7 +53,9 @@ class PatchDataset(Dataset):
     def __init__(self, paths, pe_channels=4, augment=False, max_patches=None,
                  split='train', val_frac=0.05, test_frac=0.05, split_seed=1234,
                  amp_only=False, rand_mask=False, time_roll=False, smooth_target=False,
-                 smooth_sigma=2.0):
+                 smooth_sigma=2.0, clean_target=False):
+        if smooth_target and clean_target:
+            raise ValueError('smooth_target and clean_target are mutually exclusive')
         if isinstance(paths, str):
             paths = [paths]
         self.files = []
@@ -68,6 +70,10 @@ class PatchDataset(Dataset):
                     self.band_min = float(f.attrs['freq_min_mhz'])
                     self.band_max = float(f.attrs['freq_max_mhz'])
                     bl_id = f['baseline_id'][:] if 'baseline_id' in f else np.arange(n)
+                    if clean_target and 'amp_target' not in f:
+                        raise RuntimeError(f'clean_target requested but {fp} has no '
+                                           f'amp_target/phase_target fields (re-extract '
+                                           f'with CLEAN_DATA in the MS)')
                 self.files.append(fp)
                 fidx = len(self.files) - 1
                 for i in range(n):
@@ -101,6 +107,7 @@ class PatchDataset(Dataset):
         self.time_roll = time_roll and split == 'train'
         self.smooth_target = smooth_target
         self.smooth_sigma = smooth_sigma
+        self.clean_target = clean_target
         self.pe_channels = pe_channels
         self._handles = {}
         self._pe_cache = {}
@@ -131,6 +138,9 @@ class PatchDataset(Dataset):
         corrupted = f['corrupted'][row].astype(np.float32)
         mask = f['mask'][row].astype(np.float32)
         phase = f['phase'][row].astype(np.float32)
+        if self.clean_target:
+            amp_t = f['amp_target'][row].astype(np.float32)
+            phase_t = f['phase_target'][row].astype(np.float32)
 
         if 'freq_min_patch' in f:
             fmin = float(f['freq_min_patch'][row])
@@ -144,6 +154,9 @@ class PatchDataset(Dataset):
             corrupted = corrupted[::-1].copy()
             mask = mask[::-1].copy()
             phase = phase[::-1].copy()
+            if self.clean_target:
+                amp_t = amp_t[::-1].copy()
+                phase_t = phase_t[::-1].copy()
 
         if self.time_roll:
             sh = np.random.randint(0, clean.shape[0])
@@ -151,6 +164,9 @@ class PatchDataset(Dataset):
             corrupted = np.roll(corrupted, sh, axis=0)
             mask = np.roll(mask, sh, axis=0)
             phase = np.roll(phase, sh, axis=0)
+            if self.clean_target:
+                amp_t = np.roll(amp_t, sh, axis=0)
+                phase_t = np.roll(phase_t, sh, axis=0)
 
         if self.rand_mask:
             # fresh random hole each time -> model can't memorise per-patch holes.
@@ -159,20 +175,23 @@ class PatchDataset(Dataset):
             mask = random_mask(clean.shape[0], clean.shape[1])
             corrupted = clean.copy()
 
-        # decompose-then-inpaint: target amplitude = recoverable smooth bandpass; context
-        # (corrupted) stays the noisy observation. The white-noise residual is irreducible
-        # and excluded from the loss target. Phase channels are untouched (phase IS recoverable).
-        clean_amp = smooth_component(clean, mask, self.smooth_sigma) if self.smooth_target else clean
+        # noise-free target: x0 = pre-noise amplitude AND phase (shared noisy divisor);
+        # conditioning stays the noisy observation. Legacy smooth_target keeps the
+        # decompose-era behaviour for old checkpoints; plain path targets the noisy amp.
+        if self.clean_target:
+            target_amp, target_phase = amp_t, phase_t
+        elif self.smooth_target:
+            target_amp, target_phase = smooth_component(clean, mask, self.smooth_sigma), phase
+        else:
+            target_amp, target_phase = clean, phase
 
         if self.amp_only:
-            clean_t = clean_amp[None]
+            clean_t = target_amp[None]
             corrupted_t = corrupted[None]
         else:
-            cos_p = np.cos(phase)
-            sin_p = np.sin(phase)
             # 3-channel: amplitude + cos(phase) + sin(phase).
-            clean_t = np.stack([clean_amp, cos_p, sin_p], axis=0)
-            corrupted_t = np.stack([corrupted, cos_p, sin_p], axis=0)
+            clean_t = np.stack([target_amp, np.cos(target_phase), np.sin(target_phase)], axis=0)
+            corrupted_t = np.stack([corrupted, np.cos(phase), np.sin(phase)], axis=0)
         pe = self._pe(fmin, fmax)
 
         return {

@@ -91,6 +91,7 @@ def stage_env(exp, tel, stage, run=None, mode=None, arena=None, variant=None):
             'SEED': exp['seed'],
             'VAL_EVAL_STEPS': t['val_eval_steps'],
             'VAL_EVAL_PATCHES': t['val_eval_patches'],
+            'CLEAN_TARGET': exp['extract']['clean_target'],
         }
 
     if stage == 'train_phase2':
