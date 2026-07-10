@@ -103,3 +103,8 @@ had their internal paths repointed to the new `archive/...` locations of their c
 
 Files still runnable standalone: every moved `.py`/`.sh` above keeps working from its new
 `archive/` path (checkpoints/data paths on `/scratch3` or `/idia` are unaffected by this move).
+
+### superseded by the config-driven ablations (2026-07-10, second pass)
+| Script | Replaced by | Note |
+|--------|-------------|------|
+| `model/sim/jobs/noise_free_target_test.sh` | `configs/experiment/ablation_noisy_target.yaml` via run_pipeline.sh | chained the archived retrofit pairing job (pair_dataset.sh); the clean/noisy pairing is now native to extraction (CLEAN_DATA -> amp_target/phase_target) |

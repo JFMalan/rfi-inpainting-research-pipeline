@@ -1,0 +1,95 @@
+# Ablation #2 (clean vs noisy target, the headline contrast): the production recipe
+# with the phase-1 target switched back to the noisy amplitude+phase. Reuses the
+# datasets simulated by `final`; writes into its own MS column so the two runs coexist.
+name: ablation_noisy_target
+stages: [train_phase1, infer_sim, writeback_sim, image_eval_sim]
+telescope: meerkat_lband
+seed: 42
+
+paths:
+  scratch: /scratch3/users/$USER/rfi
+  runs: /idia/users/$USER/rfi/runs
+  repo: /users/$USER/rfi-inpainting-research-pipeline
+
+containers:
+  pytorch:   /idia/software/containers/ASTRO-GPU-PyTorch-2026-01-28.sif   # NOT ASTRO-GPU.simg (no torch)
+  astro_py3: /idia/software/containers/ASTRO-PY3.10.sif
+  casa:      /idia/software/containers/casa-stable-v6.sif
+  simms:     /idia/software/containers/STIMELA_IMAGES/stimela_simms_1.2.0.sif
+  africanus: /idia/software/containers/STIMELA_IMAGES/stimela_codex-africanus_1.6.7.sif
+  oxkat: auto                  # discovered by grep at runtime
+
+sim:
+  n_train_runs: 10
+  test_run: true               # RUN_ID=test, noise pinned at 1.0x SEFD
+  seed_base: 100               # run r uses seed_base + r; test run uses seed_base
+  synthesis_h: 2.4             # >= 2 non-overlapping 512-bin time windows at 8s dumps
+  nchan: 1024
+  img_size: 512
+  noise_scale: [0.7, 1.0]      # uniform draw per training run
+  rfi:                         # diversity axes, drawn per run
+    target_flag_frac: [0.15, 0.50]
+    persist_frac: [0.3, 0.8]
+    scale: [5.0, 50.0]
+  random_sky: true
+
+extract:
+  smooth_bins: 64              # divisive-norm running mean, shared sim + real
+  sim_max_bl_flag_frac: 0.8
+  clean_target: true           # snapshot pre-noise DATA; clean amp + phase_target, noisy divisor shared
+
+real:
+  ms: /idia/projects/astro-cirg/data_for_rfi/1570802018_sdp_l0-J2018_5539-corr.ms
+  field: ACT-CLJ2023.3-5535    # tricolour -fn
+  column: DATA
+  max_bl_flag_frac: 0.5
+  max_sample_flag_frac: 0.85
+  max_samples: 40000
+
+train:
+  phase1: { epochs: 80, batch: 4, lr: 2.0e-4, val_eval_steps: 50, val_eval_patches: 64, clean_target: false }
+  phase2:
+    modes: [finetune, scratch] # always both; the sim-prior contrast is a report result
+    epochs: 60
+    batch: 8
+    lr: 4.0e-5
+    ema_decay: auto            # run-length scaled; set a number to pin
+
+inference:
+  steps: 200
+  batch: 8
+  noise_floor:                 # per-arena, applied automatically by the eval stages
+    continuum: none
+    delay: 0.5                 # 2026-07-04 sweep: posterior under-dispersed, 0.5 beats matched
+
+writeback:
+  out_col: INPAINTED_NOISY
+  reset_col: true
+  feather: true
+
+eval:
+  variants: [flagged, dpss, gpr, inpaint_all, inpaint_selective]
+  imaging:
+    imsize: 2048
+    cell: 2asec
+    niter: 10000
+    weight: "briggs -0.3"
+    auto_mask: 4
+    auto_threshold: 1
+    mgain: 0.9
+  delay:
+    dpss_hw: 0.1
+    dpss_lam: 0.1
+    gpr_ell: 30.0
+    gpr_noise: 0.05
+    fg_bins: 20
+    bootstrap: 1000
+
+slurm:
+  simulate:  { partition: Main, mem: 128GB, time: "08:00:00", cpus: 8 }
+  extract:   { partition: Main, mem: 128GB, time: "08:00:00", cpus: 8 }
+  flag:      { partition: Main, mem: 128GB, time: "10:00:00", cpus: 32 }
+  train:     { partition: GPU, gpus: 1, constraint: "A100|A40|V100", mem: 64GB, time: "144:00:00", cpus: 8 }
+  infer:     { partition: GPU, gpus: 1, constraint: "A100|A40|V100", mem: 48GB, time: "08:00:00", cpus: 8 }
+  writeback: { partition: Main, mem: 128GB, time: "04:00:00", cpus: 8 }
+  image:     { partition: Main, mem: 64GB, time: "04:00:00", cpus: 16 }
