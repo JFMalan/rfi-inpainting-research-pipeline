@@ -63,6 +63,15 @@ def build_stages(exp, tel):
              **({'INIT_FROM': f'{p1_out}/best.pt'} if mode == 'finetune' else {})},
             'train', ['flag_real'] + (['train_phase1'] if mode == 'finetune' else []))
 
+    # post-phase-2 test-sample panels: full fill and selective (persistent bands kept flagged)
+    for variant, kp in (('full', 0), ('selective', 1)):
+        add(f'panels_real_{variant}', 'model/diagnostics/jobs/compare_models_real.sh',
+            {'H5': real_h5, 'SIM_CKPT': f'{p1_out}/best.pt',
+             'FT_CKPT': f'{p2_out("finetune")}/best.pt', 'SC_CKPT': f'{p2_out("scratch")}/best.pt',
+             'KEEP_PERSIST': kp, 'NF': nf['delay'],
+             'OUT': f'{eval_out}/panels_real_{variant}.png'},
+            'infer', ['train_phase1', 'train_phase2_finetune', 'train_phase2_scratch'])
+
     add('eval_delay', 'evaluation/jobs/fakehole_delay.sh',
         {'H5': real_h5, 'CKPT': f'{p2_out("finetune")}/best.pt',
          'OUT': f'{eval_out}/fakehole_delay.npz',
