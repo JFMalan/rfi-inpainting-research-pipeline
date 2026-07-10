@@ -3,7 +3,7 @@
 One generator per report figure, regenerated from checkpoints/metrics on disk. Every script
 prints flushed progress (paths found, row/tile counts) so a SLURM log shows it's alive.
 
-| Report figure (final.md spec) | Generator | Required inputs | Pipeline stage that produces the inputs |
+| Report figure (docs/final-audit.md spec) | Generator | Required inputs | Pipeline stage that produces the inputs |
 |---|---|---|---|
 | Dataset examples per run (input / RFI mask / clean target), simulated | `figures/visualise_simulate.py --input --output` | `dataset.h5` for one sim run | `data_preparation/simulated/extract_patches_sim.py` (via `inject_rfi.py` + `add_noise.py`) |
 | Dataset examples, real MeerKAT | `figures/visualise_real.py --ms --output` | raw/flagged MS | tricolour flagging stage on the target MS (`data_preparation/real/tricolour-flagging.yaml`) |
