@@ -60,9 +60,11 @@ train:
     data_glob: "run[1-3]"
     clean_target: false          # noisy target (their recipe)
     amp_only: true
-    raw_amp: true                # no divisive norm
+    raw_amp: true                # no divisive norm; the paper states NO input normalization,
+                                 # so R0 trains on raw amplitudes (literal to the recipe)
     rand_mask: true              # mixed masking
-    loss: l1l2
+    loss: l2                     # paper's formula is two squared-error terms (the variable
+                                 # named l1 in their Alg.1 is a squared norm) - NOT L1+L2
   phase2:
     modes: []
     epochs: 60

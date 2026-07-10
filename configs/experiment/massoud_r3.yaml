@@ -57,7 +57,8 @@ train:
     amp_only: false
     raw_amp: false
     rand_mask: true              # mixed masking
-    loss: l1l2
+    loss: l2                     # paper's formula is two squared-error terms (the variable
+                                 # named l1 in their Alg.1 is a squared norm) - NOT L1+L2
   phase2:
     modes: []
     epochs: 60
