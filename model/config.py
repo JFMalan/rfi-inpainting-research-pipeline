@@ -47,6 +47,7 @@ class Config:
                                    # (grain ac~0.01) on real MeerKAT data (sigma sweep 2026-06-21)
 
     val_eval_patches: int = 64
+    val_eval_steps: int = 200  # sampling steps inside val_eval; 200 costs hours per run
     early_stop: bool = True
     patience: int = 8          # consecutive evals with no real complex-MAE gain before stopping
     min_delta: float = 0.002   # complex-MAE units; smaller gains count as no improvement

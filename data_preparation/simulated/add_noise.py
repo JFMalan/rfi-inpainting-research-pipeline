@@ -7,6 +7,8 @@ if not pos:
 ms_path = pos[0]
 noise_seed = int(pos[1]) if len(pos) > 1 else 0
 noise_scale = float(pos[2]) if len(pos) > 2 else 1.0   # 0 = noise-free; 1 = physical MeerKAT SEFD; 2 = 2x, etc.
+sefd_spec = pos[3] if len(pos) > 3 else ''             # "mhz:jy mhz:jy ..." from the telescope config
+dump_t = float(pos[4]) if len(pos) > 4 else 8.0
 
 tb.open(ms_path + '/SPECTRAL_WINDOW')
 chan_freqs = tb.getcol('CHAN_FREQ')[0]   # Hz, shape (nchan,)
@@ -15,14 +17,20 @@ tb.close()
 
 # MeerKAT L-band SEFD profile (Jy) — piecewise linear over freq (MHz)
 # Values from MeerKAT array release paper (Mauch et al. 2020) and
-# commissioning sensitivity measurements.
+# commissioning sensitivity measurements. Overridable via argv[4] with the
+# telescope-config profile so the dump time and SEFD have one source of truth.
 _SEFD_NODES_MHZ = np.array([856,  900,  950, 1000, 1100, 1280, 1400, 1450, 1550, 1600, 1650, 1712])
 _SEFD_NODES_JY  = np.array([560,  510,  450,  420,  390,  390,  400,  420,  450,  470,  500,  560])
+if sefd_spec:
+    pairs = [p.split(':') for p in sefd_spec.split()]
+    _SEFD_NODES_MHZ = np.array([float(m) for m, _ in pairs])
+    _SEFD_NODES_JY = np.array([float(j) for _, j in pairs])
+    print(f"SEFD profile from config: {len(pairs)} nodes  dump_t={dump_t}s", flush=True)
 
 freq_mhz = chan_freqs / 1e6
 sefd_per_chan = np.interp(freq_mhz, _SEFD_NODES_MHZ, _SEFD_NODES_JY)  # (nchan,)
 
-delta_t = 8.0
+delta_t = dump_t
 sigma_per_chan = noise_scale * sefd_per_chan / np.sqrt(2.0 * delta_nu * delta_t)  # (nchan,)
 print(f"noise_scale={noise_scale}  (0=noise-free, 1=physical MeerKAT)", flush=True)
 

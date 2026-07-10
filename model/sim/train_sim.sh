@@ -19,13 +19,17 @@ BATCH=${BATCH:-4}
 MAX_PATCHES=${MAX_PATCHES:-}
 PHASE=${PHASE:-1}
 TAG=${TAG:-}            # e.g. _tiled80ep -> OUT phase1_all_tiled80ep (don't overwrite the old phase1_all)
+LR=${LR:-}
+SEED=${SEED:-}
+VAL_EVAL_STEPS=${VAL_EVAL_STEPS:-}
+VAL_EVAL_PATCHES=${VAL_EVAL_PATCHES:-}
 
 GPU=/idia/software/containers/ASTRO-GPU-PyTorch-2026-01-28.sif
 SCRIPTS=/users/$USER/rfi-inpainting-research-pipeline/model
-# RUN_ID=all -> train on run[1-9]/dataset.h5 (the diverse multi-run set, excludes
-# runtest and other non-numbered dirs); else one run
+# RUN_ID=all -> train on run[0-9]*/dataset.h5 (the diverse multi-run set: run1..run10+,
+# excludes runtest and other non-numbered dirs); else one run
 if [ "$RUN_ID" = "all" ]; then
-    DATASET="/scratch3/users/$USER/rfi/simulated/run[1-9]/dataset.h5"
+    DATASET="/scratch3/users/$USER/rfi/simulated/run[0-9]*/dataset.h5"
 else
     DATASET="/scratch3/users/$USER/rfi/simulated/run${RUN_ID}/dataset.h5"
 fi
@@ -49,6 +53,10 @@ singularity exec --nv $NVBIND $GPU python -c "import torch; assert torch.cuda.is
 
 EXTRA=""
 if [ -n "$MAX_PATCHES" ]; then EXTRA="--max-patches $MAX_PATCHES"; fi
+if [ -n "$LR" ]; then EXTRA="$EXTRA --lr $LR"; fi
+if [ -n "$SEED" ]; then EXTRA="$EXTRA --seed $SEED"; fi
+if [ -n "$VAL_EVAL_STEPS" ]; then EXTRA="$EXTRA --val-eval-steps $VAL_EVAL_STEPS"; fi
+if [ -n "$VAL_EVAL_PATCHES" ]; then EXTRA="$EXTRA --val-eval-patches $VAL_EVAL_PATCHES"; fi
 
 singularity exec --nv $NVBIND $GPU python $SCRIPTS/train.py \
     --data "$DATASET" \

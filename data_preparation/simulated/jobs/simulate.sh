@@ -21,6 +21,22 @@ NOISE_SCALE=${NOISE_SCALE:-1.0}   # 0 = noise-free; 1 = physical MeerKAT SEFD; 2
 DIR=${DIR:-"J2000,04h00m00.0s,-30d00m00s"}
 IMG_SIZE=${IMG_SIZE:-512}
 TARGET_FRAC=${TARGET_FRAC:-0.37}
+PERSIST_FRAC=${PERSIST_FRAC:-}    # inject_rfi --persist-frac (script default when empty)
+RFI_SCALE_MIN=${RFI_SCALE_MIN:-}
+RFI_SCALE_MAX=${RFI_SCALE_MAX:-}
+SMOOTH_BINS=${SMOOTH_BINS:-}      # extract --smooth-bins (script default when empty)
+MAX_BL_FLAG=${MAX_BL_FLAG:-}
+
+# instrument parameters, sourced from configs/telescope/*.yaml via the orchestrator;
+# defaults here are the validated MeerKAT L-band values
+TEL_MODEL=${TEL_MODEL:-meerkat}
+POLS=${POLS:-"XX YY"}
+DUMP_T=${DUMP_T:-8}
+F0_MHZ=${F0_MHZ:-880}
+BW_MHZ=${BW_MHZ:-856.0}
+FREQ_MIN=${FREQ_MIN:-900}
+FREQ_MAX=${FREQ_MAX:-1650}
+SEFD_NODES=${SEFD_NODES:-}        # "mhz:jy mhz:jy ..." for add_noise (built-in profile when empty)
 
 SIMMS=/idia/software/containers/STIMELA_IMAGES/stimela_simms_1.2.0.sif
 AFRICANUS=/idia/software/containers/STIMELA_IMAGES/stimela_codex-africanus_1.6.7.sif
@@ -44,27 +60,27 @@ FLUX_MIN=${FLUX_MIN:-0.1}
 FLUX_MAX=${FLUX_MAX:-5.0}
 if [ "${GEN_RANDOM_SKY:-0}" = "1" ]; then
     SKY_MODEL=sky_random_${RUN_ID}.txt
-    echo "[0/6] $(date '+%H:%M:%S') generating random sky (seed $RUN_ID, flux ${FLUX_MIN}-${FLUX_MAX} Jy) -> $SKY_MODEL"
+    echo "[0/6] $(date '+%H:%M:%S') generating random sky (seed $SEED, flux ${FLUX_MIN}-${FLUX_MAX} Jy) -> $SKY_MODEL"
     singularity exec $ASTROPY python $SCRIPTS/data_preparation/simulated/make_random_sky.py \
-        --output $SCRIPTS/data_preparation/simulated/$SKY_MODEL --seed $RUN_ID \
+        --output $SCRIPTS/data_preparation/simulated/$SKY_MODEL --seed $SEED \
         --flux-min $FLUX_MIN --flux-max $FLUX_MAX
 fi
 
 echo "RUN_ID=$RUN_ID  SYNTHESIS=${SYNTHESIS}h  NCHAN=$NCHAN  SKY_MODEL=$SKY_MODEL  SEED=$SEED"
 
-# compute channel width to keep 856 MHz total bandwidth
-DFREQ=$(python3 -c "print(f'{856.0/$NCHAN:.4f}MHz')")
+# compute channel width to keep the configured total bandwidth
+DFREQ=$(python3 -c "print(f'{$BW_MHZ/$NCHAN:.4f}MHz')")
 
-echo "[1/6] $(date '+%H:%M:%S') creating empty MeerKAT MS (simms)"
+echo "[1/6] $(date '+%H:%M:%S') creating empty $TEL_MODEL MS (simms)"
 singularity exec $SIMMS simms \
-    -T meerkat \
+    -T $TEL_MODEL \
     -dir "$DIR" \
-    -dt 8 \
+    -dt $DUMP_T \
     -st $SYNTHESIS \
-    -f0 880MHz \
+    -f0 ${F0_MHZ}MHz \
     -df $DFREQ \
     -nc $NCHAN \
-    -pl "XX YY" \
+    -pl "$POLS" \
     -n $SIM_MS
 
 echo "[2/6] $(date '+%H:%M:%S') predicting sky model (crystalball)"
@@ -78,20 +94,30 @@ singularity exec $AFRICANUS crystalball \
 
 echo "[3/6] $(date '+%H:%M:%S') adding thermal noise (CASA sm.corrupt)"
 singularity exec $CASA casa --nologger --log2term \
-    -c $SCRIPTS/data_preparation/simulated/add_noise.py $SIM_MS $SEED $NOISE_SCALE
+    -c $SCRIPTS/data_preparation/simulated/add_noise.py $SIM_MS $SEED $NOISE_SCALE \
+    ${SEFD_NODES:+"$SEFD_NODES"} ${SEFD_NODES:+$DUMP_T}
+
+EXTRACT_EXTRA=""
+if [ -n "$SMOOTH_BINS" ]; then EXTRACT_EXTRA="$EXTRACT_EXTRA --smooth-bins $SMOOTH_BINS"; fi
+if [ -n "$MAX_BL_FLAG" ]; then EXTRACT_EXTRA="$EXTRACT_EXTRA --max-bl-flag-frac $MAX_BL_FLAG"; fi
 
 echo "[4/6] $(date '+%H:%M:%S') extracting native per-baseline waterfalls"
 singularity exec $ASTROPY python $SCRIPTS/data_preparation/simulated/extract_patches_sim.py \
     --ms $SIM_MS \
     --output $CLEAN_H5 \
     --waterfall-out $WATERFALL \
-    --freq-min 900 --freq-max 1650
+    --freq-min $FREQ_MIN --freq-max $FREQ_MAX $EXTRACT_EXTRA
+
+INJECT_EXTRA=""
+if [ -n "$PERSIST_FRAC" ]; then INJECT_EXTRA="$INJECT_EXTRA --persist-frac $PERSIST_FRAC"; fi
+if [ -n "$RFI_SCALE_MIN" ]; then INJECT_EXTRA="$INJECT_EXTRA --scale-min $RFI_SCALE_MIN"; fi
+if [ -n "$RFI_SCALE_MAX" ]; then INJECT_EXTRA="$INJECT_EXTRA --scale-max $RFI_SCALE_MAX"; fi
 
 echo "[5/6] $(date '+%H:%M:%S') injecting synthetic RFI on the native band and tiling to ${IMG_SIZE}x${IMG_SIZE}"
 singularity exec $ASTROPY /bin/bash -c "
     source $VENV/bin/activate &&
     python $SCRIPTS/data_preparation/simulated/inject_rfi.py \
-        --input $CLEAN_H5 --output $DATASET --img-size $IMG_SIZE --seed $SEED --target-frac $TARGET_FRAC
+        --input $CLEAN_H5 --output $DATASET --img-size $IMG_SIZE --seed $SEED --target-frac $TARGET_FRAC $INJECT_EXTRA
 "
 
 echo "[6/6] $(date '+%H:%M:%S') validating dataset and generating visualisations"

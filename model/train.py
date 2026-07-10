@@ -42,7 +42,8 @@ def val_eval(diff, ema_model, val_dl, cfg, out, epoch):
         mask = batch['mask'].to(diff.device)
         cond = build_cond(batch['corrupted'].to(diff.device), mask, batch['pe'].to(diff.device),
                           hole_fill=getattr(cfg, 'hole_fill', 'mean'))
-        pred = diff.sample(ema_model, cond, x0, mask, predict=cfg.predict, eta=0.0, steps=200)
+        pred = diff.sample(ema_model, cond, x0, mask, predict=cfg.predict, eta=0.0,
+                           steps=cfg.val_eval_steps)
         maes.append(float(mae(pred, x0, mask)))
         psnrs.append(float(psnr(pred, x0, mask)))
         pherrs.append(float(phase_error(pred, x0, mask)))
@@ -73,10 +74,13 @@ def val_eval(diff, ema_model, val_dl, cfg, out, epoch):
 
 
 def main(args):
+    extra = {k: v for k, v in dict(lr=args.lr, val_eval_steps=args.val_eval_steps,
+                                   val_eval_patches=args.val_eval_patches).items()
+             if v is not None}
     cfg = (phase2 if args.phase == 2 else phase1)(
         data_glob=args.data, out_dir=args.out, epochs=args.epochs,
         batch_size=args.batch_size, max_patches=args.max_patches, seed=args.seed,
-        smooth_target=args.smooth_target,
+        smooth_target=args.smooth_target, **extra,
     )
     torch.manual_seed(cfg.seed)
     np.random.seed(cfg.seed)
@@ -189,5 +193,8 @@ if __name__ == '__main__':
     ap.add_argument('--max-patches', type=int, default=None)
     ap.add_argument('--resume', default=None)
     ap.add_argument('--seed', type=int, default=0)
+    ap.add_argument('--lr', type=float, default=None)
+    ap.add_argument('--val-eval-steps', type=int, default=None)
+    ap.add_argument('--val-eval-patches', type=int, default=None)
     ap.add_argument('--smooth-target', action='store_true', dest='smooth_target')
     main(ap.parse_args())
