@@ -100,6 +100,13 @@ def build_stages(exp, tel):
              'NOISE_FLOORS': nf['delay'], 'DPSS_HW': d['dpss_hw'], 'GPR_ELL': d['gpr_ell']},
             'infer', [f'train_phase2_{mode}'])
 
+    # PSNR/MSE/complex-MAE on the held-out test run; metrics.json feeds the ladder chart
+    add('evaluate_sim', 'evaluation/jobs/eval.sh',
+        {'DATA': f'{sim_dir("test")}/dataset.h5', 'CKPT': f'{p1_out}/best.pt',
+         'OUT': f'{eval_out}/eval_test', 'SPLIT': 'all', 'MAX_EVAL': 512,
+         'BATCH': 16, 'STEPS': 50},
+        'infer', ['train_phase1', 'simulate_runtest'])
+
     # sim continuum arena: smooth fill (noise_floor none), test run, phase-1 model
     add('infer_sim', 'inference/jobs/inpaint_infer.sh',
         {'SIM': 1, 'H5': f'{sim_dir("test")}/dataset.h5', 'CKPT': f'{p1_out}/best.pt',

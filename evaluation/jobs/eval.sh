@@ -15,16 +15,17 @@ RUN_ID=${RUN_ID:-1}
 PHASE=${PHASE:-1}
 SPLIT=${SPLIT:-test}
 BATCH=${BATCH:-16}
+STEPS=${STEPS:-50}
 MAX_EVAL=${MAX_EVAL:-}
 WEIGHTS=${WEIGHTS:-best.pt}
 
 GPU=/idia/software/containers/ASTRO-GPU-PyTorch-2026-01-28.sif
 ROOT=/users/$USER/rfi-inpainting-research-pipeline
-DATASET=/scratch3/users/$USER/rfi/simulated/run${RUN_ID}/dataset.h5
+DATASET=${DATA:-/scratch3/users/$USER/rfi/simulated/run${RUN_ID}/dataset.h5}
 RUNDIR=/idia/users/$USER/rfi/runs/phase${PHASE}_run${RUN_ID}
-CKPT=$RUNDIR/$WEIGHTS
+CKPT=${CKPT:-$RUNDIR/$WEIGHTS}
 if [ ! -f "$CKPT" ]; then CKPT=$RUNDIR/ckpt.pt; fi
-OUT=/idia/users/$USER/rfi/runs/phase${PHASE}_run${RUN_ID}/eval_${SPLIT}
+OUT=${OUT:-/idia/users/$USER/rfi/runs/phase${PHASE}_run${RUN_ID}/eval_${SPLIT}}
 
 mkdir -p $OUT logs
 
@@ -46,6 +47,7 @@ singularity exec --nv $NVBIND $GPU python $ROOT/evaluation/evaluate.py \
     --out $OUT \
     --split $SPLIT \
     --batch-size $BATCH \
+    --steps $STEPS \
     $EXTRA
 
 echo "done"

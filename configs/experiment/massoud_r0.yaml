@@ -8,7 +8,8 @@
 name: massoud_r0
 telescope: meerkat_lband
 seed: 42
-stages: [train_phase1]           # reuses the datasets simulated by the `final` experiment
+stages: [train_phase1, evaluate_sim]   # expects run1-3 + runtest datasets from the
+                                 # `final` experiment (submit rungs after it)
 
 paths:
   scratch: /scratch3/users/$USER/rfi

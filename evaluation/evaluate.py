@@ -18,9 +18,21 @@ from metrics import mae, psnr, phase_error, complex_mae
 
 def main(args):
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
-    cfg = phase1()
+    ck = torch.load(args.ckpt, map_location=device)
+    # rebuild the exact training config from the checkpoint so rung variants
+    # (amp_only / raw_amp / clean_target / smooth_target) evaluate consistently
+    cfg = phase1(**ck['cfg']) if 'cfg' in ck else phase1()
+    print(f"ckpt cfg: target_channels={cfg.target_channels} amp_only={cfg.amp_only} "
+          f"raw_amp={cfg.raw_amp} clean_target={cfg.clean_target} "
+          f"smooth_target={cfg.smooth_target}", flush=True)
 
-    ds = PatchDataset(args.data, pe_channels=cfg.pe_channels, augment=False, split=args.split)
+    # split 'all' evaluates every sample (for a fully held-out test run/file)
+    split = 'train' if args.split == 'all' else args.split
+    fracs = dict(val_frac=0.0, test_frac=0.0) if args.split == 'all' else {}
+    ds = PatchDataset(args.data, pe_channels=cfg.pe_channels, augment=False, split=split,
+                      amp_only=cfg.amp_only, raw_amp=cfg.raw_amp,
+                      clean_target=cfg.clean_target, smooth_target=cfg.smooth_target,
+                      smooth_sigma=cfg.smooth_sigma, **fracs)
     print(f"{args.split} set: {len(ds)} patches  device={device}")
     if args.max_eval:
         ds.index = ds.index[:args.max_eval]
@@ -29,7 +41,6 @@ def main(args):
 
     model = UNet(cfg.in_channels, out_ch=cfg.target_channels, base=cfg.base, ch_mult=cfg.ch_mult,
                  attn_res=cfg.attn_res, num_res=cfg.num_res, img_size=cfg.img_size).to(device)
-    ck = torch.load(args.ckpt, map_location=device)
     model.load_state_dict(ck['ema'] if args.ema else ck['model'])
     model.eval()
     diff = Diffusion(T=cfg.timesteps, device=device)
@@ -43,11 +54,16 @@ def main(args):
         mask = batch['mask'].to(device)
         cond = build_cond(batch['corrupted'].to(device), mask, batch['pe'].to(device),
                           hole_fill=getattr(cfg, 'hole_fill', 'mean'))
-        pred = diff.sample(model, cond, x0, mask, predict=cfg.predict, eta=0.0)
+        pred = diff.sample(model, cond, x0, mask, predict=cfg.predict, eta=0.0,
+                           steps=args.steps)
         maes.append(float(mae(pred, x0, mask)))
         psnrs.append(float(psnr(pred, x0, mask)))
-        pherrs.append(float(phase_error(pred, x0, mask)))
-        cplxs.append(float(complex_mae(pred, x0, mask)))
+        if x0.shape[1] >= 3:
+            pherrs.append(float(phase_error(pred, x0, mask)))
+            cplxs.append(float(complex_mae(pred, x0, mask)))
+        else:
+            pherrs.append(0.0)
+            cplxs.append(float(mae(pred, x0, mask)))
         if saved < args.save_batches:
             np.savez(out / f'eval_b{bi}.npz', clean=x0.cpu().numpy(),
                      corrupted=batch['corrupted'].numpy(), mask=batch['mask'].numpy(),
@@ -72,8 +88,9 @@ if __name__ == '__main__':
     ap.add_argument('--data', required=True)
     ap.add_argument('--ckpt', required=True)
     ap.add_argument('--out', required=True)
-    ap.add_argument('--split', default='test')
+    ap.add_argument('--split', default='test', choices=['train', 'val', 'test', 'all'])
     ap.add_argument('--batch-size', type=int, default=16)
+    ap.add_argument('--steps', type=int, default=50)
     ap.add_argument('--max-eval', type=int, default=None)
     ap.add_argument('--save-batches', type=int, default=4)
     ap.add_argument('--ema', action='store_true', default=True)
