@@ -210,6 +210,13 @@ def main():
 
     jobids = {}
     resubmitted = set()
+    state_cache = {}
+
+    def cached_state(jobid):
+        if jobid not in state_cache:
+            state_cache[jobid] = job_state(jobid)
+        return state_cache[jobid]
+
     for st in stages:
         name = st['name']
         if only is not None and name not in only:
@@ -242,7 +249,17 @@ def main():
                 subprocess.run(['scancel', str(prev['jobid'])], capture_output=True)
                 print(f'force  {name}  (job {prev["jobid"]} {s.lower()} cancelled)', flush=True)
 
-        deps = [jobids[dp] for dp in st['deps'] if dp in jobids]
+        # afterok on an already-completed (possibly purged) job makes sbatch fail with
+        # "Job dependency problem" — a completed dep is satisfied, so leave it out
+        deps = []
+        for dp in st['deps']:
+            if dp not in jobids:
+                continue
+            jid = jobids[dp]
+            if str(jid).startswith('dry_') or dp in resubmitted:
+                deps.append(jid)
+            elif cached_state(jid) != 'COMPLETED':
+                deps.append(jid)
         missing = [dp for dp in st['deps'] if dp not in jobids]
         if missing and only is None:
             print(f'ERROR: {name} depends on unsubmitted {missing}', flush=True)
