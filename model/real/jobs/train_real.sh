@@ -41,9 +41,14 @@ echo "node $(hostname)  binding $LIBCUDA  $LIBNVML"
 singularity exec --nv $NVBIND $GPU python -c "import torch; assert torch.cuda.is_available(), 'no CUDA in container'; print('torch', torch.__version__, 'cuda', torch.version.cuda, torch.cuda.get_device_name(0))"
 
 EXTRA=""
+# auto-resume after a walltime kill; RESUME=0 forces a fresh run
+if [ "${RESUME:-1}" = "1" ] && [ -f "$OUT/ckpt.pt" ]; then
+    echo "resuming from $OUT/ckpt.pt"
+    EXTRA="--resume $OUT/ckpt.pt"
+fi
 if [ "$MODE" = "finetune" ]; then
     if [ ! -f "$INIT_FROM" ]; then echo "sim checkpoint not found: $INIT_FROM"; exit 1; fi
-    EXTRA="--init-from $INIT_FROM"
+    EXTRA="$EXTRA --init-from $INIT_FROM"
 fi
 if [ -n "$LR" ]; then EXTRA="$EXTRA --lr $LR"; fi
 if [ -n "$SEED" ]; then EXTRA="$EXTRA --seed $SEED"; fi

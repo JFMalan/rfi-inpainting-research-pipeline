@@ -89,7 +89,7 @@ slurm:
   simulate:  { partition: Main, mem: 128GB, time: "08:00:00", cpus: 8 }
   extract:   { partition: Main, mem: 128GB, time: "08:00:00", cpus: 8 }
   flag:      { partition: Main, mem: 128GB, time: "10:00:00", cpus: 32 }
-  train:     { partition: GPU, gpus: 1, constraint: "A100|A40|V100", mem: 64GB, time: "144:00:00", cpus: 8 }
+  train:     { partition: GPU, gpus: 1, constraint: "A100|A40|V100", mem: 64GB, time: "288:00:00", cpus: 8 }
   infer:     { partition: GPU, gpus: 1, constraint: "A100|A40|V100", mem: 48GB, time: "08:00:00", cpus: 8 }
   writeback: { partition: Main, mem: 128GB, time: "04:00:00", cpus: 8 }
   image:     { partition: Main, mem: 64GB, time: "04:00:00", cpus: 16 }

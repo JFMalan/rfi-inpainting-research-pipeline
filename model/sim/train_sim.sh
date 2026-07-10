@@ -54,6 +54,12 @@ singularity exec --nv $NVBIND $GPU python -c "import torch; assert torch.cuda.is
 
 EXTRA=""
 if [ -n "$MAX_PATCHES" ]; then EXTRA="--max-patches $MAX_PATCHES"; fi
+# auto-resume: a resubmit after a walltime kill continues from the last ckpt
+# instead of restarting; RESUME=0 forces a fresh run
+if [ "${RESUME:-1}" = "1" ] && [ -f "$OUT/ckpt.pt" ]; then
+    echo "resuming from $OUT/ckpt.pt"
+    EXTRA="$EXTRA --resume $OUT/ckpt.pt"
+fi
 if [ -n "$LR" ]; then EXTRA="$EXTRA --lr $LR"; fi
 if [ -n "$SEED" ]; then EXTRA="$EXTRA --seed $SEED"; fi
 if [ -n "$VAL_EVAL_STEPS" ]; then EXTRA="$EXTRA --val-eval-steps $VAL_EVAL_STEPS"; fi
