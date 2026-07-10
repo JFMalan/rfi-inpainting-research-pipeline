@@ -113,11 +113,14 @@ running mean, shared by clean targets; val-eval steps configurable; scratch rege
 
 ## Open items (explicit)
 
-1. Cluster verification round 2: clean-target smoke sim run, repr_diag + oracle level-0
-   on the new h5, full-pipeline --dry-run on ilifu, then the production submission.
-2. Massoud R4 rung and ablations #3/#5 have kept machinery but no one-command experiment
-   config; run stage-by-stage or add configs when scheduling them.
+1. ~~Cluster verification round 2~~ DONE 2026-07-10: dry-run (28 stages), clean-target
+   smoke run (shaped sigma 0.107-0.153, CLEAN_DATA through to the dataset, validation
+   PASSED), repr_diag zero-error, oracle level-0 row map verified. Production submission
+   is the remaining execution step.
+2. Massoud rungs score via the evaluate_sim stage (metrics.json -> ladder chart); R4 and
+   ablations #3/#5 are documented as exact queue commands in configs/experiment/README.md
+   rather than one-command configs.
 3. Massoud loss faithfulness: rungs use plain L2 in our hole-only Palette loss; the
-   paper's α-weighted known-region term is not replicated (documented deviation — their
-   mixed-masking is captured by rand_mask, which is the component that matters).
+   paper's alpha-weighted known-region term is not replicated (documented deviation —
+   their mixed-masking is captured by rand_mask, which is the component that matters).
 4. Report must note the pre-2026-07-10 flat-noise characteristics of any old-figure data.
