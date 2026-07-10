@@ -15,11 +15,14 @@ MS=${MS:-/idia/projects/astro-cirg/data_for_rfi/1570802018_sdp_l0-J2018_5539-cor
 COLUMN=${COLUMN:-DATA}
 MAX_BL_FLAG=${MAX_BL_FLAG:-0.5}
 IMG_SIZE=${IMG_SIZE:-512}
+FREQ_MIN=${FREQ_MIN:-900}
+FREQ_MAX=${FREQ_MAX:-1650}
+SMOOTH_BINS=${SMOOTH_BINS:-}
 
 ASTROPY=/idia/software/containers/ASTRO-PY3.10.sif
 SCRIPTS=/users/$USER/rfi-inpainting-research-pipeline
-OUTDIR=/scratch3/users/$USER/rfi/real
-OUT_H5=$OUTDIR/dataset.h5
+OUTDIR=${OUTDIR:-/scratch3/users/$USER/rfi/real}
+OUT_H5=${OUT_H5:-$OUTDIR/dataset.h5}
 
 mkdir -p $OUTDIR logs
 

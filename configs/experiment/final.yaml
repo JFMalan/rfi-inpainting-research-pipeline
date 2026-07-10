@@ -38,7 +38,8 @@ extract:
 
 real:
   ms: /idia/projects/astro-cirg/data_for_rfi/1570802018_sdp_l0-J2018_5539-corr.ms
-  field: ACT-CLJ2023.3-5535    # tricolour -fn
+  pre_flagged: true            # corr MS carries usable flags; skip tricolour, extract directly
+  field: ACT-CLJ2023.3-5535    # tricolour -fn, only used when pre_flagged is false
   column: DATA
   max_bl_flag_frac: 0.5
   max_sample_flag_frac: 0.85

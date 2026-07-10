@@ -24,7 +24,13 @@ def build_stages(exp, tel):
     sim_dir = lambda r: f'{scratch}/simulated/run{r}'
     real_h5 = f'{scratch}/real/dataset.h5'
     real_ms = expand(exp['real']['ms']) if 'real' in exp else None
-    flagged_ms = (f"{scratch}/real/{Path(real_ms).stem}_flagged.ms" if real_ms else None)
+    pre_flagged = exp['real'].get('pre_flagged', False)
+    # write-back needs a writable MS on scratch: the tricolour path creates one while
+    # flagging; the pre-flagged path copies the source (read-only /idia) verbatim
+    if pre_flagged:
+        writable_ms = f'{scratch}/real/{Path(real_ms).stem}.ms' if real_ms else None
+    else:
+        writable_ms = f'{scratch}/real/{Path(real_ms).stem}_flagged.ms' if real_ms else None
     nf = exp['inference']['noise_floor']
     d = exp['eval']['delay']
     im = exp['eval']['imaging']
@@ -47,21 +53,36 @@ def build_stages(exp, tel):
          'DATA': f'{scratch}/simulated/{glob_pat}/dataset.h5', 'OUT': p1_out},
         'train', [f'simulate_run{r}' for r in sim_runs])
 
-    add('flag_real', 'data_preparation/real/jobs/flag_real.sh',
-        {'SRC_MS': real_ms, 'FIELD_NAME': exp['real']['field'],
-         'FREQ_MIN': tel['band']['extract_min_mhz'], 'FREQ_MAX': tel['band']['extract_max_mhz'],
-         'MAX_BL_FLAG': exp['real']['max_bl_flag_frac'],
-         'SMOOTH_BINS': exp['extract']['smooth_bins'],
-         'WORKDIR': f'{scratch}/real', 'FLAGGED_MS': flagged_ms,
-         'PATCHES_OUT': real_h5, 'VIS_OUT': f'{scratch}/real/vis'},
-        'flag', [])
+    if pre_flagged:
+        real_stage = 'extract_real'
+        add('extract_real', 'data_preparation/real/jobs/extract_real.sh',
+            {'MS': real_ms, 'COLUMN': exp['real']['column'],
+             'MAX_BL_FLAG': exp['real']['max_bl_flag_frac'],
+             'FREQ_MIN': tel['band']['extract_min_mhz'], 'FREQ_MAX': tel['band']['extract_max_mhz'],
+             'SMOOTH_BINS': exp['extract']['smooth_bins'], 'IMG_SIZE': exp['sim']['img_size'],
+             'OUTDIR': f'{scratch}/real', 'OUT_H5': real_h5},
+            'extract', [])
+        add('copy_real_ms', 'data_preparation/real/jobs/copy_ms.sh',
+            {'SRC_MS': real_ms, 'DST_MS': writable_ms}, 'copy', [])
+        wb_extra_deps = ['copy_real_ms']
+    else:
+        real_stage = 'flag_real'
+        add('flag_real', 'data_preparation/real/jobs/flag_real.sh',
+            {'SRC_MS': real_ms, 'FIELD_NAME': exp['real']['field'],
+             'FREQ_MIN': tel['band']['extract_min_mhz'], 'FREQ_MAX': tel['band']['extract_max_mhz'],
+             'MAX_BL_FLAG': exp['real']['max_bl_flag_frac'],
+             'SMOOTH_BINS': exp['extract']['smooth_bins'],
+             'WORKDIR': f'{scratch}/real', 'FLAGGED_MS': writable_ms,
+             'PATCHES_OUT': real_h5, 'VIS_OUT': f'{scratch}/real/vis'},
+            'flag', [])
+        wb_extra_deps = []
 
     for mode in exp['train']['phase2']['modes']:
         add(f'train_phase2_{mode}', 'model/real/jobs/train_real.sh',
             {**stage_env(exp, tel, 'train_phase2', mode=mode),
              'DATA': real_h5, 'OUT': p2_out(mode),
              **({'INIT_FROM': f'{p1_out}/best.pt'} if mode == 'finetune' else {})},
-            'train', ['flag_real'] + (['train_phase1'] if mode == 'finetune' else []))
+            'train', [real_stage] + (['train_phase1'] if mode == 'finetune' else []))
 
     # post-phase-2 test-sample panels: full fill and selective (persistent bands kept flagged)
     for variant, kp in (('full', 0), ('selective', 1)):
@@ -72,11 +93,12 @@ def build_stages(exp, tel):
              'OUT': f'{eval_out}/panels_real_{variant}.png'},
             'infer', ['train_phase1', 'train_phase2_finetune', 'train_phase2_scratch'])
 
-    add('eval_delay', 'evaluation/jobs/fakehole_delay.sh',
-        {'H5': real_h5, 'CKPT': f'{p2_out("finetune")}/best.pt',
-         'OUT': f'{eval_out}/fakehole_delay.npz',
-         'NOISE_FLOORS': nf['delay'], 'DPSS_HW': d['dpss_hw'], 'GPR_ELL': d['gpr_ell']},
-        'infer', ['train_phase2_finetune'])
+    for mode in exp['train']['phase2']['modes']:
+        add(f'eval_delay_{mode}', 'evaluation/jobs/fakehole_delay.sh',
+            {'H5': real_h5, 'CKPT': f'{p2_out(mode)}/best.pt',
+             'OUT': f'{eval_out}/fakehole_delay_{mode}.npz',
+             'NOISE_FLOORS': nf['delay'], 'DPSS_HW': d['dpss_hw'], 'GPR_ELL': d['gpr_ell']},
+            'infer', [f'train_phase2_{mode}'])
 
     # sim continuum arena: smooth fill (noise_floor none), test run, phase-1 model
     add('infer_sim', 'inference/jobs/inpaint_infer.sh',
@@ -111,13 +133,13 @@ def build_stages(exp, tel):
         'infer', ['train_phase2_finetune'])
     for variant, col, kp in (('all', 'INPAINTED_DATA', 0), ('selective', 'INPAINTED_SEL', 1)):
         add(f'writeback_real_{variant}', 'inference/jobs/inpaint_writeback.sh',
-            {'SIM': 0, 'MS': flagged_ms, 'H5': real_h5,
+            {'SIM': 0, 'MS': writable_ms, 'H5': real_h5,
              'PREDS': f'{scratch}/preds_{name}_real.npz', 'OUTCOL': col,
              'RESET_COL': 1, 'KEEP_PERSIST': kp,
              'NO_FEATHER': not exp['writeback']['feather']},
-            'writeback', ['infer_real'])
+            'writeback', ['infer_real'] + wb_extra_deps)
         add(f'image_eval_real_{variant}', 'evaluation/image_eval.sh',
-            {'SIM': 0, 'MS': flagged_ms, 'H5': real_h5, 'INPCOL': col,
+            {'SIM': 0, 'MS': writable_ms, 'H5': real_h5, 'INPCOL': col,
              'IMSIZE': im['imsize'], 'CELL': im['cell'], 'NITER': im['niter'],
              'MEANFILL': 1, 'DPSSFILL': 1, 'GPRFILL': 1, 'DPSS': 1, 'DELAY': 1,
              'KEEP_PERSIST': kp, 'OUT': f'{eval_out}/image_real_{variant}'},
