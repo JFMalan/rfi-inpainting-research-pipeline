@@ -18,7 +18,7 @@ BS=${BS:-12}
 
 GPU=/idia/software/containers/ASTRO-GPU-PyTorch-2026-01-28.sif
 ROOT=/users/$USER/rfi-inpainting-research-pipeline
-SCRIPTS=$ROOT/model/diagnostics
+SCRIPTS=$ROOT/tests
 DATASET=/scratch3/users/$USER/rfi/simulated/run${RUN_ID}/dataset.h5
 
 mkdir -p logs

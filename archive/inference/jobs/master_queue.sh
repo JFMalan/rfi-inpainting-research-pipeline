@@ -17,7 +17,7 @@ VIZ=/idia/users/$USER/rfi/viz
 
 echo "=== GROUP A: write-back oracle gate (sim run${RUN_ID}) — validates the write-back mechanics ==="
 echo "[A1] level-0 native passthrough (true DATA at holes; ORACLE0 vs clean == write-back mechanics OK?)"
-A1=$(env SIM=1 MS=$SIM_MS H5=$SIM_H5 sbatch --parsable inference/jobs/oracle_level0.sh)
+A1=$(env SIM=1 MS=$SIM_MS H5=$SIM_H5 sbatch --parsable tests/jobs/oracle_level0.sh)
 echo "  -> $A1"
 echo "[A2] phase-fix oracle (cos/sin-resize; isolates the phase-angle-resize suspect). afterok A1 (same MS)"
 A2=$(env SIM=1 MS=$SIM_MS H5=$SIM_H5 sbatch --parsable --dependency=afterok:$A1 archive/inference/jobs/oracle_phasefix.sh)

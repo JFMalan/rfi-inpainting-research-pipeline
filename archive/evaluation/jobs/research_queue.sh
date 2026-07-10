@@ -43,7 +43,7 @@ echo "  -> $(H5=$NOFORCE_DIR/v6_native512.h5 CKPT=$FT OUT=$VIZ/fd_band_location.
 echo ""
 echo "IMAGING GATE (point 1/F) -- separate, only needed before any imaging claim; runs on SIM data."
 echo "Fill in your sim clean MS + sim h5 and run:"
-echo "  SIM=1 MS=<sim_clean.ms> H5=<sim dataset.h5> sbatch inference/jobs/oracle_level0.sh"
+echo "  SIM=1 MS=<sim_clean.ms> H5=<sim dataset.h5> sbatch tests/jobs/oracle_level0.sh"
 echo "  # if ORACLE0==clean, then: SIM=1 MS=<sim_clean.ms> H5=<sim dataset.h5> sbatch archive/inference/jobs/oracle_phasefix.sh"
 
 echo ""

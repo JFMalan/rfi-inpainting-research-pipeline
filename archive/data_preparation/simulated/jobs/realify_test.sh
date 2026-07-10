@@ -14,7 +14,7 @@ set -e
 ASTROPY=/idia/software/containers/ASTRO-PY3.10.sif
 GPU=/idia/software/containers/ASTRO-GPU-PyTorch-2026-01-28.sif
 SCRIPTS=/users/$USER/rfi-inpainting-research-pipeline
-DIAG=$SCRIPTS/model/diagnostics
+DIAG=$SCRIPTS/tests
 SIM=/scratch3/users/$USER/rfi/simulated
 REAL=/scratch3/users/$USER/rfi/real/variants/v1_upsample512.h5
 WORK=/scratch3/users/$USER/rfi/realify_test

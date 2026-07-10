@@ -28,7 +28,7 @@ SIMARG=""; [ "$SIM" = "1" ] && SIMARG="--sim"
 MU=""; [ -n "$MAX_UNITS" ] && MU="--max-units $MAX_UNITS"
 
 echo "STAGE 1 (oracle write, ASTRO-PY3.10) node $(hostname)  ms=$MS h5=$H5 -> $OUTCOL"
-singularity exec $ASTROPY python $ROOT/inference/oracle_level0.py \
+singularity exec $ASTROPY python $ROOT/tests/oracle_level0.py \
     --ms "$MS" --h5 "$H5" --out-col "$OUTCOL" $SIMARG $MU
 
 echo "STAGE 2 (image clean/flagged/$OUTCOL + compare)"
