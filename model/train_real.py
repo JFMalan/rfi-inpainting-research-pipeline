@@ -143,7 +143,9 @@ def main(args):
         start_epoch = ck['epoch'] + 1
         print(f"resumed from epoch {start_epoch}", flush=True)
 
-    best_cplx = 1e9
+    # restore the historical best so a resumed run can never regress best.pt
+    best_cplx = ck['best_cplx'] if args.resume and Path(args.resume).exists() \
+        and 'best_cplx' in ck else 1e9
     stale = 0
     log = []
     total_iters = 0

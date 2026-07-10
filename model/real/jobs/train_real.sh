@@ -44,7 +44,19 @@ EXTRA=""
 # auto-resume after a walltime kill; RESUME=0 forces a fresh run
 if [ "${RESUME:-1}" = "1" ] && [ -f "$OUT/ckpt.pt" ]; then
     echo "resuming from $OUT/ckpt.pt"
+    RESUMING=1
     EXTRA="--resume $OUT/ckpt.pt"
+fi
+if [ -z "$RESUMING" ] && [ -f "$OUT/best.pt" ]; then
+    if [ "${FRESH_OK:-0}" = "1" ]; then
+        mv "$OUT/best.pt" "$OUT/best_prev.pt"
+        echo "fresh start: existing best.pt backed up to best_prev.pt"
+    else
+        echo "REFUSING fresh start: $OUT/best.pt exists and no ckpt.pt to resume from."
+        echo "A fresh run would overwrite it at the first eval. Set FRESH_OK=1 to back it"
+        echo "up to best_prev.pt and proceed, or point OUT at a new directory."
+        exit 1
+    fi
 fi
 if [ "$MODE" = "finetune" ]; then
     if [ ! -f "$INIT_FROM" ]; then echo "sim checkpoint not found: $INIT_FROM"; exit 1; fi
