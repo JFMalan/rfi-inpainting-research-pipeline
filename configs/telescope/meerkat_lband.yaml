@@ -1,0 +1,46 @@
+# MeerKAT L-band — the validated instrument instance.
+name: meerkat_lband
+ingest: ms
+
+simms_model: meerkat
+polarizations: "XX YY"
+dump_time_s: 8.0
+
+band:
+  sim_f0_mhz: 880.0            # simms -f0
+  sim_bandwidth_mhz: 856.0     # channel width = bandwidth / nchan
+  extract_min_mhz: 900.0       # analysis band, all extraction stages
+  extract_max_mhz: 1650.0
+
+sefd:                          # Mauch et al. 2020 + commissioning
+  nodes_mhz: [856, 900, 950, 1000, 1100, 1280, 1400, 1450, 1550, 1600, 1650, 1712]
+  nodes_jy:  [560, 510, 450, 420, 390, 390, 400, 420, 450, 470, 500, 560]
+
+persistent_rfi_mhz:            # oxkat / MeerKAT Cookbook short-baseline emitter list
+  - [900, 915]
+  - [925, 960]
+  - [1080, 1095]
+  - [1166, 1186]
+  - [1191, 1217]
+  - [1217, 1237]
+  - [1242, 1249]
+  - [1260, 1300]
+  - [1375, 1387]
+  - [1453, 1490]
+  - [1526, 1554]
+  - [1565, 1585]
+  - [1592, 1610]
+  - [1616, 1626]
+  - [1599, 1601]
+
+static_mask_uvrange: "0~550"   # tricolour short-baseline static mask
+
+sky:
+  reference_freq_hz: 1.28e9
+  pointing: { ra_h: 4.0, dec_deg: -30.0 }
+  pointing_str: "J2000,04h00m00.0s,-30d00m00s"
+  flux_min_jy: 0.1
+  flux_max_jy: 5.0
+  n_src: [20, 30]
+  spectral_index: [-0.9, -0.5]
+  scatter: { ra_h: 0.15, dec_deg: 1.0 }
