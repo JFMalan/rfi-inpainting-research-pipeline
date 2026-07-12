@@ -310,7 +310,7 @@ def main():
         state[name] = {'jobid': jobid, 'script': st['script']}
         state_path.parent.mkdir(exist_ok=True)
         state_path.write_text(json.dumps(state, indent=2))
-        dep_str = f"  after {','.join(st['deps'])}" if st['deps'] else ''
+        dep_str = f"  {','.join(dep_parts)}" if dep_parts else '  (no live deps)'
         print(f'submit {name}  job {jobid}{dep_str}', flush=True)
 
     if not args.dry_run:
