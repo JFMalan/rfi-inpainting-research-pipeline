@@ -43,7 +43,8 @@ def main():
             elapsed = '-'
             dep = job_dependency(jobid)
             waits = [stage_of.get(j, j) for j in re.findall(r'\d+', dep)]
-            s = f"(P) <- {','.join(waits)}" if waits else '(P)'
+            if waits:
+                s = ','.join(waits)[:24]
         logs = glob.glob(str(REPO / 'logs' / f'*-{jobid}-stdout.log'))
         log = logs[0] if logs else '-'
         print(f'{name:<28} {jobid:<10} {s:<24} {elapsed:<12} {log}')
