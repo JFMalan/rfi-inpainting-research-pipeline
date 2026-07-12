@@ -34,9 +34,13 @@ def main(args):
                       clean_target=cfg.clean_target, smooth_target=cfg.smooth_target,
                       smooth_sigma=cfg.smooth_sigma, **fracs)
     print(f"{args.split} set: {len(ds)} patches  device={device}")
-    if args.max_eval:
-        ds.index = ds.index[:args.max_eval]
-        print(f"evaluating on first {len(ds)}")
+    if args.max_eval and args.max_eval < len(ds.index):
+        # seeded random subset — the first-N units are all low baseline ids, which biases
+        # the metrics (baselines differ systematically in recoverable structure)
+        rng = np.random.default_rng(0)
+        sel = sorted(int(i) for i in rng.choice(len(ds.index), size=args.max_eval, replace=False))
+        ds.index = [ds.index[i] for i in sel]
+        print(f"evaluating on a seeded random subset of {len(ds)}")
     dl = DataLoader(ds, batch_size=args.batch_size, shuffle=False, num_workers=4, pin_memory=True)
 
     model = UNet(cfg.in_channels, out_ch=cfg.target_channels, base=cfg.base, ch_mult=cfg.ch_mult,
