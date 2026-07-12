@@ -35,18 +35,25 @@ def main():
     state = json.loads(state_path.read_text())
     stage_of = {str(rec.get('jobid')): name for name, rec in state.items()}
 
-    print(f"{'stage':<28} {'jobid':<10} {'state':<24} {'elapsed':<12} log")
+    rows = []
     for name, rec in state.items():
         jobid = rec.get('jobid', '?')
         s, elapsed = job_info(jobid)
+        blocked = False
         if s == 'PENDING':
             elapsed = '-'
             dep = job_dependency(jobid)
             waits = [stage_of.get(j, j) for j in re.findall(r'\d+', dep)]
             if waits:
                 s = ','.join(waits)[:24]
+                blocked = True
         logs = glob.glob(str(REPO / 'logs' / f'*-{jobid}-stdout.log'))
         log = str(Path(logs[0]).relative_to(REPO)) if logs else '-'
+        rows.append((blocked, s, int(jobid) if str(jobid).isdigit() else 0,
+                     name, jobid, elapsed, log))
+
+    print(f"{'stage':<28} {'jobid':<10} {'state':<24} {'elapsed':<12} log")
+    for blocked, s, _, name, jobid, elapsed, log in sorted(rows):
         print(f'{name:<28} {jobid:<10} {s:<24} {elapsed:<12} {log}')
 
 
