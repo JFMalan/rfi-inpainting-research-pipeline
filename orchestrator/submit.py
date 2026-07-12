@@ -256,21 +256,26 @@ def main():
                 subprocess.run(['scancel', str(prev['jobid'])], capture_output=True)
                 print(f'force  {name}  (job {prev["jobid"]} {s.lower()} cancelled)', flush=True)
 
-        # afterok on an already-completed (possibly purged) job makes sbatch fail with
-        # "Job dependency problem" — a completed dep is satisfied, so leave it out.
+        # Dependencies on already-terminated (possibly purged) jobs make sbatch fail with
+        # "Job dependency problem" — a satisfied dep is left out of the string instead.
         # Training deps use afterany: a walltime kill still leaves best.pt (checkpointed
         # every 2 epochs), so eval continues; a crash with no checkpoint fails fast on
-        # the dependents' checkpoint-exists guards. Data stages stay afterok — a
-        # half-written dataset/MS must never cascade.
+        # the dependents' checkpoint-exists guards. Any terminal state satisfies afterany,
+        # so terminal training deps are dropped. Data stages stay afterok — a half-written
+        # dataset/MS must never cascade — and only COMPLETED satisfies afterok.
+        terminal = ('COMPLETED', 'CANCELLED', 'FAILED', 'TIMEOUT', 'OUT_OF_MEMORY',
+                    'NODE_FAIL', 'PREEMPTED', 'DEADLINE')
         ok_deps, any_deps = [], []
         for dp in st['deps']:
             if dp not in jobids:
                 continue
             jid = jobids[dp]
-            if not str(jid).startswith('dry_') and dp not in resubmitted \
-                    and cached_state(jid) == 'COMPLETED':
-                continue
-            (any_deps if dp.startswith('train_') else ok_deps).append(jid)
+            train_dep = dp.startswith('train_')
+            if not str(jid).startswith('dry_') and dp not in resubmitted:
+                s_dep = cached_state(jid)
+                if (train_dep and s_dep in terminal) or (not train_dep and s_dep == 'COMPLETED'):
+                    continue
+            (any_deps if train_dep else ok_deps).append(jid)
         missing = [dp for dp in st['deps'] if dp not in jobids]
         if missing and only is None:
             print(f'ERROR: {name} depends on unsubmitted {missing}', flush=True)
