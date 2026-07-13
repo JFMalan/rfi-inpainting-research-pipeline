@@ -97,7 +97,7 @@ def build_stages(exp, tel):
         add(f'panels_real_{variant}', 'model/diagnostics/jobs/compare_models_real.sh',
             {'H5': real_h5, 'SIM_CKPT': f'{p1_out}/best.pt',
              'FT_CKPT': f'{p2_out("finetune")}/best.pt', 'SC_CKPT': f'{p2_out("scratch")}/best.pt',
-             'KEEP_PERSIST': kp, 'NF': nf['delay'],
+             'KEEP_PERSIST': kp, 'NF': f"{nf['delay']},auto",   # metric fill + matched-grain fill per tile
              'OUT': f'{eval_out}/panels_real_{variant}.png'},
             'infer', ['train_phase1', 'train_phase2_finetune', 'train_phase2_scratch'])
 

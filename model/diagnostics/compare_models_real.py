@@ -1,4 +1,5 @@
 import argparse
+import re
 import sys
 import time
 from pathlib import Path
@@ -74,7 +75,12 @@ def main(args):
     for lb, p in zip(labels, paths):
         models.append(load_model(p, cfg, dev))
         log(f"loaded {lb} <- {p}")
-    nf = None if args.noise_floor in ('none', 'None') else float(args.noise_floor)
+    def parse_nf(tok):
+        if tok in ('none', 'None'):
+            return None
+        return tok if tok == 'auto' else float(tok)
+
+    nfs = [parse_nf(t) for t in re.split(r'[,\s]+', str(args.noise_floor).strip()) if t]
 
     rows = []
     for k, u in enumerate(test):
@@ -92,15 +98,18 @@ def main(args):
         m = torch.from_numpy(flags[None, None]).to(dev)
         pe_b = torch.from_numpy(pe[None].copy()).to(dev)
         cond = build_cond(x0, m, pe_b, hole_fill=getattr(cfg, 'hole_fill', 'mean'))
-        fills = []
-        with torch.no_grad():
-            for model in models:
-                pr = diff.sample(model, cond, x0, m, predict=cfg.predict, eta=0.0,
-                                 steps=args.steps, noise_floor=nf).cpu().numpy()[0]
-                fills.append(np.where(fill_mask, pr[0], data))
         kept = (flags > 0.5) & persist if args.keep_persist else np.zeros_like(flags, bool)
-        rows.append((int(u), data, fill_mask, kept, fmin, fmax, fills))
-        log(f"  tile {k + 1}/{len(test)} (unit {int(u)}, flag={flags.mean():.2f})")
+        with torch.no_grad():
+            for nf in nfs:
+                fills = []
+                for model in models:
+                    pr = diff.sample(model, cond, x0, m, predict=cfg.predict, eta=0.0,
+                                     steps=args.steps, noise_floor=nf).cpu().numpy()[0]
+                    fills.append(np.where(fill_mask, pr[0], data))
+                rows.append((int(u), data, fill_mask, kept, fmin, fmax, fills,
+                             'none' if nf is None else nf))
+        log(f"  tile {k + 1}/{len(test)} (unit {int(u)}, flag={flags.mean():.2f}, "
+            f"{len(nfs)} noise floors)")
     hf.close()
 
     ncols = 2 + len(models)
@@ -110,7 +119,7 @@ def main(args):
         axes = axes[None, :]
     mask_title = "RFI mask (green=fill, red=kept flagged)" if args.keep_persist else "RFI mask"
     titles = ["observed amp (RFI)", mask_title] + [f"{lb} fill" for lb in labels]
-    for r, (u, data, fill_mask, kept, fmin, fmax, fills) in enumerate(rows):
+    for r, (u, data, fill_mask, kept, fmin, fmax, fills, nf_lb) in enumerate(rows):
         allflag = fill_mask | kept
         trust = ~allflag
         src = data[trust] if trust.any() else data
@@ -124,7 +133,7 @@ def main(args):
         for j, fl in enumerate(fills):
             axes[r, 2 + j].imshow(fl.T, aspect='auto', origin='lower', extent=ext,
                                   vmin=vmin, vmax=vmax, cmap='plasma')
-        axes[r, 0].set_ylabel(f"unit {u}\nFreq (MHz)\nflag={allflag.mean():.2f}\n"
+        axes[r, 0].set_ylabel(f"unit {u}  nf={nf_lb}\nFreq (MHz)\nflag={allflag.mean():.2f}\n"
                               f"scale[{vmin:.2f},{vmax:.2f}]", fontsize=7)
         if r == 0:
             for j, t in enumerate(titles):
