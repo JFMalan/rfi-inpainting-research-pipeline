@@ -241,6 +241,12 @@ def main():
             continue
 
         prev = state.get(name, {})
+        # a pinned stage was ended deliberately (e.g. train_phase1 stopped at its best
+        # epoch); leave its jobid alone so full invocations never resubmit it
+        if prev.get('pinned') and name not in force:
+            print(f'pinned {name}  (job {prev["jobid"]} left as-is)', flush=True)
+            jobids[name] = prev['jobid']
+            continue
         dep_redone = any(dp in resubmitted for dp in st['deps'])
         if prev.get('jobid') and name not in force:
             s = job_state(prev['jobid'])
