@@ -45,7 +45,7 @@ def val_eval(diff, ema_model, val_dl, cfg, out, epoch):
                           hole_fill=getattr(cfg, 'hole_fill', 'mean'))
         # sample with both holes hidden; recover the fill, score only on fake holes
         pred = diff.sample(ema_model, cond, obs, hidden, predict=cfg.predict,
-                           eta=0.0, steps=200)
+                           eta=0.0, steps=cfg.val_eval_steps)
         tres.append(float(tre(pred, obs, fake, flags=real_flags)))
         fid_maes.append(float(mae(pred, obs, fake)))
         cplxs.append(float(complex_mae(pred, obs, fake)))
@@ -80,6 +80,7 @@ def main(args):
     if args.lr: cfg.lr = args.lr
     if args.sample_every: cfg.sample_every = args.sample_every
     if args.val_eval_patches: cfg.val_eval_patches = args.val_eval_patches
+    if args.val_eval_steps: cfg.val_eval_steps = args.val_eval_steps
     if args.min_epochs is not None: cfg.min_epochs = args.min_epochs
     if args.min_delta is not None: cfg.min_delta = args.min_delta
     if args.patience: cfg.patience = args.patience
@@ -227,6 +228,7 @@ if __name__ == '__main__':
     ap.add_argument('--lr', type=float, default=None)
     ap.add_argument('--sample-every', type=int, default=None)
     ap.add_argument('--val-eval-patches', type=int, default=None)
+    ap.add_argument('--val-eval-steps', type=int, default=None)
     ap.add_argument('--min-epochs', type=int, default=None)
     ap.add_argument('--min-delta', type=float, default=None)
     ap.add_argument('--patience', type=int, default=None)

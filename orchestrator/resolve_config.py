@@ -108,11 +108,15 @@ def stage_env(exp, tel, stage, run=None, mode=None, arena=None, variant=None):
             'MODE': mode,
             'EPOCHS': t['epochs'],
             'BATCH': t['batch'],
-            'LR': t['lr'],
+            'LR': t['lr'][mode] if isinstance(t['lr'], dict) else t['lr'],
             'MAX_PATCHES': exp['real']['max_samples'],
             'MAX_FLAG_FRAC': exp['real']['max_sample_flag_frac'],
             'SEED': exp['seed'],
         }
+        for key, var in (('fake_mask_mode', 'FAKE_MASK_MODE'),
+                         ('val_eval_steps', 'VAL_EVAL_STEPS')):
+            if key in t:
+                env[var] = t[key]
         if mode == 'finetune':
             env['INIT_FROM'] = f'{p1_out}/best.pt'
         if t['ema_decay'] != 'auto':

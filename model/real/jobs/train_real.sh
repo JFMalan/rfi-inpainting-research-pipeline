@@ -24,6 +24,8 @@ SEED=${SEED:-}
 MAX_PATCHES=${MAX_PATCHES:-}
 EMA_DECAY=${EMA_DECAY:-}
 VAL_EVAL_PATCHES=${VAL_EVAL_PATCHES:-}
+VAL_EVAL_STEPS=${VAL_EVAL_STEPS:-}
+FAKE_MASK_MODE=${FAKE_MASK_MODE:-}
 
 GPU=/idia/software/containers/ASTRO-GPU-PyTorch-2026-01-28.sif
 SCRIPTS=/users/$USER/rfi-inpainting-research-pipeline/model
@@ -67,6 +69,8 @@ if [ -n "$SEED" ]; then EXTRA="$EXTRA --seed $SEED"; fi
 if [ -n "$MAX_PATCHES" ]; then EXTRA="$EXTRA --max-patches $MAX_PATCHES"; fi
 if [ -n "$EMA_DECAY" ]; then EXTRA="$EXTRA --ema-decay $EMA_DECAY"; fi
 if [ -n "$VAL_EVAL_PATCHES" ]; then EXTRA="$EXTRA --val-eval-patches $VAL_EVAL_PATCHES"; fi
+if [ -n "$VAL_EVAL_STEPS" ]; then EXTRA="$EXTRA --val-eval-steps $VAL_EVAL_STEPS"; fi
+if [ -n "$FAKE_MASK_MODE" ]; then EXTRA="$EXTRA --fake-mask-mode $FAKE_MASK_MODE"; fi
 
 echo "MODE=$MODE  DATA=$DATA  OUT=$OUT  EPOCHS=$EPOCHS  BATCH=$BATCH  EXTRA=$EXTRA"
 
