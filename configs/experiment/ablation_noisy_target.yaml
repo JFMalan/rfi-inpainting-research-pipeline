@@ -92,4 +92,4 @@ slurm:
   train:     { partition: GPU, gpus: 1, constraint: "A100|A40|V100", mem: 64GB, time: "288:00:00", cpus: 8 }
   infer:     { partition: GPU, gpus: 1, constraint: "A100|A40|V100", mem: 48GB, time: "48:00:00", cpus: 8 }
   writeback: { partition: Main, mem: 128GB, time: "04:00:00", cpus: 8 }
-  image:     { partition: Main, mem: 64GB, time: "04:00:00", cpus: 16 }
+  image:     { partition: Main, mem: 64GB, time: "24:00:00", cpus: 16 }  # GPR fill-write alone runs hours at native resolution
