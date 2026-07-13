@@ -39,6 +39,8 @@ extract:
 real:
   ms: /idia/projects/astro-cirg/data_for_rfi/1570802018_sdp_l0-J2018_5539-corr.ms
   pre_flagged: true            # corr MS carries usable flags; skip tricolour, extract directly
+  native_tiles: true           # v6_native512 tiling (the validated recipe) — extract_ms's whole-band
+                               # 897->512 resize low-passes the band and hands DPSS a near-perfect fit
   field: ACT-CLJ2023.3-5535    # tricolour -fn, only used when pre_flagged is false
   column: DATA
   max_bl_flag_frac: 0.85          # real data is heavily flagged; keep units up to 85%

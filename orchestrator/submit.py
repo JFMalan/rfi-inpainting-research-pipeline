@@ -22,7 +22,8 @@ def build_stages(exp, tel):
     p2_out = lambda m: f'{runs_root}/{name}_phase2_{m}'
     eval_out = f'{runs_root}/{name}_eval'
     sim_dir = lambda r: f'{scratch}/simulated/run{r}'
-    real_h5 = f'{scratch}/real/dataset.h5'
+    native = exp['real'].get('native_tiles', True) if 'real' in exp else True
+    real_h5 = f'{scratch}/real/v6_native512.h5' if native else f'{scratch}/real/dataset.h5'
     real_ms = expand(exp['real']['ms']) if 'real' in exp else None
     pre_flagged = exp['real'].get('pre_flagged', False)
     # write-back needs a writable MS on scratch: the tricolour path creates one while
@@ -55,13 +56,20 @@ def build_stages(exp, tel):
 
     if pre_flagged:
         real_stage = 'extract_real'
-        add('extract_real', 'data_preparation/real/jobs/extract_real.sh',
-            {'MS': real_ms, 'COLUMN': exp['real']['column'],
-             'MAX_BL_FLAG': exp['real']['max_bl_flag_frac'],
-             'FREQ_MIN': tel['band']['extract_min_mhz'], 'FREQ_MAX': tel['band']['extract_max_mhz'],
-             'SMOOTH_BINS': exp['extract']['smooth_bins'], 'IMG_SIZE': exp['sim']['img_size'],
-             'OUTDIR': f'{scratch}/real', 'OUT_H5': real_h5},
-            'extract', [])
+        if native:
+            add('extract_real', 'data_preparation/real/jobs/extract_variants.sh',
+                {'MS': real_ms, 'COLUMN': exp['real']['column'],
+                 'ONLY': 'v6_native512', 'OUTDIR': f'{scratch}/real',
+                 'MAXFLAG': exp['real']['max_bl_flag_frac']},
+                'extract', [])
+        else:
+            add('extract_real', 'data_preparation/real/jobs/extract_real.sh',
+                {'MS': real_ms, 'COLUMN': exp['real']['column'],
+                 'MAX_BL_FLAG': exp['real']['max_bl_flag_frac'],
+                 'FREQ_MIN': tel['band']['extract_min_mhz'], 'FREQ_MAX': tel['band']['extract_max_mhz'],
+                 'SMOOTH_BINS': exp['extract']['smooth_bins'], 'IMG_SIZE': exp['sim']['img_size'],
+                 'OUTDIR': f'{scratch}/real', 'OUT_H5': real_h5},
+                'extract', [])
         add('copy_real_ms', 'data_preparation/real/jobs/copy_ms.sh',
             {'SRC_MS': real_ms, 'DST_MS': writable_ms}, 'copy', [])
         wb_extra_deps = ['copy_real_ms']
