@@ -52,10 +52,13 @@ def val_eval(diff, ema_model, val_dl, cfg, out, epoch):
         nfrs.append(float(noise_floor_ratio(pred, obs, fake, flags=real_flags)))
         base = obs.clone()
         keep = hidden == 0
+        # mixed fake masks on a heavily-flagged tile can hide every trusted pixel;
+        # an empty mean is NaN, so fall back to the channel centres (amp=1, cos=sin=0)
+        defaults = (1.0, 0.0, 0.0)
         for i in range(obs.shape[0]):
             km = keep[i, 0]
             for c in range(obs.shape[1]):
-                base[i, c][~km] = obs[i, c][km].mean()
+                base[i, c][~km] = obs[i, c][km].mean() if km.any() else defaults[c]
         mf_maes.append(float(mae(base, obs, fake)))
         if first is None:
             first = (obs.cpu().numpy(), batch['real_flags'].numpy(),
