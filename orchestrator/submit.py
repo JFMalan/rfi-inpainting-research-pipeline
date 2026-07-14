@@ -146,19 +146,24 @@ def build_stages(exp, tel):
          'STEPS': exp['inference']['steps'], 'BATCH': exp['inference']['batch'],
          'OUTCOL': 'INPAINTED_DATA', 'PREDS': f'{scratch}/preds_{name}_real.npz'},
         'infer', ['train_phase2_finetune'])
+    # every stage below mutates the SAME real MS (adds columns, toggles FLAG), so they
+    # must run serially — two concurrent writers deadlock on the MS table.lock. Chain
+    # each MS-touching stage after the previous one finishes.
+    prev_ms = None
     for variant, col, kp in (('all', 'INPAINTED_DATA', 0), ('selective', 'INPAINTED_SEL', 1)):
         add(f'writeback_real_{variant}', 'inference/jobs/inpaint_writeback.sh',
             {'SIM': 0, 'MS': writable_ms, 'H5': real_h5,
              'PREDS': f'{scratch}/preds_{name}_real.npz', 'OUTCOL': col,
              'RESET_COL': 1, 'KEEP_PERSIST': kp,
              'NO_FEATHER': not exp['writeback']['feather']},
-            'writeback', ['infer_real'] + wb_extra_deps)
+            'writeback', ['infer_real'] + wb_extra_deps + ([prev_ms] if prev_ms else []))
         add(f'image_eval_real_{variant}', 'evaluation/image_eval.sh',
             {'SIM': 0, 'MS': writable_ms, 'H5': real_h5, 'INPCOL': col,
              'IMSIZE': im['imsize'], 'CELL': im['cell'], 'NITER': im['niter'],
              'MEANFILL': 1, 'DPSSFILL': 1, 'GPRFILL': 1, 'DPSS': 1, 'DELAY': 1,
              'KEEP_PERSIST': kp, 'OUT': f'{eval_out}/image_real_{variant}'},
             'image', [f'writeback_real_{variant}'])
+        prev_ms = f'image_eval_real_{variant}'
 
     wanted = exp.get('stages')
     if wanted:
