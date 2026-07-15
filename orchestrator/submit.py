@@ -160,7 +160,7 @@ def build_stages(exp, tel):
         add(f'image_eval_real_{variant}', 'evaluation/image_eval.sh',
             {'SIM': 0, 'MS': writable_ms, 'H5': real_h5, 'INPCOL': col,
              'IMSIZE': im['imsize'], 'CELL': im['cell'], 'NITER': im['niter'],
-             'MEANFILL': 1, 'DPSSFILL': 1, 'GPRFILL': 1, 'DPSS': 1, 'DELAY': 1,
+             'MEANFILL': 1, 'DPSSFILL': 1, 'GPRFILL': 1, 'DPSS': 1, 'DELAY': 0,  # MS-delay is sim-only
              'KEEP_PERSIST': kp, 'OUT': f'{eval_out}/image_real_{variant}'},
             'image', [f'writeback_real_{variant}'])
         prev_ms = f'image_eval_real_{variant}'

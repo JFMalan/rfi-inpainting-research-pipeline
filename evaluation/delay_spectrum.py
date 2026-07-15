@@ -37,6 +37,14 @@ def delay_power(V, taper):
 
 
 def main(args):
+    if not args.sim:
+        # the 'clean' reference here is the MS DATA column, which is RFI-free only on sim
+        # (RFI lives in the h5/mask, never in DATA). On real, DATA carries the RFI, so every
+        # RFI-removing fill scores hi-ratio ~0 against an RFI-inflated reference — meaningless.
+        # Real delay recovery is measured by fakehole_delay_eval.py (fake holes over good data).
+        log("SKIP: MS-based delay eval is sim-only (DATA is not a clean reference on real). "
+            "Use fakehole_delay_eval.py for the real delay verdict.")
+        return
     hole_key = 'mask' if args.sim else 'flags'
     hf = h5py.File(args.h5, 'r')
     chan_lo = int(hf.attrs['chan_lo'])
