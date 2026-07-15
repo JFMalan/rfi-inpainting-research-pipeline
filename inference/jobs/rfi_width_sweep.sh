@@ -8,13 +8,15 @@
 # inject + infer run in parallel across widths (MS-independent); write-back + imaging serialize on
 # the shared sim MS (afterok chain). Uses the SIM model on in-domain sim data.
 set -e
-WIDTHS=${WIDTHS:-"4 8 16 32 64 128"}
+WIDTHS=${WIDTHS:-"2 4 8 16 32 64"}   # width 1 already done as w1_cap; find where inpaint stops beating flag
 RUN=${RUN:-runtest}
 SIMDIR=/scratch3/users/$USER/rfi/simulated/$RUN
 CLEAN_H5=${CLEAN_H5:-$SIMDIR/clean_baselines.h5}
 MS=${MS:-$SIMDIR/sim_clean.ms}
 CKPT=${CKPT:-/idia/users/$USER/rfi/runs/phase1_all_tiled80ep/best.pt}
-TARGET_FRAC=${TARGET_FRAC:-0.15}
+TARGET_FRAC=${TARGET_FRAC:-0.3}
+MAX_UNITS=${MAX_UNITS:-2000}         # cap baselines for a fair, faster relative comparison (matches w1_cap)
+NITER=${NITER:-3000}
 DATADIR=${DATADIR:-/scratch3/users/$USER/rfi/width_sweep}
 VIZ=/idia/users/$USER/rfi/viz/width_sweep
 mkdir -p logs "$DATADIR" "$VIZ"
@@ -37,6 +39,7 @@ else
         IJ=$(env CLEAN_H5=$CLEAN_H5 OUT=$H5 BAND_WIDTH=$W TARGET_FRAC=$TARGET_FRAC \
              sbatch --parsable data_preparation/simulated/jobs/inject_width.sh)
         PJ=$(env SIM=1 SMOOTH=0 CKPT=$CKPT H5=$H5 OUTCOL=INPAINTED_DATA PREDS=$DATADIR/preds_w$W.npz STEPS=50 \
+             MAX_UNITS=$MAX_UNITS \
              sbatch --parsable --dependency=afterok:$IJ inference/jobs/inpaint_infer.sh)
         PJID[$W]=$PJ
         echo "  w=$W  inject $IJ -> infer $PJ"
@@ -52,8 +55,8 @@ for W in $WIDTHS; do
     DEPARG=""; [ -n "$deps" ] && DEPARG="--dependency=$deps"
     WJ=$(env SIM=1 MS=$MS H5=$H5 OUTCOL=INPAINTED_DATA PREDS=$DATADIR/preds_w$W.npz RESET_COL=1 \
          sbatch --parsable $DEPARG inference/jobs/inpaint_writeback.sh)
-    IMJ=$(env SIM=1 MS=$MS H5=$H5 INPCOL=INPAINTED_DATA DO_INPAINT=1 DELAY=0 DPSS=0 MEANFILL=0 DPSSFILL=1 \
-         OUT=$VIZ/w$W \
+    IMJ=$(env SIM=1 MS=$MS H5=$H5 INPCOL=INPAINTED_DATA DO_INPAINT=1 DELAY=0 DPSS=0 MEANFILL=1 DPSSFILL=0 \
+         MAX_UNITS=$MAX_UNITS NITER=$NITER OUT=$VIZ/w$W \
          sbatch --parsable --dependency=afterok:$WJ evaluation/image_eval.sh)
     echo "  w=$W  write $WJ -> image $IMJ"
     prev=$IMJ
