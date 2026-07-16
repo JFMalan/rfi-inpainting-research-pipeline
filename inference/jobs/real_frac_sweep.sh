@@ -36,19 +36,22 @@ for FR in $FRACS; do
     echo "  frac=$FR  inject $IJ -> infer $PJ"
 done
 
-echo "=== phase 2: write-back + image per fraction (serial on the sim MS) ==="
-prev=""
+echo "=== phase 2: copy MS + write-back + image per fraction (parallel, own MS copy) ==="
+# each fraction gets its own MS copy so write-back and imaging never contend on a shared
+# table.lock -> all fractions image concurrently. The copy is deleted once its image succeeds.
 for FR in $FRACS; do
     TAG=f${FR/./p}
     H5=$DATADIR/dataset_${TAG}.h5
-    deps="afterok:${PJID[$FR]}"; [ -n "$prev" ] && deps="$deps,afterok:$prev"
-    WJ=$(env SIM=1 MS=$MS H5=$H5 OUTCOL=INPAINTED_DATA PREDS=$DATADIR/preds_${TAG}.npz RESET_COL=1 \
-         sbatch --parsable --dependency=$deps inference/jobs/inpaint_writeback.sh)
-    IMJ=$(env SIM=1 MS=$MS H5=$H5 INPCOL=INPAINTED_DATA DO_INPAINT=1 DELAY=$DELAY DPSS=$DELAY MEANFILL=1 DPSSFILL=0 \
+    MSC=$DATADIR/ms_${TAG}.ms
+    CJ=$(env SRC=$MS DST=$MSC sbatch --parsable inference/jobs/copy_ms.sh)
+    WJ=$(env SIM=1 MS=$MSC H5=$H5 OUTCOL=INPAINTED_DATA PREDS=$DATADIR/preds_${TAG}.npz RESET_COL=1 \
+         sbatch --parsable --dependency=afterok:${PJID[$FR]},afterok:$CJ inference/jobs/inpaint_writeback.sh)
+    IMJ=$(env SIM=1 MS=$MSC H5=$H5 INPCOL=INPAINTED_DATA DO_INPAINT=1 DELAY=$DELAY DPSS=$DELAY MEANFILL=1 DPSSFILL=0 \
          MAX_UNITS=$MAX_UNITS NITER=$NITER OUT=$VIZ/$TAG \
          sbatch --parsable --dependency=afterok:$WJ evaluation/image_eval.sh)
-    echo "  frac=$FR  write $WJ -> image $IMJ"
-    prev=$IMJ
+    sbatch --parsable --dependency=afterok:$IMJ --job-name=rfi-rm-mscopy --partition=Main \
+        --time=00:20:00 --mem=2GB --output=logs/rm-mscopy-%j.log --wrap="rm -rf $MSC" >/dev/null
+    echo "  frac=$FR  copy $CJ -> write $WJ -> image $IMJ (own MS $MSC, auto-removed after image)"
 done
 echo ""
 echo "result: $VIZ/f<frac>/metrics.json  (inpaint vs flag, continuum + delay, realistic RFI)"
