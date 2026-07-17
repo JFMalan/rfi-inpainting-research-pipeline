@@ -368,6 +368,8 @@ class RealDataset(Dataset):
         data = f['data'][row].astype(np.float32)
         phase = f['phase'][row].astype(np.float32)
         real_flags = f['flags'][row].astype(np.float32)
+        divisor = f['dn_divisor'][row].astype(np.float32) if 'dn_divisor' in f \
+            else np.ones_like(data)
 
         if 'freq_min_patch' in f:
             fmin = float(f['freq_min_patch'][row]); fmax = float(f['freq_max_patch'][row])
@@ -378,8 +380,15 @@ class RealDataset(Dataset):
             data = data[::-1].copy()
             phase = phase[::-1].copy()
             real_flags = real_flags[::-1].copy()
+            divisor = divisor[::-1].copy()
 
+        # val holes are fixed per sample so val metrics are comparable across epochs and runs
+        if self.split != 'train':
+            rs = np.random.get_state()
+            np.random.seed(1000003 + i)
         fm = fake_mask(real_flags, self.fake_mask_frac, mode=self.fake_mask_mode)
+        if self.split != 'train':
+            np.random.set_state(rs)
 
         # decompose-then-inpaint: the self-sup target becomes the recoverable smooth
         # amplitude (real_flags masked out so flagged junk doesn't pollute the smoothing).
@@ -397,6 +406,7 @@ class RealDataset(Dataset):
             'real_flags': torch.from_numpy(real_flags)[None],
             'fake_mask': torch.from_numpy(fm)[None],       # loss region
             'hidden': torch.from_numpy(hidden)[None],      # conditioning hole
+            'divisor': torch.from_numpy(divisor),
             'pe': torch.from_numpy(pe.copy()),
             'fmin': torch.tensor(self.band_min, dtype=torch.float32),
             'fmax': torch.tensor(self.band_max, dtype=torch.float32),
