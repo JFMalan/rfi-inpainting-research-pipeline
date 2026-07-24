@@ -5,7 +5,7 @@
 #SBATCH --constraint=A100|A40|V100
 #SBATCH --cpus-per-task=8
 #SBATCH --mem=32GB
-#SBATCH --time=04:00:00
+#SBATCH --time=06:00:00
 #SBATCH --output=logs/pagano-real-%j-stdout.log
 #SBATCH --error=logs/pagano-real-%j-stderr.log
 

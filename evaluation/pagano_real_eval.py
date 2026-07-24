@@ -14,7 +14,7 @@ from config import phase2
 from data import positional_encoding, build_cond
 from diffusion import Diffusion
 from unet import UNet
-from classical_fill import dpss_basis, dpss_fill, gpr_fill
+from classical_fill import dpss_basis, dpss_fill, gpr_fill, clean_fill, lssa_fill
 
 t0 = time.time()
 
@@ -99,7 +99,7 @@ def main(args):
     floors = [None if f in ('none', 'None') else ('auto' if f == 'auto' else float(f))
               for f in args.noise_floors]
     mkeys = [f"model_nf{('none' if f is None else f)}" for f in floors]
-    methods = ['dpss', 'gpr', 'flagged'] + mkeys
+    methods = ['dpss', 'gpr', 'clean', 'lssa', 'flagged'] + mkeys
     variants = ['truth'] + methods
 
     Pl = {k: [] for k in variants}                       # per-tile delay power
@@ -159,6 +159,10 @@ def main(args):
                 fills['dpss'] = V_dpss
                 V_gpr = V_ref.copy(); V_gpr[fmb] = gpr_fill(V_obs, rfb | fmb, args.gpr_ell, args.gpr_noise)[fmb]
                 fills['gpr'] = V_gpr
+                V_clean = V_ref.copy(); V_clean[fmb] = clean_fill(V_obs, rfb | fmb, taper)[fmb]
+                fills['clean'] = V_clean
+                V_lssa = V_ref.copy(); V_lssa[fmb] = lssa_fill(V_obs, rfb | fmb, args.lssa_nmax)[fmb]
+                fills['lssa'] = V_lssa
                 V_flag = V_ref.copy(); V_flag[fmb] = 0.0
                 fills['flagged'] = V_flag
                 for mk in mkeys:
@@ -216,7 +220,7 @@ def main(args):
     log("           holes; mean fractional power-spectrum error inside/outside the wedge; wlogP-RMSE")
 
     best_mk = min(mkeys, key=wlog)
-    classical = min(['dpss', 'gpr'], key=wlog)
+    classical = min(['dpss', 'gpr', 'clean', 'lssa'], key=wlog)
     log(f"  best model={best_mk}  stronger classical={classical}")
     log(f"  model vs {classical}: amp(wb) {stats[best_mk]['af_wb_med']:.4f} vs {stats[classical]['af_wb_med']:.4f}; "
         f"phase(wb) {stats[best_mk]['ph_wb_med']:.4f} vs {stats[classical]['ph_wb_med']:.4f}; "
@@ -246,6 +250,7 @@ if __name__ == '__main__':
     ap.add_argument('--dpss-lam', type=float, default=0.1, dest='dpss_lam')
     ap.add_argument('--gpr-ell', type=float, default=30.0, dest='gpr_ell')
     ap.add_argument('--gpr-noise', type=float, default=0.05, dest='gpr_noise')
+    ap.add_argument('--lssa-nmax', type=int, default=32, dest='lssa_nmax')
     ap.add_argument('--fg-bins', type=int, default=20, dest='fg_bins')
     ap.add_argument('--seed', type=int, default=0)
     main(ap.parse_args())
