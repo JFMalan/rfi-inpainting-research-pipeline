@@ -71,7 +71,7 @@ def clean_fill(V, gap, taper, gain=0.15, niter=200, tol=1e-3):
             res -= comp[:, None] * shift
             if np.abs(res).max() < tol * init:
                 break
-        cv = np.fft.ifft(model, axis=1)
+        cv = np.fft.ifft(model, axis=1) * N       # model holds delay amplitudes a_k; V = N*IDFT
         out[idx[:, None], np.where(g)[0][None, :]] = cv[:, g]
     return out
 
