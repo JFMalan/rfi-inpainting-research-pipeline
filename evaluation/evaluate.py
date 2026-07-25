@@ -13,7 +13,7 @@ from config import phase1
 from data import PatchDataset, build_cond
 from diffusion import Diffusion
 from unet import UNet
-from metrics import mae, psnr, phase_error, complex_mae
+from metrics import mae, psnr, phase_error, complex_mae, to_ampphase
 
 
 def main(args):
@@ -32,7 +32,8 @@ def main(args):
     ds = PatchDataset(args.data, pe_channels=cfg.pe_channels, augment=False, split=split,
                       amp_only=cfg.amp_only, raw_amp=cfg.raw_amp,
                       clean_target=cfg.clean_target, smooth_target=cfg.smooth_target,
-                      smooth_sigma=cfg.smooth_sigma, **fracs)
+                      smooth_sigma=cfg.smooth_sigma, vis_repr=getattr(cfg, 'vis_repr', 'ampphase'),
+                      **fracs)
     print(f"{args.split} set: {len(ds)} patches  device={device}")
     if args.max_eval and args.max_eval < len(ds.index):
         # seeded random subset — the first-N units are all low baseline ids, which biases
@@ -50,6 +51,8 @@ def main(args):
     diff = Diffusion(T=cfg.timesteps, device=device)
 
     maes, psnrs, pherrs, cplxs = [], [], [], []
+    vr = getattr(cfg, 'vis_repr', 'ampphase')
+    clip = (-4.0, 4.0) if vr == 'realimag' else (-2.0, 4.0)
     out = Path(args.out)
     out.mkdir(parents=True, exist_ok=True)
     saved = 0
@@ -57,17 +60,18 @@ def main(args):
         x0 = batch['clean'].to(device)
         mask = batch['mask'].to(device)
         cond = build_cond(batch['corrupted'].to(device), mask, batch['pe'].to(device),
-                          hole_fill=getattr(cfg, 'hole_fill', 'mean'))
+                          hole_fill=getattr(cfg, 'hole_fill', 'mean'), vis_repr=vr)
         pred = diff.sample(model, cond, x0, mask, predict=cfg.predict, eta=0.0,
-                           steps=args.steps)
-        maes.append(float(mae(pred, x0, mask)))
-        psnrs.append(float(psnr(pred, x0, mask)))
-        if x0.shape[1] >= 3:
-            pherrs.append(float(phase_error(pred, x0, mask)))
-            cplxs.append(float(complex_mae(pred, x0, mask)))
+                           steps=args.steps, clip=clip)
+        pc, xc = to_ampphase(pred, vr), to_ampphase(x0, vr)   # canonical amp+cos+sin for scoring
+        maes.append(float(mae(pc, xc, mask)))
+        psnrs.append(float(psnr(pc, xc, mask)))
+        if xc.shape[1] >= 3:
+            pherrs.append(float(phase_error(pc, xc, mask)))
+            cplxs.append(float(complex_mae(pc, xc, mask)))
         else:
             pherrs.append(0.0)
-            cplxs.append(float(mae(pred, x0, mask)))
+            cplxs.append(float(mae(pc, xc, mask)))
         if saved < args.save_batches:
             np.savez(out / f'eval_b{bi}.npz', clean=x0.cpu().numpy(),
                      corrupted=batch['corrupted'].numpy(), mask=batch['mask'].numpy(),

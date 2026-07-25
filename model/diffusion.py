@@ -50,7 +50,8 @@ class Diffusion:
         x0 = batch['clean'].to(self.device)
         m = batch['mask'].to(self.device)
         cond = build_cond(batch['corrupted'].to(self.device), m, batch['pe'].to(self.device),
-                          hole_fill=getattr(cfg, 'hole_fill', 'zero'))
+                          hole_fill=getattr(cfg, 'hole_fill', 'zero'),
+                          vis_repr=getattr(cfg, 'vis_repr', 'ampphase'))
         b = x0.shape[0]
         t = torch.randint(0, self.T, (b,), device=self.device)
         noise = torch.randn_like(x0)
@@ -79,7 +80,8 @@ class Diffusion:
         hidden = batch['hidden'].to(self.device)
         fake = batch['fake_mask'].to(self.device)
         cond = build_cond(obs, hidden, batch['pe'].to(self.device),
-                          hole_fill=getattr(cfg, 'hole_fill', 'mean'))
+                          hole_fill=getattr(cfg, 'hole_fill', 'mean'),
+                          vis_repr=getattr(cfg, 'vis_repr', 'ampphase'))
         b = obs.shape[0]
         t = torch.randint(0, self.T, (b,), device=self.device)
         noise = torch.randn_like(obs)

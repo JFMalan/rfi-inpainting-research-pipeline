@@ -81,6 +81,7 @@ if [ "${AMP_ONLY:-0}" = "1" ]; then EXTRA="$EXTRA --amp-only"; fi
 if [ "${RAW_AMP:-0}" = "1" ]; then EXTRA="$EXTRA --raw-amp"; fi
 if [ "${RAND_MASK:-0}" = "1" ]; then EXTRA="$EXTRA --rand-mask"; fi
 if [ -n "${LOSS:-}" ]; then EXTRA="$EXTRA --loss $LOSS"; fi
+if [ -n "${REPR:-}" ]; then EXTRA="$EXTRA --repr $REPR"; fi
 
 singularity exec --nv $NVBIND $GPU python $SCRIPTS/train.py \
     --data "$DATASET" \

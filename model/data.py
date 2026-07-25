@@ -53,7 +53,7 @@ class PatchDataset(Dataset):
     def __init__(self, paths, pe_channels=4, augment=False, max_patches=None,
                  split='train', val_frac=0.05, test_frac=0.05, split_seed=1234,
                  amp_only=False, rand_mask=False, time_roll=False, smooth_target=False,
-                 smooth_sigma=2.0, clean_target=False, raw_amp=False):
+                 smooth_sigma=2.0, clean_target=False, raw_amp=False, vis_repr='ampphase'):
         if smooth_target and clean_target:
             raise ValueError('smooth_target and clean_target are mutually exclusive')
         if isinstance(paths, str):
@@ -109,6 +109,7 @@ class PatchDataset(Dataset):
         self.smooth_sigma = smooth_sigma
         self.clean_target = clean_target
         self.raw_amp = raw_amp
+        self.vis_repr = vis_repr
         self.pe_channels = pe_channels
         self._handles = {}
         self._pe_cache = {}
@@ -197,6 +198,11 @@ class PatchDataset(Dataset):
         if self.amp_only:
             clean_t = target_amp[None]
             corrupted_t = corrupted[None]
+        elif self.vis_repr == 'realimag':
+            # 2-channel: real + imaginary of the complex visibility.
+            clean_t = np.stack([target_amp * np.cos(target_phase),
+                                target_amp * np.sin(target_phase)], axis=0)
+            corrupted_t = np.stack([corrupted * np.cos(phase), corrupted * np.sin(phase)], axis=0)
         else:
             # 3-channel: amplitude + cos(phase) + sin(phase).
             clean_t = np.stack([target_amp, np.cos(target_phase), np.sin(target_phase)], axis=0)
@@ -418,23 +424,25 @@ class RealDataset(Dataset):
         self._handles = {}
 
 
-def build_cond(corrupted, mask, pe, hole_fill='zero', chan_means=None):
+def build_cond(corrupted, mask, pe, hole_fill='zero', chan_means=None, vis_repr='ampphase'):
     # masked (RFI) pixels are hidden from the network; it inpaints from context.
     # the hole is filled with an in-distribution value (the per-channel mean) so it
-    # is not an out-of-distribution cliff on non-zero-mean data.
+    # is not an out-of-distribution cliff on non-zero-mean data. real/imag are ~zero-mean;
+    # amp+cos+sin has amplitude channel mean ~1.
+    default_means = [0.0, 0.0] if vis_repr == 'realimag' else [1.0, 0.0, 0.0]
     keep = 1.0 - mask
     if hole_fill == 'zero':
         known = corrupted * keep
     elif hole_fill == 'mean':
         if chan_means is None:
-            chan_means = corrupted.new_tensor([1.0, 0.0, 0.0][:corrupted.shape[1]])
+            chan_means = corrupted.new_tensor(default_means[:corrupted.shape[1]])
         fill = chan_means.view(1, -1, 1, 1)
         known = corrupted * keep + fill * mask
     elif hole_fill == 'noise':
         known = corrupted * keep + torch.randn_like(corrupted) * mask
     elif hole_fill == 'center':
         if chan_means is None:
-            chan_means = corrupted.new_tensor([1.0, 0.0, 0.0][:corrupted.shape[1]])
+            chan_means = corrupted.new_tensor(default_means[:corrupted.shape[1]])
         c = chan_means.view(1, -1, 1, 1)
         known = (corrupted - c) * keep
     else:

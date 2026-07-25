@@ -2,6 +2,17 @@ import torch
 import torch.nn.functional as F
 
 
+def to_ampphase(x, vis_repr='ampphase'):
+    # convert a batch to the canonical amplitude+cos+sin representation so all metrics
+    # (and both representations) are scored identically. real/imag -> amp, cos, sin.
+    if vis_repr != 'realimag' or x.shape[1] < 2:
+        return x
+    re, im = x[:, 0:1], x[:, 1:2]
+    amp = torch.sqrt(re ** 2 + im ** 2 + 1e-12)
+    ang = torch.atan2(im, re)
+    return torch.cat([amp, torch.cos(ang), torch.sin(ang)], dim=1)
+
+
 def _amp(x):
     # channel 0 is amplitude when multi-channel (amp, cos, sin); else use as-is
     return x[:, 0:1] if x.dim() == 4 and x.shape[1] > 1 else x

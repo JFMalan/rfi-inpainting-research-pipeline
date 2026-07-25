@@ -8,6 +8,7 @@ class Config:
     out_dir: str = ''
 
     target_channels: int = 3        # amplitude + cos(phase) + sin(phase)
+    vis_repr: str = 'ampphase'      # 'ampphase' (amp+cos+sin, 3ch) | 'realimag' (re+im, 2ch)
     pe_channels: int = 4
     base: int = 64
     ch_mult: tuple = (1, 2, 4, 8, 8)
