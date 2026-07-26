@@ -16,6 +16,7 @@ CKPT=${CKPT:?set CKPT=/path/to/best.pt}
 OUT=${OUT:?set OUT=/path/to/eval_out_dir}
 SPLIT=${SPLIT:-all}
 STEPS=${STEPS:-50}
+MAX_EVAL=${MAX_EVAL:-}
 
 GPU=/idia/software/containers/ASTRO-GPU-PyTorch-2026-01-28.sif
 ROOT=/users/$USER/rfi-inpainting-research-pipeline
@@ -27,7 +28,10 @@ LIBNVML=$(ls $LIBDIR/libnvidia-ml.so.*.* 2>/dev/null | head -1)
 if [ -z "$LIBCUDA" ] || [ -z "$LIBNVML" ]; then echo "no driver libs on $(hostname)"; exit 1; fi
 NVBIND="--bind $LIBCUDA:$LIBDIR/libcuda.so.1 --bind $LIBNVML:$LIBDIR/libnvidia-ml.so.1"
 
+EXTRA=""
+[ -n "$MAX_EVAL" ] && EXTRA="--max-eval $MAX_EVAL"
+
 singularity exec --nv $NVBIND $GPU python $ROOT/evaluation/evaluate.py \
-    --data "$H5" --ckpt "$CKPT" --out "$OUT" --split $SPLIT --steps $STEPS
+    --data "$H5" --ckpt "$CKPT" --out "$OUT" --split $SPLIT --steps $STEPS $EXTRA
 
 echo "done -> $OUT"
