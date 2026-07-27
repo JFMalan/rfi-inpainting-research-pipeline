@@ -31,6 +31,42 @@ Reading:
 Caveat: R2 and R3 (3-channel, slower/epoch) were walltime-limited (best.pt at ~epoch 16-17 of
 the 30-epoch budget), so their numbers are conservative lower bounds; R0/R1 are amplitude-only.
 
+### 1a. R4 — sampling / write-back (inference-only on R3)
+
+R4 adds the sampling `noise_floor` knob on R3 (no retrain), scored in delay space vs the
+noise-free clean truth on runtest (300 tiles).
+
+| Method | wlogP-RMSE | hi-ratio |
+|--------|-----------|----------|
+| model nf=none | 0.0277 | 1.04 |
+| model nf=auto | 0.0413 | 1.07 |
+| model nf=0.3 | 0.0536 | 1.12 |
+| model nf=0.5 | 0.0846 | 1.28 |
+| DPSS | 0.0955 | 0.86 |
+| flagged | 0.1251 | 0.84 |
+| GPR | 0.525 | 1.72 |
+
+Model recovers the delay spectrum 3.4x better than DPSS (4.5x vs flagging), near-perfect
+hi-ratio (1.04). Against the noise-free target **nf=none is optimal** — adding noise_floor
+over-recovers (hi-ratio 1.12 -> 1.28). Complements the real-data result where nf=0.5 was needed
+to match real grain: nf=none for the noise-free science target, nf>0 only for real-data texture.
+
+### 1b. Representation ablation — amp+cos/sin vs real+imag
+
+Controlled test (no prior published run): an otherwise-identical real+imaginary (2-channel)
+model on the R3 recipe/budget, scored on the same runtest 512-subset.
+
+| Representation | complex_mae | amp_mae | PSNR | phase_err | epochs |
+|----------------|-------------|---------|------|-----------|--------|
+| amp + cos/sin (3ch) — R3 | 0.387 | 0.205 | 22.37 | 0.411 | ~17 |
+| real + imaginary (2ch) | 0.556 | 0.291 | 19.32 | 0.628 | 18 |
+
+**amp+cos/sin wins decisively on every metric.** Real/imag does not reduce the amplitude
+penalty — it enlarges it (0.291 vs 0.205) — despite training a full epoch longer. Validates the
+pipeline's amp+cos/sin choice: the bounded cos/sin target is better-conditioned than real/imag,
+whose wider dynamic range and amplitude-entangled channels the L1 diffusion loss fits less
+uniformly.
+
 ---
 
 ## 2. Simulated ablations — in-paint vs flagging
@@ -86,7 +122,7 @@ the untouched data. 400 baseline-tiles, 900.6-1649.6 MHz.
   and DPSS are competitive; at high flagged fraction DPSS nearly catches up (1.5x).
 
 ### Fine-tune vs from-scratch (real, phase-2)
-Validation fake-hole delay: fine-tuned (sim prior) **0.0031** vs from-scratch **0.0068** (~2.2x
+Validation fake-hole delay: fine-tuned (sim prior) **0.00313** vs from-scratch **0.00699** (~2.2x
 better). The simulation prior transfers.
 
 ### Real continuum imaging (no-truth diagnostic, descriptive only)
@@ -97,8 +133,14 @@ delay metric above.
 
 ---
 
-## 4. Job provenance (this run)
-- Ladder: massoud_r0-r3, `evaluate_sim` on runtest. R2 train 309707 (cancelled ~25h), R3 train
-  309709 (TIMEOUT at 36h walltime; best.pt saved). Evals 309708/309710 COMPLETED.
-- R4 (R3 + sampling/write-back, inference-only) — not yet run.
-- Real delay chart at 1000 tiles (job 310133) — cancelled, needs resubmit.
+## 4. Job provenance
+- Ladder: massoud_r0-r3, `evaluate_sim` on runtest. R2 train 309707, R3 train 309709 (TIMEOUT at
+  36h; best.pt saved). Evals 309708/309710 COMPLETED.
+- R4: sim_delay_eval on R3 best.pt (job 372671, 300 tiles, noise_floor sweep) — COMPLETED.
+- Representation ablation: real/imag train (job 372668, TIMEOUT 36h @ epoch 18), runtest eval
+  (job 391359, 512-subset matched to R3) — COMPLETED. Code: `vis_repr` flag in config/data/
+  metrics/train/evaluate.
+- Real HERA/Pagano benchmark: `pagano_real_eval.py` (job 360600, 400 tiles, shifted-flag holes,
+  full classical set incl. CLEAN+LSSA) — COMPLETED.
+- Real fake-hole delay + fine-tune-vs-scratch (val_delay 0.00313 vs 0.00699) — from phase-2
+  training logs (jobs 290550/290551).
