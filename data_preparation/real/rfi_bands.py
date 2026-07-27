@@ -1,24 +1,19 @@
+import os
+import sys
+from pathlib import Path
+
 import numpy as np
 
-# MeerKAT L-band static RFI mask — oxkat/MeerKAT Cookbook short-baseline emitter list.
-# These are quasi-static across time and absorbed by tricolour's background estimator.
-LBAND_PERSISTENT_MHZ = [
-    (900,  915),
-    (925,  960),
-    (1080, 1095),
-    (1166, 1186),
-    (1191, 1217),
-    (1217, 1237),
-    (1242, 1249),
-    (1260, 1300),
-    (1375, 1387),
-    (1453, 1490),
-    (1526, 1554),
-    (1565, 1585),
-    (1592, 1610),
-    (1616, 1626),
-    (1599, 1601),
-]
+sys.path.insert(0, str(Path(__file__).resolve().parents[2] / 'orchestrator'))
+from configlib import parse_yaml, REPO
+
+# Persistent-band list lives in the telescope config (oxkat/MeerKAT Cookbook
+# short-baseline emitter list for the L-band instance). TEL_CONFIG selects the
+# instrument; the module-level name is kept for the existing importers.
+
+_tel = os.environ.get('TEL_CONFIG', 'meerkat_lband')
+_cfg = parse_yaml((REPO / 'configs' / 'telescope' / f'{_tel}.yaml').read_text())
+LBAND_PERSISTENT_MHZ = [tuple(band) for band in _cfg['persistent_rfi_mhz']]
 
 
 def persist_chan_mask(freqs_mhz):

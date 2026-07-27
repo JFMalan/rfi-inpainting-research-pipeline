@@ -11,7 +11,7 @@
 
 set -e
 
-# Stage 1 only: GPU inference -> preds .npz. Split out from inpaint_ms.sh so the GPU job needs
+# Stage 1 only: GPU inference -> preds .npz. Split out from archive/inference/jobs/inpaint_ms.sh so the GPU job needs
 # modest memory (fits a busy GPU node); the heavy 128GB write-back runs separately on Main via
 # inpaint_writeback.sh, reading the same PREDS. Pass a fixed PREDS shared by both jobs.
 SIM=${SIM:-0}

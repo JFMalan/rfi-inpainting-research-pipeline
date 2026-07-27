@@ -23,6 +23,9 @@ DPSS_HW=${DPSS_HW:-0.1}
 NOISE_FLOORS=${NOISE_FLOORS:-none}   # sweep e.g. NOISE_FLOORS="none 0.3 0.5 auto"
 GPR_ELL=${GPR_ELL:-30}               # GPR kernel length scale (channels); sweep for a fair classical bar
 HOLE_MODE=${HOLE_MODE:-mixed}        # mixed | blob | band (band = persistent-band-shaped ceiling test)
+FRAC_RANGE=${FRAC_RANGE:-}           # "lo hi" fake-hole fraction range (eval default 0.1 0.25)
+MAX_FLAG=${MAX_FLAG:-0.85}           # only score tiles below this real-flag fraction; heavily-flagged
+                                     # tiles have little RFI-free structure so the metric saturates
 POST_SAMPLE=${POST_SAMPLE:-0}        # 1 = also score a genuine posterior-sample ensemble (eta>0/repaint)
 ETA=${ETA:-1.0}
 REPAINT_U=${REPAINT_U:-1}
@@ -32,6 +35,7 @@ NO_DIVNORM=${NO_DIVNORM:-0}          # 1 = score in normalised space (divisor te
 EXTRA=""
 [ "$POST_SAMPLE" = "1" ] && EXTRA="$EXTRA --post-sample --eta $ETA --repaint-u $REPAINT_U --ensemble $ENSEMBLE"
 [ "$NO_DIVNORM" = "1" ] && EXTRA="$EXTRA --no-divnorm"
+[ -n "$FRAC_RANGE" ] && EXTRA="$EXTRA --frac-range $FRAC_RANGE"
 
 GPU=/idia/software/containers/ASTRO-GPU-PyTorch-2026-01-28.sif
 ROOT=/users/$USER/rfi-inpainting-research-pipeline
@@ -45,7 +49,7 @@ NVBIND="--bind $LIBCUDA:$LIBDIR/libcuda.so.1 --bind $LIBNVML:$LIBDIR/libnvidia-m
 
 singularity exec --nv $NVBIND $GPU python $ROOT/evaluation/fakehole_delay_eval.py \
     --h5 "$H5" --ckpt "$CKPT" --out "$OUT" \
-    --steps $STEPS --max-units $MAX_UNITS --dpss-hw $DPSS_HW --noise-floors $NOISE_FLOORS \
-    --gpr-ell $GPR_ELL --hole-mode $HOLE_MODE $EXTRA
+    --steps $STEPS --max-units $MAX_UNITS --max-flag-frac $MAX_FLAG --dpss-hw $DPSS_HW \
+    --noise-floors $NOISE_FLOORS --gpr-ell $GPR_ELL --hole-mode $HOLE_MODE $EXTRA
 
 echo "done -> $OUT"

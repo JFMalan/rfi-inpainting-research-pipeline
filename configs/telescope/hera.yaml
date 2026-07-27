@@ -1,0 +1,38 @@
+# HERA — DOCUMENTED STUB, NOT PRODUCTION-TESTED. The pipeline has only been validated
+# on MeerKAT L-band; this file exists to show the instrument parameters live in config,
+# not code. Ingest is uvh5 (pyuvdata), which the extraction stage does not implement.
+# Values from DeBoer et al. 2017 (arXiv:1606.07473), HERA Phase II (arXiv:2401.04304),
+# Neben et al. 2016 (arXiv:1602.03887); RFI bands corroborated via Wilensky et al. 2019.
+name: hera
+ingest: uvh5                   # NOT implemented; MeerKAT path reads MS only
+
+simms_model: null              # no simms -T model; layout comes from hera_sim.antpos.hex_array()
+polarizations: "XX YY"
+dump_time_s: 8.0               # Phase II X-engine dump (Phase I was 10.7 s)
+
+band:
+  sim_f0_mhz: 100.0            # primary EoR science band (extended 50-250 MHz exists but is aspirational)
+  sim_bandwidth_mhz: 100.0
+  extract_min_mhz: 100.0
+  extract_max_mhz: 200.0
+
+sefd:                          # DERIVED, not published: SEFD = 2 kB Tsys / A_eff with
+  nodes_mhz: [100, 150, 200]   # Tsys = 100 + 120 (nu/150MHz)^-2.55 K (DeBoer 2017 Table 2)
+  nodes_jy:  [12970, 6530, 4680]   # and A_eff = 93 m^2 (14 m dish, ~60% efficiency); order-of-magnitude only
+
+persistent_rfi_mhz:            # Karoo site (Kohn RFI memo via Wilensky 2019)
+  - [136, 138]                 # ORBCOMM, persistent
+  - [174, 200]                 # TV channels (6 MHz wide) upward of 174 MHz
+                               # FM broadcast 88-111 MHz sits below the band but leaks via harmonics
+
+static_mask_uvrange: null      # no MeerKAT-style short-baseline static mask defined
+
+sky:
+  reference_freq_hz: 1.51e+8   # GLEAM catalog reference (e+ form: plain e8 is a string in YAML 1.1)
+  pointing: null               # zenith-pointing drift-scan instrument; no fixed field
+  pointing_str: null
+  flux_min_jy: 0.1             # GLEAM-style foreground cutoff at 151 MHz (0.05 Jy also appears in the literature)
+  flux_max_jy: 87.0            # bright GLEAM strip sources
+  n_src: [20, 30]
+  spectral_index: [-0.9, -0.5]
+  scatter: { ra_h: 0.15, dec_deg: 1.0 }

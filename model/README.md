@@ -153,7 +153,7 @@ For the full 5,040-patch test set drop `MAX_EVAL` and raise the walltime. Result
 The training loop writes `samples/sample_e<epoch>.npz` (clean / corrupted / mask / pred). Render them:
 ```bash
 singularity exec /idia/software/containers/ASTRO-GPU-PyTorch-2026-01-28.sif \
-    python model/diagnostics/visualise_samples.py \
+    python figures/visualise_samples.py \
     --input '/idia/users/$USER/rfi/runs/phase1_run1/samples/*.npz' \
     --output /idia/users/$USER/rfi/runs/phase1_run1/sample_pngs --n-show 6
 ```

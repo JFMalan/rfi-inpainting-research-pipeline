@@ -12,7 +12,7 @@ from config import phase1, phase2
 from data import PatchDataset, build_cond
 from diffusion import Diffusion
 from unet import UNet
-from metrics import mae, psnr, phase_error, complex_mae, noise_floor_ratio
+from metrics import mae, psnr, phase_error, complex_mae, noise_floor_ratio, to_ampphase
 
 
 class EMA:
@@ -37,25 +37,34 @@ def val_eval(diff, ema_model, val_dl, cfg, out, epoch):
     maes, psnrs, pherrs, cplxs, nfrs = [], [], [], [], []
     mf_maes, mf_cplxs = [], []
     first = None
+    vr = getattr(cfg, 'vis_repr', 'ampphase')
+    clip = (-4.0, 4.0) if vr == 'realimag' else (-2.0, 4.0)
     for batch in val_dl:
         x0 = batch['clean'].to(diff.device)
         mask = batch['mask'].to(diff.device)
         cond = build_cond(batch['corrupted'].to(diff.device), mask, batch['pe'].to(diff.device),
-                          hole_fill=getattr(cfg, 'hole_fill', 'mean'))
-        pred = diff.sample(ema_model, cond, x0, mask, predict=cfg.predict, eta=0.0, steps=200)
-        maes.append(float(mae(pred, x0, mask)))
-        psnrs.append(float(psnr(pred, x0, mask)))
-        pherrs.append(float(phase_error(pred, x0, mask)))
-        cplxs.append(float(complex_mae(pred, x0, mask)))
-        nfrs.append(float(noise_floor_ratio(pred, x0, mask)))
+                          hole_fill=getattr(cfg, 'hole_fill', 'mean'), vis_repr=vr)
+        pred = diff.sample(ema_model, cond, x0, mask, predict=cfg.predict, eta=0.0,
+                           steps=cfg.val_eval_steps, clip=clip)
+        pc, xc = to_ampphase(pred, vr), to_ampphase(x0, vr)   # canonical amp+cos+sin for scoring
+        maes.append(float(mae(pc, xc, mask)))
+        psnrs.append(float(psnr(pc, xc, mask)))
+        if xc.shape[1] >= 3:
+            pherrs.append(float(phase_error(pc, xc, mask)))
+            cplxs.append(float(complex_mae(pc, xc, mask)))
+        else:
+            pherrs.append(0.0)
+            cplxs.append(float(mae(pc, xc, mask)))
+        nfrs.append(float(noise_floor_ratio(pc, xc, mask)))
         # mean-fill baseline: per-patch mean of known pixels, all channels
         base = x0.clone()
         keep = mask == 0
         for i in range(x0.shape[0]):
             for c in range(x0.shape[1]):
                 base[i, c] = x0[i, c][keep[i, 0]].mean()
-        mf_maes.append(float(mae(base, x0, mask)))
-        mf_cplxs.append(float(complex_mae(base, x0, mask)))
+        bc = to_ampphase(base, vr)
+        mf_maes.append(float(mae(bc, xc, mask)))
+        mf_cplxs.append(float(complex_mae(bc, xc, mask)))
         if first is None:
             first = (x0.cpu().numpy(), batch['corrupted'].numpy(),
                      batch['mask'].numpy(), pred.cpu().numpy(),
@@ -73,10 +82,25 @@ def val_eval(diff, ema_model, val_dl, cfg, out, epoch):
 
 
 def main(args):
+    extra = {k: v for k, v in dict(lr=args.lr, val_eval_steps=args.val_eval_steps,
+                                   val_eval_patches=args.val_eval_patches).items()
+             if v is not None}
+    if args.amp_only:
+        extra['amp_only'] = True
+        extra['target_channels'] = 1
+    if args.vis_repr == 'realimag':
+        extra['vis_repr'] = 'realimag'
+        extra['target_channels'] = 2
+    if args.rand_mask:
+        extra['rand_mask'] = True
+    if args.raw_amp:
+        extra['raw_amp'] = True
+    if args.loss:
+        extra['loss_kind'] = args.loss
     cfg = (phase2 if args.phase == 2 else phase1)(
         data_glob=args.data, out_dir=args.out, epochs=args.epochs,
         batch_size=args.batch_size, max_patches=args.max_patches, seed=args.seed,
-        smooth_target=args.smooth_target,
+        smooth_target=args.smooth_target, clean_target=args.clean_target, **extra,
     )
     torch.manual_seed(cfg.seed)
     np.random.seed(cfg.seed)
@@ -88,10 +112,14 @@ def main(args):
 
     ds = PatchDataset(cfg.data_glob, pe_channels=cfg.pe_channels,
                       augment=cfg.augment, max_patches=cfg.max_patches, split='train',
-                      smooth_target=cfg.smooth_target, smooth_sigma=cfg.smooth_sigma)
+                      smooth_target=cfg.smooth_target, smooth_sigma=cfg.smooth_sigma,
+                      clean_target=cfg.clean_target, amp_only=cfg.amp_only,
+                      rand_mask=cfg.rand_mask, raw_amp=cfg.raw_amp, vis_repr=cfg.vis_repr)
     val_ds = PatchDataset(cfg.data_glob, pe_channels=cfg.pe_channels,
                           augment=False, split='val',
-                          smooth_target=cfg.smooth_target, smooth_sigma=cfg.smooth_sigma)
+                          smooth_target=cfg.smooth_target, smooth_sigma=cfg.smooth_sigma,
+                          clean_target=cfg.clean_target, amp_only=cfg.amp_only,
+                          raw_amp=cfg.raw_amp, vis_repr=cfg.vis_repr)
     print(f"dataset: train {len(ds)}  val {len(val_ds)}  {ds.n_time}x{ds.n_freq}  device={device}")
     dl = DataLoader(ds, batch_size=cfg.batch_size, shuffle=True,
                     num_workers=cfg.num_workers, drop_last=True, pin_memory=True)
@@ -189,5 +217,14 @@ if __name__ == '__main__':
     ap.add_argument('--max-patches', type=int, default=None)
     ap.add_argument('--resume', default=None)
     ap.add_argument('--seed', type=int, default=0)
+    ap.add_argument('--lr', type=float, default=None)
+    ap.add_argument('--val-eval-steps', type=int, default=None)
+    ap.add_argument('--val-eval-patches', type=int, default=None)
     ap.add_argument('--smooth-target', action='store_true', dest='smooth_target')
+    ap.add_argument('--clean-target', action='store_true', dest='clean_target')
+    ap.add_argument('--amp-only', action='store_true', dest='amp_only')
+    ap.add_argument('--rand-mask', action='store_true', dest='rand_mask')
+    ap.add_argument('--raw-amp', action='store_true', dest='raw_amp')
+    ap.add_argument('--loss', default=None, choices=['l1', 'l2', 'l1l2'])
+    ap.add_argument('--repr', default='ampphase', choices=['ampphase', 'realimag'], dest='vis_repr')
     main(ap.parse_args())

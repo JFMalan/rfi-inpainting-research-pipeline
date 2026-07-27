@@ -10,7 +10,7 @@
 # (clean/flagged/model/DPSS vs clean). Levels use separate MSes so they run IN PARALLEL.
 set -e
 NOISE_SCALES=${NOISE_SCALES:-"0 1 2 4"}   # 0=noise-free, 1=physical MeerKAT SEFD (in-dist), 2/4=OOD-high
-SKY_MODEL=${SKY_MODEL:-sky_model_bright.txt}   # SAME sky across levels so only noise varies
+SKY_MODEL=${SKY_MODEL:-sky_model.txt}   # SAME sky across levels so only noise varies
 CKPT=${CKPT:-/idia/users/$USER/rfi/runs/phase1_all_tiled80ep/best.pt}   # sim full-amp model (in-domain)
 SIMROOT=/scratch3/users/$USER/rfi/simulated
 VIZ=/idia/users/$USER/rfi/viz/lecturer

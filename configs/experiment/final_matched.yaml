@@ -1,0 +1,103 @@
+# SNR-regime-matched production run: identical to `final` except the sky is 3x
+# fainter (meerkat_lband_matched), putting simulated tiles in the same normalized-
+# grain regime as the real J2018 data. Own scratch root — sim_dir is not
+# experiment-namespaced, so sharing scratch with `final` would clobber its datasets.
+name: final_matched
+telescope: meerkat_lband_matched
+seed: 42
+
+paths:
+  scratch: /scratch3/users/$USER/rfi_matched
+  runs: /idia/users/$USER/rfi/runs
+  repo: /users/$USER/rfi-inpainting-research-pipeline
+
+containers:
+  pytorch:   /idia/software/containers/ASTRO-GPU-PyTorch-2026-01-28.sif   # NOT ASTRO-GPU.simg (no torch)
+  astro_py3: /idia/software/containers/ASTRO-PY3.10.sif
+  casa:      /idia/software/containers/casa-stable-v6.sif
+  simms:     /idia/software/containers/STIMELA_IMAGES/stimela_simms_1.2.0.sif
+  africanus: /idia/software/containers/STIMELA_IMAGES/stimela_codex-africanus_1.6.7.sif
+  oxkat: auto                  # discovered by grep at runtime
+
+sim:
+  n_train_runs: 10
+  test_run: true               # RUN_ID=test, noise pinned at 1.0x SEFD
+  seed_base: 100               # run r uses seed_base + r; test run uses seed_base
+  synthesis_h: 2.4             # >= 2 non-overlapping 512-bin time windows at 8s dumps
+  nchan: 1024
+  img_size: 512
+  noise_scale: [0.7, 1.0]      # uniform draw per training run
+  rfi:                         # diversity axes, drawn per run
+    target_flag_frac: [0.15, 0.50]
+    persist_frac: [0.3, 0.8]
+    scale: [5.0, 50.0]
+  random_sky: true
+
+extract:
+  smooth_bins: 64              # divisive-norm running mean, shared sim + real
+  sim_max_bl_flag_frac: 0.8
+  clean_target: true           # snapshot pre-noise DATA; clean amp + phase_target, noisy divisor shared
+
+real:
+  ms: /idia/projects/astro-cirg/data_for_rfi/1570802018_sdp_l0-J2018_5539-corr.ms
+  pre_flagged: true            # corr MS carries usable flags; skip tricolour, extract directly
+  native_tiles: true           # v6_native512 tiling (the validated recipe) — extract_ms's whole-band
+                               # 897->512 resize low-passes the band and hands DPSS a near-perfect fit
+  field: ACT-CLJ2023.3-5535    # tricolour -fn, only used when pre_flagged is false
+  column: DATA
+  max_bl_flag_frac: 0.85          # real data is heavily flagged; keep units up to 85%
+  max_sample_flag_frac: 0.85
+  max_samples: 40000
+
+train:
+  phase1: { epochs: 80, batch: 4, lr: 2.0e-4, val_eval_steps: 50, val_eval_patches: 64 }
+  phase2:
+    modes: [finetune, scratch] # always both; the sim-prior contrast is a report result
+    epochs: 60
+    batch: 4                   # batch 8 at 512x512 OOMs a 32GB V100 (job 232991); 4 is the
+                               # cluster-tested 512-native value (early stopping bounds runtime)
+    lr: { finetune: 4.0e-5, scratch: 2.0e-4 }  # 4e-5 protects the sim prior; scratch needs the full
+                               # rate (v5 recipe hardcoded 2e-4) or the contrast is lr, not the prior
+    fake_mask_mode: mixed      # blobs + freq stripes + time bursts; blobs-only never trains the
+                               # band geometry that dominates the real flags filled at deploy
+    val_eval_steps: 50
+    ema_decay: auto            # run-length scaled; set a number to pin
+
+inference:
+  steps: 100                   # 200 steps = ~45h over the full test run (0.05 units/s on A40);
+  batch: 8                     # 100 halves it; the steps ablation quantifies the quality cost
+  noise_floor:                 # per-arena, applied automatically by the eval stages
+    continuum: none
+    delay: 0.5                 # 2026-07-04 sweep: posterior under-dispersed, 0.5 beats matched
+
+writeback:
+  out_col: INPAINTED_DATA
+  reset_col: true
+  feather: true
+
+eval:
+  variants: [flagged, dpss, gpr, inpaint_all, inpaint_selective]
+  imaging:
+    imsize: 2048
+    cell: 2asec
+    niter: 10000
+    weight: "briggs -0.3"
+    auto_mask: 4
+    auto_threshold: 1
+    mgain: 0.9
+  delay:
+    dpss_hw: 0.1
+    dpss_lam: 0.1
+    gpr_ell: 30.0
+    gpr_noise: 0.05
+    fg_bins: 20
+    bootstrap: 1000
+
+slurm:
+  simulate:  { partition: Main, mem: 128GB, time: "08:00:00", cpus: 8 }
+  extract:   { partition: Main, mem: 128GB, time: "08:00:00", cpus: 8 }
+  flag:      { partition: Main, mem: 128GB, time: "10:00:00", cpus: 32 }
+  train:     { partition: GPU, gpus: 1, constraint: "A100|A40|V100", mem: 64GB, time: "288:00:00", cpus: 8 }
+  infer:     { partition: GPU, gpus: 1, constraint: "A100|A40|V100", mem: 48GB, time: "48:00:00", cpus: 8 }
+  writeback: { partition: Main, mem: 128GB, time: "04:00:00", cpus: 8 }
+  image:     { partition: Main, mem: 64GB, time: "24:00:00", cpus: 16 }  # GPR fill-write alone runs hours at native resolution

@@ -8,6 +8,7 @@ class Config:
     out_dir: str = ''
 
     target_channels: int = 3        # amplitude + cos(phase) + sin(phase)
+    vis_repr: str = 'ampphase'      # 'ampphase' (amp+cos+sin, 3ch) | 'realimag' (re+im, 2ch)
     pe_channels: int = 4
     base: int = 64
     ch_mult: tuple = (1, 2, 4, 8, 8)
@@ -17,6 +18,9 @@ class Config:
 
     timesteps: int = 1000
     predict: str = 'x0'             # 'noise' or 'x0'; x0 validated leak-free
+    loss_kind: str = 'l1'           # 'l1' | 'l2' | 'l1l2' (l1l2 = Massoud R0 recipe)
+    amp_only: bool = False          # 1-channel amplitude (Massoud R0); drops the phase channels
+    raw_amp: bool = False           # undo the divisive norm (amp * dn_divisor) — R0 has no div-norm
     mask_weight: float = 0.6        # unused: loss() is now hole-only (Palette contract)
     hole_fill: str = 'mean'         # conditioning hole fill: 'zero'|'mean'|'noise'|'center'
 
@@ -41,12 +45,14 @@ class Config:
     rand_mask: bool = False        # fresh random training masks (paper Method 2 / anti-memorisation)
     time_roll: bool = False        # random time-axis roll augmentation
     dropout: float = 0.0           # U-Net dropout
+    clean_target: bool = False     # noise-free target: x0 = pre-noise amp + phase (headline recipe)
     smooth_target: bool = False    # decompose-then-inpaint: predict recoverable smooth bandpass, not noisy amp
     smooth_sigma: float = 1.0      # 2D Gaussian low-pass cutoff; sigma 1.0 cleanly splits
                                    # recoverable structure (smooth ac~0.92) from white noise
                                    # (grain ac~0.01) on real MeerKAT data (sigma sweep 2026-06-21)
 
     val_eval_patches: int = 64
+    val_eval_steps: int = 200  # sampling steps inside val_eval; 200 costs hours per run
     early_stop: bool = True
     patience: int = 8          # consecutive evals with no real complex-MAE gain before stopping
     min_delta: float = 0.002   # complex-MAE units; smaller gains count as no improvement

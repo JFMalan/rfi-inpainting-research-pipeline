@@ -19,17 +19,22 @@ BATCH=${BATCH:-4}
 MAX_PATCHES=${MAX_PATCHES:-}
 PHASE=${PHASE:-1}
 TAG=${TAG:-}            # e.g. _tiled80ep -> OUT phase1_all_tiled80ep (don't overwrite the old phase1_all)
+LR=${LR:-}
+SEED=${SEED:-}
+VAL_EVAL_STEPS=${VAL_EVAL_STEPS:-}
+VAL_EVAL_PATCHES=${VAL_EVAL_PATCHES:-}
 
 GPU=/idia/software/containers/ASTRO-GPU-PyTorch-2026-01-28.sif
 SCRIPTS=/users/$USER/rfi-inpainting-research-pipeline/model
-# RUN_ID=all -> train on run[1-9]/dataset.h5 (the diverse multi-run set, excludes
-# runtest and other non-numbered dirs); else one run
+# RUN_ID=all -> train on run[0-9]*/dataset.h5 (the diverse multi-run set: run1..run10+,
+# excludes runtest and other non-numbered dirs); else one run
 if [ "$RUN_ID" = "all" ]; then
-    DATASET="/scratch3/users/$USER/rfi/simulated/run[1-9]/dataset.h5"
+    DATASET="/scratch3/users/$USER/rfi/simulated/run[0-9]*/dataset.h5"
 else
     DATASET="/scratch3/users/$USER/rfi/simulated/run${RUN_ID}/dataset.h5"
 fi
-OUT=/idia/users/$USER/rfi/runs/phase${PHASE}_${RUN_ID}${TAG}
+DATASET=${DATA:-$DATASET}
+OUT=${OUT:-/idia/users/$USER/rfi/runs/phase${PHASE}_${RUN_ID}${TAG}}
 
 mkdir -p $OUT logs
 
@@ -49,6 +54,34 @@ singularity exec --nv $NVBIND $GPU python -c "import torch; assert torch.cuda.is
 
 EXTRA=""
 if [ -n "$MAX_PATCHES" ]; then EXTRA="--max-patches $MAX_PATCHES"; fi
+# auto-resume: a resubmit after a walltime kill continues from the last ckpt
+# instead of restarting; RESUME=0 forces a fresh run
+if [ "${RESUME:-1}" = "1" ] && [ -f "$OUT/ckpt.pt" ]; then
+    echo "resuming from $OUT/ckpt.pt"
+    RESUMING=1
+    EXTRA="$EXTRA --resume $OUT/ckpt.pt"
+fi
+if [ -z "$RESUMING" ] && [ -f "$OUT/best.pt" ]; then
+    if [ "${FRESH_OK:-0}" = "1" ]; then
+        mv "$OUT/best.pt" "$OUT/best_prev.pt"
+        echo "fresh start: existing best.pt backed up to best_prev.pt"
+    else
+        echo "REFUSING fresh start: $OUT/best.pt exists and no ckpt.pt to resume from."
+        echo "A fresh run would overwrite it at the first eval. Set FRESH_OK=1 to back it"
+        echo "up to best_prev.pt and proceed, or point OUT at a new directory."
+        exit 1
+    fi
+fi
+if [ -n "$LR" ]; then EXTRA="$EXTRA --lr $LR"; fi
+if [ -n "$SEED" ]; then EXTRA="$EXTRA --seed $SEED"; fi
+if [ -n "$VAL_EVAL_STEPS" ]; then EXTRA="$EXTRA --val-eval-steps $VAL_EVAL_STEPS"; fi
+if [ -n "$VAL_EVAL_PATCHES" ]; then EXTRA="$EXTRA --val-eval-patches $VAL_EVAL_PATCHES"; fi
+if [ "${CLEAN_TARGET:-0}" = "1" ]; then EXTRA="$EXTRA --clean-target"; fi
+if [ "${AMP_ONLY:-0}" = "1" ]; then EXTRA="$EXTRA --amp-only"; fi
+if [ "${RAW_AMP:-0}" = "1" ]; then EXTRA="$EXTRA --raw-amp"; fi
+if [ "${RAND_MASK:-0}" = "1" ]; then EXTRA="$EXTRA --rand-mask"; fi
+if [ -n "${LOSS:-}" ]; then EXTRA="$EXTRA --loss $LOSS"; fi
+if [ -n "${REPR:-}" ]; then EXTRA="$EXTRA --repr $REPR"; fi
 
 singularity exec --nv $NVBIND $GPU python $SCRIPTS/train.py \
     --data "$DATASET" \

@@ -13,28 +13,46 @@ from config import phase1
 from data import PatchDataset, build_cond
 from diffusion import Diffusion
 from unet import UNet
-from metrics import mae, psnr, phase_error, complex_mae
+from metrics import mae, psnr, phase_error, complex_mae, to_ampphase
 
 
 def main(args):
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
-    cfg = phase1()
+    ck = torch.load(args.ckpt, map_location=device)
+    # rebuild the exact training config from the checkpoint so rung variants
+    # (amp_only / raw_amp / clean_target / smooth_target) evaluate consistently
+    cfg = phase1(**ck['cfg']) if 'cfg' in ck else phase1()
+    print(f"ckpt cfg: target_channels={cfg.target_channels} amp_only={cfg.amp_only} "
+          f"raw_amp={cfg.raw_amp} clean_target={cfg.clean_target} "
+          f"smooth_target={cfg.smooth_target}", flush=True)
 
-    ds = PatchDataset(args.data, pe_channels=cfg.pe_channels, augment=False, split=args.split)
+    # split 'all' evaluates every sample (for a fully held-out test run/file)
+    split = 'train' if args.split == 'all' else args.split
+    fracs = dict(val_frac=0.0, test_frac=0.0) if args.split == 'all' else {}
+    ds = PatchDataset(args.data, pe_channels=cfg.pe_channels, augment=False, split=split,
+                      amp_only=cfg.amp_only, raw_amp=cfg.raw_amp,
+                      clean_target=cfg.clean_target, smooth_target=cfg.smooth_target,
+                      smooth_sigma=cfg.smooth_sigma, vis_repr=getattr(cfg, 'vis_repr', 'ampphase'),
+                      **fracs)
     print(f"{args.split} set: {len(ds)} patches  device={device}")
-    if args.max_eval:
-        ds.index = ds.index[:args.max_eval]
-        print(f"evaluating on first {len(ds)}")
+    if args.max_eval and args.max_eval < len(ds.index):
+        # seeded random subset — the first-N units are all low baseline ids, which biases
+        # the metrics (baselines differ systematically in recoverable structure)
+        rng = np.random.default_rng(0)
+        sel = sorted(int(i) for i in rng.choice(len(ds.index), size=args.max_eval, replace=False))
+        ds.index = [ds.index[i] for i in sel]
+        print(f"evaluating on a seeded random subset of {len(ds)}")
     dl = DataLoader(ds, batch_size=args.batch_size, shuffle=False, num_workers=4, pin_memory=True)
 
     model = UNet(cfg.in_channels, out_ch=cfg.target_channels, base=cfg.base, ch_mult=cfg.ch_mult,
                  attn_res=cfg.attn_res, num_res=cfg.num_res, img_size=cfg.img_size).to(device)
-    ck = torch.load(args.ckpt, map_location=device)
     model.load_state_dict(ck['ema'] if args.ema else ck['model'])
     model.eval()
     diff = Diffusion(T=cfg.timesteps, device=device)
 
     maes, psnrs, pherrs, cplxs = [], [], [], []
+    vr = getattr(cfg, 'vis_repr', 'ampphase')
+    clip = (-4.0, 4.0) if vr == 'realimag' else (-2.0, 4.0)
     out = Path(args.out)
     out.mkdir(parents=True, exist_ok=True)
     saved = 0
@@ -42,12 +60,18 @@ def main(args):
         x0 = batch['clean'].to(device)
         mask = batch['mask'].to(device)
         cond = build_cond(batch['corrupted'].to(device), mask, batch['pe'].to(device),
-                          hole_fill=getattr(cfg, 'hole_fill', 'mean'))
-        pred = diff.sample(model, cond, x0, mask, predict=cfg.predict, eta=0.0)
-        maes.append(float(mae(pred, x0, mask)))
-        psnrs.append(float(psnr(pred, x0, mask)))
-        pherrs.append(float(phase_error(pred, x0, mask)))
-        cplxs.append(float(complex_mae(pred, x0, mask)))
+                          hole_fill=getattr(cfg, 'hole_fill', 'mean'), vis_repr=vr)
+        pred = diff.sample(model, cond, x0, mask, predict=cfg.predict, eta=0.0,
+                           steps=args.steps, clip=clip)
+        pc, xc = to_ampphase(pred, vr), to_ampphase(x0, vr)   # canonical amp+cos+sin for scoring
+        maes.append(float(mae(pc, xc, mask)))
+        psnrs.append(float(psnr(pc, xc, mask)))
+        if xc.shape[1] >= 3:
+            pherrs.append(float(phase_error(pc, xc, mask)))
+            cplxs.append(float(complex_mae(pc, xc, mask)))
+        else:
+            pherrs.append(0.0)
+            cplxs.append(float(mae(pc, xc, mask)))
         if saved < args.save_batches:
             np.savez(out / f'eval_b{bi}.npz', clean=x0.cpu().numpy(),
                      corrupted=batch['corrupted'].numpy(), mask=batch['mask'].numpy(),
@@ -72,8 +96,9 @@ if __name__ == '__main__':
     ap.add_argument('--data', required=True)
     ap.add_argument('--ckpt', required=True)
     ap.add_argument('--out', required=True)
-    ap.add_argument('--split', default='test')
+    ap.add_argument('--split', default='test', choices=['train', 'val', 'test', 'all'])
     ap.add_argument('--batch-size', type=int, default=16)
+    ap.add_argument('--steps', type=int, default=50)
     ap.add_argument('--max-eval', type=int, default=None)
     ap.add_argument('--save-batches', type=int, default=4)
     ap.add_argument('--ema', action='store_true', default=True)

@@ -205,7 +205,8 @@ def main(args):
         + str(wlogrmse(best_mk) < wlogrmse(classical)) + ')'} "
         f"(wlogP-RMSE {wlogrmse(best_mk):.4f} vs {classical} {wlogrmse(classical):.4f}; "
         f"hi-ratio {hiratio(best_mk):.3f} vs {hiratio(classical):.3f})")
-    np.savez(args.out, **P, fg_bins=args.fg_bins, n=n_acc, floors=[str(f) for f in floors])
+    np.savez(args.out, **P, **{f'tiles_{k}': Parr[k] for k in variants},
+             fg_bins=args.fg_bins, n=n_acc, floors=[str(f) for f in floors])
     log(f"saved power spectra -> {args.out}")
 
 

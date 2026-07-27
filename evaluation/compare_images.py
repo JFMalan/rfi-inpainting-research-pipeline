@@ -21,9 +21,21 @@ def stats(img):
     return {'rms': float(std), 'peak': peak, 'dr': float(peak / std) if std > 0 else 0.0}
 
 
+def block_bootstrap_rmse(diff, block=64, n_boot=1000, seed=0):
+    # CI on image RMSE via tile resampling: pixels are beam-correlated, so bootstrap
+    # over independent blocks, not pixels (same spirit as the delay eval's unit bootstrap)
+    nt = diff.shape[0] // block, diff.shape[1] // block
+    tiles = diff[:nt[0] * block, :nt[1] * block].reshape(nt[0], block, nt[1], block)
+    sq = np.nanmean(tiles ** 2, axis=(1, 3)).ravel()
+    sq = sq[np.isfinite(sq)]
+    rng = np.random.default_rng(seed)
+    draws = np.sqrt(np.mean(rng.choice(sq, size=(n_boot, sq.size), replace=True), axis=1))
+    return [float(np.percentile(draws, 2.5)), float(np.percentile(draws, 97.5))]
+
+
 def main(args):
     imgs = {'clean': args.clean, 'flagged': args.flagged, 'meanfill': args.meanfill,
-            'classical': args.classical, 'inpainted': args.inpainted}
+            'classical': args.classical, 'gpr': args.gpr, 'inpainted': args.inpainted}
     imgs = {k: v for k, v in imgs.items() if v}
     data = {k: load(v) for k, v in imgs.items()}
 
@@ -40,16 +52,19 @@ def main(args):
         for k in data:
             if k == 'clean':
                 continue
-            rmse = float(np.sqrt(np.nanmean((data[k] - ref) ** 2)))
+            diff = data[k] - ref
+            rmse = float(np.sqrt(np.nanmean(diff ** 2)))
+            ci = block_bootstrap_rmse(diff)
             metrics[k]['rmse_vs_clean'] = rmse
-            print(f"  {k:<10} image RMSE {rmse:.3e}", flush=True)
+            metrics[k]['rmse_vs_clean_ci95'] = ci
+            print(f"  {k:<10} image RMSE {rmse:.3e}  CI95 [{ci[0]:.3e}, {ci[1]:.3e}]", flush=True)
         if {'flagged', 'inpainted'} <= set(data):
             better = "INPAINTED closer to clean" if \
                 np.nanmean((data['inpainted'] - ref) ** 2) < np.nanmean((data['flagged'] - ref) ** 2) \
                 else "flagged closer to clean"
             print(f"  verdict: {better}", flush=True)
 
-    order = [k for k in ['flagged', 'meanfill', 'classical', 'inpainted', 'clean'] if k in data]
+    order = [k for k in ['flagged', 'meanfill', 'classical', 'gpr', 'inpainted', 'clean'] if k in data]
     fig, ax = plt.subplots(1, len(order), figsize=(6 * len(order), 5.5))
     if len(order) == 1:
         ax = [ax]
@@ -73,6 +88,7 @@ if __name__ == '__main__':
     ap.add_argument('--flagged', default='')
     ap.add_argument('--meanfill', default='')
     ap.add_argument('--classical', default='')
+    ap.add_argument('--gpr', default='')
     ap.add_argument('--inpainted', default='')
     ap.add_argument('--out', required=True)
     ap.add_argument('--metrics-out', default=None, dest='metrics_out')

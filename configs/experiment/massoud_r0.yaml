@@ -1,0 +1,105 @@
+# Massoud component-ladder rung R0: their recipe adapted minimally to our 512x512
+# tiles. Generic U-Net DDPM, amplitude-only channel, L1+L2 loss, frequency PE +
+# mixed masking (their contributions, kept in R0), noisy target, NO divisive norm.
+# Trains on the fixed run1-3 subset (~24k samples) at the shared 30-epoch budget —
+# identical data/epochs across all rungs; only the production model sees all 10 runs.
+# Ladder: R1 = R0 + div-norm; R2 = R1 + cos/sin phase; R3 = R2 + noise-free target;
+# R4 = R3 + sampling/write-back techniques (inference-only, no retrain).
+name: massoud_r0
+telescope: meerkat_lband
+seed: 42
+stages: [train_phase1, evaluate_sim]   # expects run1-3 + runtest datasets from the
+                                 # `final` experiment (submit rungs after it)
+
+paths:
+  scratch: /scratch3/users/$USER/rfi
+  runs: /idia/users/$USER/rfi/runs
+  repo: /users/$USER/rfi-inpainting-research-pipeline
+
+containers:
+  pytorch:   /idia/software/containers/ASTRO-GPU-PyTorch-2026-01-28.sif
+  astro_py3: /idia/software/containers/ASTRO-PY3.10.sif
+  casa:      /idia/software/containers/casa-stable-v6.sif
+  simms:     /idia/software/containers/STIMELA_IMAGES/stimela_simms_1.2.0.sif
+  africanus: /idia/software/containers/STIMELA_IMAGES/stimela_codex-africanus_1.6.7.sif
+  oxkat: auto
+
+sim:
+  n_train_runs: 10
+  test_run: true
+  seed_base: 100
+  synthesis_h: 2.4
+  nchan: 1024
+  img_size: 512
+  noise_scale: [0.7, 1.0]
+  rfi:
+    target_flag_frac: [0.15, 0.50]
+    persist_frac: [0.3, 0.8]
+    scale: [5.0, 50.0]
+  random_sky: true
+
+extract:
+  smooth_bins: 64
+  sim_max_bl_flag_frac: 0.8
+  clean_target: true             # fields exist in the h5; the rung decides whether to train on them
+
+real:
+  ms: /idia/projects/astro-cirg/data_for_rfi/1570802018_sdp_l0-J2018_5539-corr.ms
+  field: ACT-CLJ2023.3-5535
+  column: DATA
+  max_bl_flag_frac: 0.85          # real data is heavily flagged; keep units up to 85%
+  max_sample_flag_frac: 0.85
+  max_samples: 40000
+
+train:
+  phase1:
+    epochs: 30
+    batch: 4
+    lr: 2.0e-4
+    val_eval_steps: 50
+    val_eval_patches: 64
+    data_glob: "run[1-3]"
+    clean_target: false          # noisy target (their recipe)
+    amp_only: true
+    raw_amp: true                # no divisive norm; the paper states NO input normalization,
+                                 # so R0 trains on raw amplitudes (literal to the recipe)
+    rand_mask: true              # mixed masking
+    loss: l2                     # paper's formula is two squared-error terms (the variable
+                                 # named l1 in their Alg.1 is a squared norm) - NOT L1+L2
+  phase2:
+    modes: []
+    epochs: 60
+    batch: 4
+    lr: 4.0e-5
+    ema_decay: auto
+
+inference:
+  steps: 200
+  batch: 8
+  noise_floor: { continuum: none, delay: 0.5 }
+
+writeback:
+  out_col: INPAINTED_DATA
+  reset_col: true
+  feather: true
+
+eval:
+  variants: [flagged, inpaint_all]
+  imaging:
+    imsize: 2048
+    cell: 2asec
+    niter: 10000
+    weight: "briggs -0.3"
+    auto_mask: 4
+    auto_threshold: 1
+    mgain: 0.9
+  delay:
+    dpss_hw: 0.1
+    dpss_lam: 0.1
+    gpr_ell: 30.0
+    gpr_noise: 0.05
+    fg_bins: 20
+    bootstrap: 1000
+
+slurm:
+  train: { partition: GPU, gpus: 1, constraint: "A100|A40|V100", mem: 64GB, time: "36:00:00", cpus: 8 }

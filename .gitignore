@@ -9,7 +9,6 @@ __pycache__/
 *.pt
 model_checkpoints/
 logs/*.log
-*.png
 *.pdf
 tricolour
-oxkat
+oxkatlogs/pipeline_*.json

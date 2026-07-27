@@ -52,13 +52,22 @@ def main(args):
     ant1  = ms.getcol('ANTENNA1')
     ant2  = ms.getcol('ANTENNA2')
 
+    # noise-free target: CLEAN_DATA is the pre-noise snapshot written by add_noise.py.
+    # Both clean amplitude and clean phase become target fields; the noisy column stays
+    # the input/conditioning and its divisor is shared (renormalisation contract).
+    clean_col = 'CLEAN_DATA' if 'CLEAN_DATA' in cols else None
+
     n_row = ms.nrows()
     chunk = 50000
     amp     = np.empty((n_row, n_chan), dtype=np.float32)
     phase   = np.empty((n_row, n_chan), dtype=np.float32)
     flagged = np.empty((n_row, n_chan), dtype=bool)
+    if clean_col:
+        amp_t   = np.empty((n_row, n_chan), dtype=np.float32)
+        phase_t = np.empty((n_row, n_chan), dtype=np.float32)
 
-    print(f"reading {col} in chunks ({n_row} rows, {n_chan} channels)...", flush=True)
+    print(f"reading {col}{' + ' + clean_col if clean_col else ''} in chunks "
+          f"({n_row} rows, {n_chan} channels)...", flush=True)
     for start in range(0, n_row, chunk):
         end = min(start + chunk, n_row)
         d = ms.getcol(col,    startrow=start, nrow=end - start)[:, chan_lo:chan_hi, :]
@@ -67,6 +76,11 @@ def main(args):
         phase[start:end]   = np.angle(d.mean(axis=2)).astype(np.float32)
         flagged[start:end] = f.any(axis=2)
         del d, f
+        if clean_col:
+            c = ms.getcol(clean_col, startrow=start, nrow=end - start)[:, chan_lo:chan_hi, :]
+            amp_t[start:end]   = np.abs(c).mean(axis=2).astype(np.float32)
+            phase_t[start:end] = np.angle(c.mean(axis=2)).astype(np.float32)
+            del c
         if start == 0 or (start // chunk) % 5 == 0:
             print(f"  rows {end}/{n_row}", flush=True)
 
@@ -80,6 +94,9 @@ def main(args):
     amp     = amp[:n_time * n_baseline].reshape(n_time, n_baseline, n_chan)
     phase   = phase[:n_time * n_baseline].reshape(n_time, n_baseline, n_chan)
     flagged = flagged[:n_time * n_baseline].reshape(n_time, n_baseline, n_chan)
+    if clean_col:
+        amp_t   = amp_t[:n_time * n_baseline].reshape(n_time, n_baseline, n_chan)
+        phase_t = phase_t[:n_time * n_baseline].reshape(n_time, n_baseline, n_chan)
     ant1_bl  = ant1[:n_baseline]
     ant2_bl  = ant2[:n_baseline]
     autocorr = ant1_bl == ant2_bl
@@ -113,6 +130,9 @@ def main(args):
         ant2_ds    = mk('ant2', np.int32, ())
         nchan_ds   = mk('native_n_chan', np.int32, ())
         ntime_ds   = mk('native_n_time', np.int32, ())
+        if clean_col:
+            amp_t_ds   = mk('amp_target',   np.float32, (n_time, n_chan))
+            phase_t_ds = mk('phase_target', np.float32, (n_time, n_chan))
 
         for bl in range(n_baseline):
             if autocorr[bl]:
@@ -145,11 +165,18 @@ def main(args):
             ant2_ds[n_written]    = int(ant2_bl[bl])
             nchan_ds[n_written]   = n_chan
             ntime_ds[n_written]   = n_time
+            if clean_col:
+                # clean amplitude renormalised by the NOISY divisor (shared contract)
+                amp_t_ds[n_written]   = (amp_t[:, bl, :] / wf_div).astype(np.float32)
+                phase_t_ds[n_written] = phase_t[:, bl, :].astype(np.float32)
             n_written += 1
             baselines_used += 1
 
-        for ds in (clean_ds, divisor_ds, phase_ds, bl_id_ds, ant1_ds, ant2_ds,
-                   nchan_ds, ntime_ds):
+        all_ds = [clean_ds, divisor_ds, phase_ds, bl_id_ds, ant1_ds, ant2_ds,
+                  nchan_ds, ntime_ds]
+        if clean_col:
+            all_ds += [amp_t_ds, phase_t_ds]
+        for ds in all_ds:
             ds.resize(n_written, axis=0)
 
         hf.attrs['freq_min_mhz'] = freq_min
@@ -158,11 +185,12 @@ def main(args):
         hf.attrs['full_n_time']  = n_time
         hf.attrs['full_n_chan']  = n_chan
         hf.attrs['chan_lo']      = chan_lo
+        hf.attrs['clean_target'] = bool(clean_col)
 
     if n_written == 0:
         raise RuntimeError("no baselines extracted — check max_bl_flag_frac")
 
-    print(f"column         : {col}", flush=True)
+    print(f"column         : {col}  clean target: {clean_col or 'none'}", flush=True)
     print(f"freq range     : {freq_min:.1f}-{freq_max:.1f} MHz  ({n_chan} native channels)", flush=True)
     print(f"native n_time  : {n_time}", flush=True)
     print(f"baselines used : {baselines_used}  skipped: {baselines_skipped}  autocorr: {autocorr.sum()}", flush=True)

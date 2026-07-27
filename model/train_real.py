@@ -1,6 +1,7 @@
 import argparse
 import copy
 import json
+import sys
 import time
 from pathlib import Path
 
@@ -8,11 +9,27 @@ import numpy as np
 import torch
 from torch.utils.data import DataLoader
 
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / 'evaluation'))
+
 from config import phase2
 from data import RealDataset, build_cond
 from diffusion import Diffusion
 from unet import UNet
 from metrics import mae, tre, complex_mae, noise_floor_ratio
+from classical_fill import dpss_basis, dpss_fill
+
+
+def blackman_harris(n):
+    k = np.arange(n)
+    a = (0.35875, 0.48829, 0.14128, 0.01168)
+    return (a[0] - a[1] * np.cos(2 * np.pi * k / (n - 1))
+            + a[2] * np.cos(4 * np.pi * k / (n - 1))
+            - a[3] * np.cos(6 * np.pi * k / (n - 1)))
+
+
+def delay_power(V, taper):
+    vw = V * taper[None, :]
+    return (np.abs(np.fft.fftshift(np.fft.fft(vw, axis=1), axes=1)) ** 2).mean(axis=0)
 
 
 class EMA:
@@ -31,10 +48,11 @@ class EMA:
 
 
 @torch.no_grad()
-def val_eval(diff, ema_model, val_dl, cfg, out, epoch):
+def val_eval(diff, ema_model, val_dl, cfg, out, epoch, dpss_A, taper):
     ema_model.eval()
     seen = 0
     tres, fid_maes, mf_maes, cplxs, nfrs = [], [], [], [], []
+    Pt, Pm = [], []
     first = None
     for batch in val_dl:
         obs = batch['obs'].to(diff.device)
@@ -45,18 +63,46 @@ def val_eval(diff, ema_model, val_dl, cfg, out, epoch):
                           hole_fill=getattr(cfg, 'hole_fill', 'mean'))
         # sample with both holes hidden; recover the fill, score only on fake holes
         pred = diff.sample(ema_model, cond, obs, hidden, predict=cfg.predict,
-                           eta=0.0, steps=200)
+                           eta=0.0, steps=cfg.val_eval_steps)
         tres.append(float(tre(pred, obs, fake, flags=real_flags)))
         fid_maes.append(float(mae(pred, obs, fake)))
         cplxs.append(float(complex_mae(pred, obs, fake)))
         nfrs.append(float(noise_floor_ratio(pred, obs, fake, flags=real_flags)))
         base = obs.clone()
         keep = hidden == 0
+        # mixed fake masks on a heavily-flagged tile can hide every trusted pixel;
+        # an empty mean is NaN, so fall back to the channel centres (amp=1, cos=sin=0)
+        defaults = (1.0, 0.0, 0.0)
         for i in range(obs.shape[0]):
             km = keep[i, 0]
             for c in range(obs.shape[1]):
-                base[i, c][~km] = obs[i, c][km].mean()
+                base[i, c][~km] = obs[i, c][km].mean() if km.any() else defaults[c]
         mf_maes.append(float(mae(base, obs, fake)))
+
+        # fake-hole delay recovery in physical vis space (the arena the real headline is
+        # scored in; pixel-space MAE saturates at the noise floor and cannot rank fills).
+        # amp is obs ch0 (raw when smooth_target is off), the divisor undoes div-norm;
+        # real-RFI channels get a shared DPSS reference fill so truth and model spectra
+        # differ only at the fake holes.
+        obs_np = obs.cpu().numpy(); pred_np = pred.cpu().numpy()
+        fk = batch['fake_mask'].numpy(); rf = batch['real_flags'].numpy()
+        dv = batch['divisor'].numpy()
+        for i in range(obs_np.shape[0]):
+            fmb = fk[i, 0] > 0.5
+            if not fmb.any():
+                continue
+            ph = np.arctan2(obs_np[i, 2], obs_np[i, 1])
+            V = (obs_np[i, 0] * dv[i] * np.exp(1j * ph)).astype(np.complex128)
+            rfb = rf[i, 0] > 0.5
+            Vr = V.copy()
+            if rfb.any():
+                Vr[rfb] = dpss_fill(V, rfb, dpss_A)[rfb]
+            pph = np.arctan2(pred_np[i, 2], pred_np[i, 1])
+            Vm = Vr.copy()
+            Vm[fmb] = (pred_np[i, 0] * dv[i] * np.exp(1j * pph))[fmb]
+            Pt.append(delay_power(Vr, taper))
+            Pm.append(delay_power(Vm, taper))
+
         if first is None:
             first = (obs.cpu().numpy(), batch['real_flags'].numpy(),
                      batch['fake_mask'].numpy(), pred.cpu().numpy(),
@@ -67,9 +113,13 @@ def val_eval(diff, ema_model, val_dl, cfg, out, epoch):
     np.savez(out / f'sample_e{epoch}.npz',
              obs=first[0], real_flags=first[1], fake_mask=first[2], pred=first[3],
              fmin=first[4], fmax=first[5])
+    eps = 1e-30
+    Ptm = np.mean(Pt, axis=0) + eps
+    Pmm = np.mean(Pm, axis=0) + eps
+    val_delay = float(np.sqrt((Ptm * (np.log10(Pmm) - np.log10(Ptm)) ** 2).sum() / Ptm.sum()))
     return {'tre': float(np.mean(tres)), 'fake_mae': float(np.mean(fid_maes)),
             'mf_fake_mae': float(np.mean(mf_maes)), 'complex_mae': float(np.mean(cplxs)),
-            'noise_floor_ratio': float(np.mean(nfrs))}
+            'noise_floor_ratio': float(np.mean(nfrs)), 'val_delay': val_delay}
 
 
 def main(args):
@@ -80,6 +130,7 @@ def main(args):
     if args.lr: cfg.lr = args.lr
     if args.sample_every: cfg.sample_every = args.sample_every
     if args.val_eval_patches: cfg.val_eval_patches = args.val_eval_patches
+    if args.val_eval_steps: cfg.val_eval_steps = args.val_eval_steps
     if args.min_epochs is not None: cfg.min_epochs = args.min_epochs
     if args.min_delta is not None: cfg.min_delta = args.min_delta
     if args.patience: cfg.patience = args.patience
@@ -143,7 +194,27 @@ def main(args):
         start_epoch = ck['epoch'] + 1
         print(f"resumed from epoch {start_epoch}", flush=True)
 
-    best_cplx = 1e9
+    # restore the historical best so a resumed run can never regress best.pt
+    resumed = args.resume and Path(args.resume).exists()
+    best_cplx = ck['best_cplx'] if resumed and 'best_cplx' in ck else 1e9
+    best_delay = ck['best_delay'] if resumed and 'best_delay' in ck else 1e9
+
+    dpss_A = dpss_basis(ds.n_freq, 0.1)
+    taper = blackman_harris(ds.n_freq)
+
+    # resuming a run trained before delay selection existed: score the resume point first
+    # so best.pt can never end up worse than the state we resumed from
+    if resumed and best_delay >= 1e9:
+        v0 = val_eval(diff, ema.shadow, val_dl, cfg, out / 'samples', start_epoch - 1,
+                      dpss_A, taper)
+        best_delay = v0['val_delay']
+        torch.save({'model': model.state_dict(), 'ema': ema.shadow.state_dict(),
+                    'opt': opt.state_dict(), 'epoch': start_epoch - 1,
+                    'best_cplx': best_cplx, 'best_delay': best_delay, 'cfg': vars(cfg)},
+                   out / 'best.pt')
+        print(f"resume baseline: val_delay {best_delay:.6f} (epoch {start_epoch - 1}) -> best.pt",
+              flush=True)
+
     stale = 0
     log = []
     total_iters = 0
@@ -174,13 +245,13 @@ def main(args):
 
         evaluated = (epoch + 1) % cfg.sample_every == 0 or epoch == cfg.epochs - 1 or hit_cap
         if evaluated:
-            v = val_eval(diff, ema.shadow, val_dl, cfg, out / 'samples', epoch)
+            v = val_eval(diff, ema.shadow, val_dl, cfg, out / 'samples', epoch, dpss_A, taper)
+            line['val_delay'] = round(v['val_delay'], 6)
             line['complex_mae'] = round(v['complex_mae'], 5)
             line['tre'] = round(v['tre'], 5)
             line['fake_mae'] = round(v['fake_mae'], 5)
             line['mf_fake_mae'] = round(v['mf_fake_mae'], 5)
             line['nfr'] = round(v['noise_floor_ratio'], 3)
-            line['beats_mf'] = bool(v['fake_mae'] < v['mf_fake_mae'])
 
         print(json.dumps(line), flush=True)
         log.append(line)
@@ -188,22 +259,25 @@ def main(args):
 
         state = {'model': model.state_dict(), 'ema': ema.shadow.state_dict(),
                  'opt': opt.state_dict(), 'epoch': epoch, 'best_cplx': best_cplx,
-                 'cfg': vars(cfg)}
+                 'best_delay': best_delay, 'cfg': vars(cfg)}
         if (epoch + 1) % cfg.ckpt_every == 0 or epoch == cfg.epochs - 1:
             torch.save(state, out / 'ckpt.pt')
 
         if evaluated:
-            c = v['complex_mae']
-            improved = c < best_cplx - cfg.min_delta
-            if c < best_cplx:
-                best_cplx = c
-                state['best_cplx'] = best_cplx
+            # select on fake-hole delay recovery: complex_mae saturates at the noise floor
+            # for any smooth fill and anti-selects the structured phase (kept as diagnostic)
+            best_cplx = min(best_cplx, v['complex_mae'])
+            d = v['val_delay']
+            improved = d < best_delay * (1 - 1e-3)
+            if d < best_delay:
+                best_delay = d
+                state['best_delay'] = best_delay
                 torch.save(state, out / 'best.pt')
-                print(f"  new best complex_mae {c:.5f} -> best.pt", flush=True)
+                print(f"  new best val_delay {d:.6f} -> best.pt", flush=True)
             stale = 0 if improved else stale + 1
             if cfg.early_stop and epoch + 1 >= cfg.min_epochs and stale >= cfg.patience:
-                print(f"early stop: no >{cfg.min_delta} complex-MAE gain for {stale} evals "
-                      f"(best {best_cplx:.5f})", flush=True)
+                print(f"early stop: no >0.1% val_delay gain for {stale} evals "
+                      f"(best {best_delay:.6f})", flush=True)
                 break
         if hit_cap:
             print(f"reached max_iters={args.max_iters}; stopping", flush=True)
@@ -225,6 +299,7 @@ if __name__ == '__main__':
     ap.add_argument('--lr', type=float, default=None)
     ap.add_argument('--sample-every', type=int, default=None)
     ap.add_argument('--val-eval-patches', type=int, default=None)
+    ap.add_argument('--val-eval-steps', type=int, default=None)
     ap.add_argument('--min-epochs', type=int, default=None)
     ap.add_argument('--min-delta', type=float, default=None)
     ap.add_argument('--patience', type=int, default=None)
